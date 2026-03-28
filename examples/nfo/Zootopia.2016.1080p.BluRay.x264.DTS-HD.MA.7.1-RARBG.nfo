@@ -1,0 +1,520 @@
+<?xml version="1.0" encoding="utf-8"?>
+<movie>
+  <title>疯狂动物城</title>
+  <originaltitle>Zootopia</originaltitle>
+  <sorttitle/>
+  <epbookmark/>
+  <year>2016</year>
+  <ratings>
+    <rating default="true" max="10" name="imdb">
+      <value>8.0</value>
+      <votes>623071</votes>
+    </rating>
+    <rating default="false" max="10" name="themoviedb">
+      <value>7.8</value>
+      <votes>17696</votes>
+    </rating>
+    <rating name="douban" max="10" default="false">
+      <value>9.3</value>
+      <votes>2298528</votes>
+    </rating>
+  </ratings>
+  <userrating>0</userrating>
+  <set>
+    <name>疯狂动物城（系列）</name>
+    <overview>《疯狂动物城》是一座熙熙攘攘的现代化大都市，城中居民全都是拟人化的哺乳动物。食肉动物与食草动物早已达成共识，和睦共处、地位平等。
+ 怀揣志向的兔子朱迪・霍普斯成为了这座城市的首位兔子警官，由此与狡黠的狐狸尼克・王尔德相遇。两人从最初的互不信任，逐渐萌生深厚的友谊，成为默契搭档。这对看似格格不入的组合携手破解棘手案件，穿梭于动物城风格迥异的各个区域 —— 从冰天雪地的冻土镇，到潮湿闷热的雨林区，同时还与偏见作斗争。他们向世人证明：无论体型大小、是食肉动物还是食草动物，在动物城，任何人都能实现自己的梦想。
+ 影片的每一段冒险故事都独立成章，却又因朱迪与尼克之间日渐深厚的羁绊串联在一起，也始终探讨着一个核心命题：当古老的天性与现代的价值观碰撞时，一个社会该如何运转。</overview>
+  </set>
+  <plot>疯狂动物城是一座独一无二的现代动物都市。每种动物在这里都有自己的居所，比如富丽堂皇的撒哈拉广场，或者常年严寒的冰川镇。它就像一座大熔炉，动物们在这里和平共处——无论是大象还是小老鼠，只要你努力，都能在此闯出一番名堂。不过乐观的警官兔朱迪（金妮弗·古德温 配音）却发现，作为史上第一任兔子警官，要和一群强硬的大块头动物警察合作可不是件容易事。为了证明自己，她决心侦破一桩神秘案件；追寻真相的路上她被迫与口若悬河、谎技高超的狐尼克（杰森·贝特曼 配音）联手，却发现这桩案件背后隐藏着一个意欲颠覆动物城的巨大阴谋……</plot>
+  <outline>疯狂动物城是一座独一无二的现代动物都市。每种动物在这里都有自己的居所，比如富丽堂皇的撒哈拉广场，或者常年严寒的冰川镇。它就像一座大熔炉，动物们在这里和平共处——无论是大象还是小老鼠，只要你努力，都能在此闯出一番名堂。不过乐观的警官兔朱迪（金妮弗·古德温 配音）却发现，作为史上第一任兔子警官，要和一群强硬的大块头动物警察合作可不是件容易事。为了证明自己，她决心侦破一桩神秘案件；追寻真相的路上她被迫与口若悬河、谎技高超的狐尼克（杰森·贝特曼 配音）联手，却发现这桩案件背后隐藏着一个意欲颠覆动物城的巨大阴谋……</outline>
+  <tagline>无敌变拍档  玩转动物城</tagline>
+  <runtime>109</runtime>
+  <thumb aspect="poster">https://image.tmdb.org/t/p/original/fbXDtbHvSAUrnERMo1niysnh9cq.jpg</thumb>
+  <thumb aspect="clearlogo">https://image.tmdb.org/t/p/original/tHkmpor8KWdlRuMt51XF6Z4ZSmb.png</thumb>
+  <fanart>
+    <thumb>https://image.tmdb.org/t/p/original/a3KyMkhlYaPVvFM0XvtqwGc7DJS.jpg</thumb>
+  </fanart>
+  <mpaa>US:PG / US:Rated PG</mpaa>
+  <certification>US:PG / US:Rated PG</certification>
+  <id>tt2948356</id>
+  <tmdbid>269149</tmdbid>
+  <uniqueid default="false" type="tmdb">269149</uniqueid>
+  <uniqueid default="false" type="tmdbSet">1084247</uniqueid>
+  <uniqueid default="true" type="imdb">tt2948356</uniqueid>
+  <uniqueid default="false" type="wikidata">Q15270647</uniqueid>
+  <country>美国</country>
+  <status/>
+  <code/>
+  <premiered>2016-02-11</premiered>
+  <watched>false</watched>
+  <playcount>0</playcount>
+  <genre>Animation</genre>
+  <genre>Adventure</genre>
+  <genre>Family</genre>
+  <genre>Comedy</genre>
+  <studio>Walt Disney Animation Studios</studio>
+  <credits tmdbid="1318201">贾里德·布什</credits>
+  <credits tmdbid="1447307">乔西·特立尼达</credits>
+  <credits tmdbid="567562">菲尔·约翰斯顿</credits>
+  <credits tmdbid="165787">里奇·摩尔</credits>
+  <credits tmdbid="76595">拜恩·霍华德</credits>
+  <credits tmdbid="15020">吉姆·里尔登</credits>
+  <credits tmdbid="1120694">詹妮弗·李</credits>
+  <credits tmdbid="1223634">南希·克鲁斯</credits>
+  <credits tmdbid="1214800">劳伦·麦克穆兰</credits>
+  <credits tmdbid="1995178">约翰·里帕</credits>
+  <credits tmdbid="1995179">马克·史密斯</credits>
+  <credits tmdbid="1033844">汤姆·艾勒瑞</credits>
+  <credits tmdbid="1461394">杰森·汉德</credits>
+  <credits tmdbid="1994834">克里斯·哈伯德</credits>
+  <credits tmdbid="2804733">本杰明·莱恩</credits>
+  <credits tmdbid="1462008">诺曼·勒迈</credits>
+  <credits tmdbid="1459473">史蒂夫·马尔科夫斯基</credits>
+  <credits tmdbid="139851">托比·谢尔顿</credits>
+  <credits tmdbid="1678634">杰夫·斯诺</credits>
+  <credits tmdbid="1461367">杰里米·斯皮尔斯</credits>
+  <credits tmdbid="3558240">丽萨·特雷曼</credits>
+  <credits tmdbid="2375591">弗恩·维拉桑托恩</credits>
+  <director tmdbid="76595">拜恩·霍华德</director>
+  <director tmdbid="165787">里奇·摩尔</director>
+  <tag>sheep</tag>
+  <tag>allegory</tag>
+  <tag>lion</tag>
+  <tag>hippopotamus</tag>
+  <tag>cartoon</tag>
+  <tag>villain</tag>
+  <tag>bullying</tag>
+  <tag>polar bear</tag>
+  <tag>con artist</tag>
+  <tag>anthropomorphism</tag>
+  <tag>revenge</tag>
+  <tag>conspiracy</tag>
+  <tag>urban</tag>
+  <tag>female protagonist</tag>
+  <tag>rookie cop</tag>
+  <tag>missing person</tag>
+  <tag>fable</tag>
+  <tag>racial prejudice</tag>
+  <tag>injustice</tag>
+  <tag>reconciliation</tag>
+  <tag>female villain</tag>
+  <tag>buddy cop</tag>
+  <tag>stereotype</tag>
+  <tag>cartoon rabbit</tag>
+  <tag>villain arrested</tag>
+  <tag>discrimination</tag>
+  <tag>cartoon bear</tag>
+  <tag>cartoon animal</tag>
+  <tag>cartoon fox</tag>
+  <tag>cartoon elephant</tag>
+  <tag>admiring</tag>
+  <actor>
+    <name>詹妮弗·古德温</name>
+    <role>Judy Hopps (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/xOCA2WN5MRfXmJmlzEbFEhIbfIQ.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/417</profile>
+    <tmdbid>417</tmdbid>
+  </actor>
+  <actor>
+    <name>杰森·贝特曼</name>
+    <role>Nick Wilde (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/8e6mt0vGjPo6eW52gqRuXy5YnfN.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/23532</profile>
+    <tmdbid>23532</tmdbid>
+  </actor>
+  <actor>
+    <name>伊德瑞斯·艾尔巴</name>
+    <role>Chief Bogo (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/be1bVF7qGX91a6c5WeRPs5pKXln.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/17605</profile>
+    <tmdbid>17605</tmdbid>
+  </actor>
+  <actor>
+    <name>珍妮·斯蕾特</name>
+    <role>Bellwether (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/aqH8MCnT3O5Od3OfZR8LClSP7UB.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/213001</profile>
+    <tmdbid>213001</tmdbid>
+  </actor>
+  <actor>
+    <name>内特·托伦斯</name>
+    <role>Clawhauser (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/yT9o149xPygdY0NsF9sNgiQwuru.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/41565</profile>
+    <tmdbid>41565</tmdbid>
+  </actor>
+  <actor>
+    <name>邦妮·亨特</name>
+    <role>Bonnie Hopps (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/tT9C6uLztgN8OxJULq6F9iEzqlA.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/5149</profile>
+    <tmdbid>5149</tmdbid>
+  </actor>
+  <actor>
+    <name>唐·雷克</name>
+    <role>Stu Hopps (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/zVcMF2Jtv1W3mvzYDE3JiFfw2PG.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/27530</profile>
+    <tmdbid>27530</tmdbid>
+  </actor>
+  <actor>
+    <name>汤米·钟</name>
+    <role>Yax (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/4jCJpbssCSGc5jhmrBMoGvWNQDf.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/63208</profile>
+    <tmdbid>63208</tmdbid>
+  </actor>
+  <actor>
+    <name>J·K·西蒙斯</name>
+    <role>Mayor Lionheart (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/ScmKoJ9eiSUOthAt1PDNLi8Fkw.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/18999</profile>
+    <tmdbid>18999</tmdbid>
+  </actor>
+  <actor>
+    <name>奥克塔维亚·斯宾瑟</name>
+    <role>Mrs. Otterton (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/zDGydyM1fmvNWzQlTAns9IZjNxT.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/6944</profile>
+    <tmdbid>6944</tmdbid>
+  </actor>
+  <actor>
+    <name>艾伦·图代克</name>
+    <role>Duke Weaselton (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/jUuUbPuMGonFT5E2pcs4alfqaCN.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/21088</profile>
+    <tmdbid>21088</tmdbid>
+  </actor>
+  <actor>
+    <name>夏奇拉</name>
+    <role>Gazelle (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/AcOA8MbRrDswt6w3TmCBYl7TNOu.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/446511</profile>
+    <tmdbid>446511</tmdbid>
+  </actor>
+  <actor>
+    <name>雷蒙德·S·佩尔西</name>
+    <role>Flash (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/37HnYfTAHhtAmWdl4NlVAOR7vCW.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1223658</profile>
+    <tmdbid>1223658</tmdbid>
+  </actor>
+  <actor>
+    <name>德拉·萨巴</name>
+    <role>Young Hopps (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/q2ksier0nLdvKbGUzVmpblgl8NT.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1610446</profile>
+    <tmdbid>1610446</tmdbid>
+  </actor>
+  <actor>
+    <name>莫里斯·拉马尔凯</name>
+    <role>Mr. Big (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/qCiL3EYAhLcNo0rNj5pczWo9MwG.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/34521</profile>
+    <tmdbid>34521</tmdbid>
+  </actor>
+  <actor>
+    <name>菲尔·约翰斯顿</name>
+    <role>Gideon Grey (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/vJyBKru0qi8YKiTPSxaZj08mkOS.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/567562</profile>
+    <tmdbid>567562</tmdbid>
+  </actor>
+  <actor>
+    <name>芙霞·J·沃克</name>
+    <role>Drill Sergeant (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/rRiVcXBRh2UToegMSpSls0TbjLs.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1643257</profile>
+    <tmdbid>1643257</tmdbid>
+  </actor>
+  <actor>
+    <name>约翰·迪·马吉欧</name>
+    <role>Jerry Jumbeaux Jr. (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/qcbQe71nSlULDsP1OxTqltEKFbl.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/31531</profile>
+    <tmdbid>31531</tmdbid>
+  </actor>
+  <actor>
+    <name>凯蒂·洛斯</name>
+    <role>Badger Doctor (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/5IqYIFfcZu7V4wrbzZKVtpkmuSw.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/108253</profile>
+    <tmdbid>108253</tmdbid>
+  </actor>
+  <actor>
+    <name>吉塔·雷迪</name>
+    <role>Nangi (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/jMiaZnttyNHHZ6UMNkWu6zm1ljw.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1456290</profile>
+    <tmdbid>1456290</tmdbid>
+  </actor>
+  <actor>
+    <name>杰西·科尔蒂</name>
+    <role>Mr. Manchas (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/oI6zfkWgkMP3UFT5KCi5B6etzCa.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/75599</profile>
+    <tmdbid>75599</tmdbid>
+  </actor>
+  <actor>
+    <name>小汤姆·里斯特</name>
+    <role>Finnick (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/i1seZDiLC3AKrAYqfFSln6ZGNmF.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/8396</profile>
+    <tmdbid>8396</tmdbid>
+  </actor>
+  <actor>
+    <name>乔什·达拉斯</name>
+    <role>Frantic Pig (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/s1PwBl0ZaZE6E0OmZF5OeyfXDDk.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/77880</profile>
+    <tmdbid>77880</tmdbid>
+  </actor>
+  <actor>
+    <name>利亚·莱瑟姆</name>
+    <role>Fru Fru (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/gZDFLHGypGElfyOGeWufLHZjgi8.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1502450</profile>
+    <tmdbid>1502450</tmdbid>
+  </actor>
+  <actor>
+    <name>里奇·摩尔</name>
+    <role>Doug (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/oIAmkZf9LuJuMqR8zSchoD3FJT8.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/165787</profile>
+    <tmdbid>165787</tmdbid>
+  </actor>
+  <actor>
+    <name>凯斯·索西</name>
+    <role>Young Nick (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/62hvT4USvGa9OAsMP9guIBtJqkf.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/60739</profile>
+    <tmdbid>60739</tmdbid>
+  </actor>
+  <actor>
+    <name>彼得·曼斯布里奇</name>
+    <role>Peter Moosebridge (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/8z25p4T6c3PkqU3cyV2c777SiFz.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1374597</profile>
+    <tmdbid>1374597</tmdbid>
+  </actor>
+  <actor>
+    <name>拜恩·霍华德</name>
+    <role>Bucky Oryx-Antlerson (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/ePJXkxrD44nM0VB7Xx9Q4ityzfT.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/76595</profile>
+    <tmdbid>76595</tmdbid>
+  </actor>
+  <actor>
+    <name>贾里德·布什</name>
+    <role>Pronk Oryx-Antlerson (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/50XtrC5NMcqiYMXNmuNVY5tUl34.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1318201</profile>
+    <tmdbid>1318201</tmdbid>
+  </actor>
+  <actor>
+    <name>马克·史密斯</name>
+    <role>Officer McHorn (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/cp06Vtw9yNgexpQVoHsoMJkTRlL.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1214974</profile>
+    <tmdbid>1214974</tmdbid>
+  </actor>
+  <actor>
+    <name>乔西·特立尼达</name>
+    <role>Landlady (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/rMwIL53SKwZJu7WFW1fcYIVTxhP.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1447307</profile>
+    <tmdbid>1447307</tmdbid>
+  </actor>
+  <actor>
+    <name>约翰·拉维尔</name>
+    <role>Mouse Foreman (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/8tj2wsomRGjSSbdatVIO4Y7PkbK.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1340677</profile>
+    <tmdbid>1340677</tmdbid>
+  </actor>
+  <actor>
+    <name>克里斯汀·贝尔</name>
+    <role>Priscilla (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/rP74dJXl7EjinGM0shQtUOlH5s2.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/40462</profile>
+    <tmdbid>40462</tmdbid>
+  </actor>
+  <actor>
+    <name>埃弗兰·威尔逊·布雷希</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1610447</profile>
+    <tmdbid>1610447</tmdbid>
+  </actor>
+  <actor>
+    <name>休伊特·布什</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1610448</profile>
+    <tmdbid>1610448</tmdbid>
+  </actor>
+  <actor>
+    <name>吉尔·科尔德斯</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1610449</profile>
+    <tmdbid>1610449</tmdbid>
+  </actor>
+  <actor>
+    <name>玛德琳·库里</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1610450</profile>
+    <tmdbid>1610450</tmdbid>
+  </actor>
+  <actor>
+    <name>特丽·道格拉斯</name>
+    <role>Additional Voices (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/6yRCc5oKalchZuRvVJJbEDNmLEd.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/186605</profile>
+    <tmdbid>186605</tmdbid>
+  </actor>
+  <actor>
+    <name>梅丽莎·古德温</name>
+    <role>Additional Voices (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/171ZApY6MmMBvn50vxaSDheulVH.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1462583</profile>
+    <tmdbid>1462583</tmdbid>
+  </actor>
+  <actor>
+    <name>扎克·金</name>
+    <role>Additional Voices (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/kUeU1F1bdnPa3tGb2mJlNsZxHWo.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1610451</profile>
+    <tmdbid>1610451</tmdbid>
+  </actor>
+  <actor>
+    <name>达沃·科胡特</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1610452</profile>
+    <tmdbid>1610452</tmdbid>
+  </actor>
+  <actor>
+    <name>杰里米·米尔顿</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/967699</profile>
+    <tmdbid>967699</tmdbid>
+  </actor>
+  <actor>
+    <name>培斯·保尔森</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1995126</profile>
+    <tmdbid>1995126</tmdbid>
+  </actor>
+  <actor>
+    <name>法比耶纳·罗威</name>
+    <role>Additional Voices (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/94hWzJiJskQYepoxrHg1wZ2Yc2G.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/44029</profile>
+    <tmdbid>44029</tmdbid>
+  </actor>
+  <actor>
+    <name>布拉德·西蒙森</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/96997</profile>
+    <tmdbid>96997</tmdbid>
+  </actor>
+  <actor>
+    <name>克莱尔·K·史密斯</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1995232</profile>
+    <tmdbid>1995232</tmdbid>
+  </actor>
+  <actor>
+    <name>杰克逊·斯坦</name>
+    <role>Additional Voices (voice)</role>
+    <thumb>https://image.tmdb.org/t/p/h632/9ZfgKl6PpyHMQtpA1Tjxm23xiQm.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1995233</profile>
+    <tmdbid>1995233</tmdbid>
+  </actor>
+  <actor>
+    <name>戴维·A·希伯杜</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1995079</profile>
+    <tmdbid>1995079</tmdbid>
+  </actor>
+  <actor>
+    <name>约翰·惠勒</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1995026</profile>
+    <tmdbid>1995026</tmdbid>
+  </actor>
+  <actor>
+    <name>汉娜·G·威廉姆斯</name>
+    <role>Additional Voices (voice)</role>
+    <profile>https://www.themoviedb.org/person/1995234</profile>
+    <tmdbid>1995234</tmdbid>
+  </actor>
+  <producer tmdbid="69798">
+    <name>克拉克·斯宾塞</name>
+    <role>Producer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/h14E5ieDoi3Sh7zLnkKQWblKO40.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/69798</profile>
+  </producer>
+  <producer tmdbid="7879">
+    <name>约翰·拉塞特</name>
+    <role>Executive Producer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/xlrE4VD2VbZCDpaNdWCpH1ZihPS.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/7879</profile>
+  </producer>
+  <producer tmdbid="96997">
+    <name>布拉德·西蒙森</name>
+    <role>Associate Producer</role>
+    <profile>https://www.themoviedb.org/person/96997</profile>
+  </producer>
+  <producer tmdbid="928605">
+    <name>Monica Lago-Kaytis</name>
+    <role>Associate Producer</role>
+    <profile>https://www.themoviedb.org/person/928605</profile>
+  </producer>
+  <trailer>plugin://plugin.video.youtube/play/?video_id=jWM0ct-OLsM</trailer>
+  <languages>英语</languages>
+  <dateadded>2026-02-21 19:54:37</dateadded>
+  <fileinfo>
+    <streamdetails>
+      <video>
+        <codec>h264</codec>
+        <aspect>2.40</aspect>
+        <width>1920</width>
+        <height>808</height>
+        <resolution>1080</resolution>
+        <durationinseconds>6512</durationinseconds>
+      </video>
+      <audio>
+        <codec>dtshd_ma</codec>
+        <language>eng</language>
+        <channels>8</channels>
+      </audio>
+      <subtitle>
+        <language>eng</language>
+      </subtitle>
+      <subtitle>
+        <language>eng</language>
+      </subtitle>
+      <subtitle>
+        <language>fra</language>
+      </subtitle>
+      <subtitle>
+        <language>spa</language>
+      </subtitle>
+      <subtitle>
+        <language/>
+      </subtitle>
+      <subtitle>
+        <language/>
+      </subtitle>
+      <subtitle>
+        <language/>
+      </subtitle>
+    </streamdetails>
+  </fileinfo>
+  <source>BLURAY</source>
+  <edition>NONE</edition>
+  <original_filename>Zootopia.2016.1080p.BluRay.x264.DTS-HD.MA.7.1-RARBG.mkv</original_filename>
+  <user_note/>
+  <english_title>Zootopia</english_title>
+  <uniqueid type="douban">25662329</uniqueid>
+  <url>https://movie.douban.com/subject/25662329/</url>
+</movie>

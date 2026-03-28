@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="utf-8"?>
+<movie>
+  <title>极限审判</title>
+  <originaltitle>Mercy</originaltitle>
+  <sorttitle/>
+  <epbookmark/>
+  <year>2026</year>
+  <ratings>
+    <rating default="true" max="10" name="imdb">
+      <value>6.2</value>
+      <votes>15098</votes>
+    </rating>
+    <rating default="false" max="10" name="themoviedb">
+      <value>6.9</value>
+      <votes>328</votes>
+    </rating>
+    <rating name="douban" max="10" default="false">
+      <value>7.4</value>
+      <votes>64082</votes>
+    </rating>
+  </ratings>
+  <userrating>0</userrating>
+  <set/>
+  <plot>背景设定在不久的将来，死罪不断增加，一名侦探（克里斯·帕拉特 Chris Pratt 饰）被指控犯有暴力罪，他被迫证明自己无罪。</plot>
+  <outline>背景设定在不久的将来，死罪不断增加，一名侦探（克里斯·帕拉特 Chris Pratt 饰）被指控犯有暴力罪，他被迫证明自己无罪。</outline>
+  <tagline/>
+  <runtime>100</runtime>
+  <thumb aspect="poster">https://image.tmdb.org/t/p/original/mWVN8vwN6K9DNiTGCLpxjwN0has.jpg</thumb>
+  <thumb aspect="clearlogo">https://image.tmdb.org/t/p/original/iDkXTCLYrAWDycLs1LV3iBiROjC.png</thumb>
+  <fanart>
+    <thumb>https://image.tmdb.org/t/p/original/6eiPNevgFdbVVShQF8eWhBNx5T8.jpg</thumb>
+  </fanart>
+  <mpaa>US:PG-13 / US:Rated PG-13</mpaa>
+  <certification>US:PG-13 / US:Rated PG-13</certification>
+  <id>tt31050594</id>
+  <tmdbid>1236153</tmdbid>
+  <uniqueid default="false" type="tmdb">1236153</uniqueid>
+  <uniqueid default="true" type="imdb">tt31050594</uniqueid>
+  <uniqueid default="false" type="wikidata">Q124566659</uniqueid>
+  <country>美国</country>
+  <status/>
+  <code/>
+  <premiered>2026-01-20</premiered>
+  <watched>false</watched>
+  <playcount>0</playcount>
+  <genre>Science Fiction</genre>
+  <genre>Action</genre>
+  <genre>Thriller</genre>
+  <studio>Atlas Entertainment</studio>
+  <studio>Amazon MGM Studios</studio>
+  <studio>Bazelevs</studio>
+  <credits tmdbid="1581193">Marco van Belle</credits>
+  <director tmdbid="23430">提莫·贝克曼贝托夫</director>
+  <tag>race against time</tag>
+  <tag>artificial intelligence (a.i.)</tag>
+  <tag>bomb</tag>
+  <tag>kidnapping</tag>
+  <tag>los angeles, california</tag>
+  <tag>false accusations</tag>
+  <tag>innocent suspect</tag>
+  <tag>father daughter relationship</tag>
+  <tag>criminal justice system</tag>
+  <tag>evidence room</tag>
+  <tag>near future</tag>
+  <tag>loving</tag>
+  <tag>screenlife</tag>
+  <tag>suspenseful</tag>
+  <tag>crime</tag>
+  <tag>apathetic</tag>
+  <tag>dead man switch</tag>
+  <actor>
+    <name>克里斯·帕拉特</name>
+    <role>Chris Raven</role>
+    <thumb>https://image.tmdb.org/t/p/h632/cRH6HPAQ98PlOwwEvhYO4CM9lwu.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/73457</profile>
+    <tmdbid>73457</tmdbid>
+  </actor>
+  <actor>
+    <name>丽贝卡·弗格森</name>
+    <role>Judge Maddox</role>
+    <thumb>https://image.tmdb.org/t/p/h632/lJloTOheuQSirSLXNA3JHsrMNfH.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/933238</profile>
+    <tmdbid>933238</tmdbid>
+  </actor>
+  <actor>
+    <name>卡莉·瑞斯</name>
+    <role>Jacqueline &quot;Jaq&quot; Diallo</role>
+    <thumb>https://image.tmdb.org/t/p/h632/qJcXQKgaq11aNNPPok0m4yfP2Og.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/3119545</profile>
+    <tmdbid>3119545</tmdbid>
+  </actor>
+  <actor>
+    <name>凯莉·罗杰斯</name>
+    <role>Britt Raven</role>
+    <thumb>https://image.tmdb.org/t/p/h632/9c9CPWTT8a2GXMab8vuSxCJ0CcW.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1164259</profile>
+    <tmdbid>1164259</tmdbid>
+  </actor>
+  <actor>
+    <name>克里斯·沙利文</name>
+    <role>Rob Nelson</role>
+    <thumb>https://image.tmdb.org/t/p/h632/gKZ9xSFrDzUPv27iAkMpH6Qf0Sk.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1293892</profile>
+    <tmdbid>1293892</tmdbid>
+  </actor>
+  <actor>
+    <name>Jeff Pierre</name>
+    <role>Patrick Burke</role>
+    <thumb>https://image.tmdb.org/t/p/h632/mKaKc7dviX6q0d7EJpzyHgtdBC7.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1583044</profile>
+    <tmdbid>1583044</tmdbid>
+  </actor>
+  <actor>
+    <name>安娜贝拉·沃丽丝</name>
+    <role>Nicole Raven</role>
+    <thumb>https://image.tmdb.org/t/p/h632/b6PltW1e18BdmRz3nKZ7ID9uZ24.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/82809</profile>
+    <tmdbid>82809</tmdbid>
+  </actor>
+  <actor>
+    <name>拉菲·加夫隆</name>
+    <role>Holt Charles</role>
+    <thumb>https://image.tmdb.org/t/p/h632/avCWoO9fLwEhbT6cvu0TJcSj49g.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/21660</profile>
+    <tmdbid>21660</tmdbid>
+  </actor>
+  <actor>
+    <name>肯尼斯·崔</name>
+    <role>Ray Vale</role>
+    <thumb>https://image.tmdb.org/t/p/h632/3606Uo4fiUtV9Y6eOwpM48qpSgJ.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/41561</profile>
+    <tmdbid>41561</tmdbid>
+  </actor>
+  <actor>
+    <name>Jamie McBride</name>
+    <role>Dan Vogel</role>
+    <thumb>https://image.tmdb.org/t/p/h632/3rQFX5gCPj0x0lQlMcP0z02ML0y.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/18053</profile>
+    <tmdbid>18053</tmdbid>
+  </actor>
+  <actor>
+    <name>Ross Gosla</name>
+    <role>David Webb</role>
+    <thumb>https://image.tmdb.org/t/p/h632/tyx28OqSnMszsOyMxNVg3wgx3EL.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/5951627</profile>
+    <tmdbid>5951627</tmdbid>
+  </actor>
+  <actor>
+    <name>马克·丹尼尔斯</name>
+    <role>Jeff Martin</role>
+    <thumb>https://image.tmdb.org/t/p/h632/wTDm4zmREXxDK1QVh5vl13OqabU.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/32654</profile>
+    <tmdbid>32654</tmdbid>
+  </actor>
+  <actor>
+    <name>Haydn Dalton</name>
+    <role>Bill Peterson</role>
+    <thumb>https://image.tmdb.org/t/p/h632/ihQaxMhFveEmxlgxU9i9i9E1Tpc.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/2753503</profile>
+    <tmdbid>2753503</tmdbid>
+  </actor>
+  <actor>
+    <name>Michael C. Mahon</name>
+    <role>Booking Sergeant</role>
+    <thumb>https://image.tmdb.org/t/p/h632/k0ZJ5AdIsLOcireMfduMtOYJ9UO.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1392535</profile>
+    <tmdbid>1392535</tmdbid>
+  </actor>
+  <actor>
+    <name>Noah Fearnley</name>
+    <role>Tattoed Sleazebag</role>
+    <thumb>https://image.tmdb.org/t/p/h632/cJDTFKsgQoc7LM6IHFmAP1t9vDz.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/3210444</profile>
+    <tmdbid>3210444</tmdbid>
+  </actor>
+  <actor>
+    <name>Konstantin Podprugin</name>
+    <role>Alexander Varga</role>
+    <thumb>https://image.tmdb.org/t/p/h632/m0IdxqTyKuSEfHn0dN35QOxuLHB.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/3492602</profile>
+    <tmdbid>3492602</tmdbid>
+  </actor>
+  <actor>
+    <name>Cully Pratt</name>
+    <role>Mercy Court Security Guard</role>
+    <thumb>https://image.tmdb.org/t/p/h632/ecyFCr3iplGPTIbuurvDle2IhNv.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/5951630</profile>
+    <tmdbid>5951630</tmdbid>
+  </actor>
+  <actor>
+    <name>Philicia Saunders</name>
+    <role>Molly</role>
+    <thumb>https://image.tmdb.org/t/p/h632/be8PPcNfeSlZD86UXWqTzVOt8oQ.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1709053</profile>
+    <tmdbid>1709053</tmdbid>
+  </actor>
+  <actor>
+    <name>Jay Jackson</name>
+    <role>News Anchor</role>
+    <profile>https://www.themoviedb.org/person/5951631</profile>
+    <tmdbid>5951631</tmdbid>
+  </actor>
+  <actor>
+    <name>Mahmoud Mahmoud</name>
+    <role>Police Officer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/lhvBmmyaYGOKyZwVmPxsNwebuQi.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/3376107</profile>
+    <tmdbid>3376107</tmdbid>
+  </actor>
+  <actor>
+    <name>Anja Akstin</name>
+    <role>SWAT Officer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/awoaybv7hjX9avmfO36NBupD6yS.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1832074</profile>
+    <tmdbid>1832074</tmdbid>
+  </actor>
+  <actor>
+    <name>Katario Dupreè Young</name>
+    <role>Officer Jacobs</role>
+    <thumb>https://image.tmdb.org/t/p/h632/15PDjeNjju5bouCN6z4TR0S3pIY.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/5039171</profile>
+    <tmdbid>5039171</tmdbid>
+  </actor>
+  <actor>
+    <name>Evgenia Sinitsin</name>
+    <role>Young Britt (8)</role>
+    <profile>https://www.themoviedb.org/person/5951633</profile>
+    <tmdbid>5951633</tmdbid>
+  </actor>
+  <actor>
+    <name>理查德·塞特隆</name>
+    <role>Officer Beech</role>
+    <thumb>https://image.tmdb.org/t/p/h632/lZQqNU3QUcnIssWhIfatePfU6M7.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/12371</profile>
+    <tmdbid>12371</tmdbid>
+  </actor>
+  <actor>
+    <name>Renata Ribeiro</name>
+    <role>Journalist</role>
+    <thumb>https://image.tmdb.org/t/p/h632/uQBajxNViiP9UadCw4fDT1zPcWe.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/2970897</profile>
+    <tmdbid>2970897</tmdbid>
+  </actor>
+  <actor>
+    <name>Mike Tarnofsky</name>
+    <role>Captain Havelock</role>
+    <profile>https://www.themoviedb.org/person/2381494</profile>
+    <tmdbid>2381494</tmdbid>
+  </actor>
+  <actor>
+    <name>John Bubniak</name>
+    <role>Officer Reed</role>
+    <thumb>https://image.tmdb.org/t/p/h632/jrzNIAXcpuenLaqT8DgcfhuS1Tr.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/2410745</profile>
+    <tmdbid>2410745</tmdbid>
+  </actor>
+  <actor>
+    <name>Tom Rezvan</name>
+    <role>Governor</role>
+    <profile>https://www.themoviedb.org/person/5951637</profile>
+    <tmdbid>5951637</tmdbid>
+  </actor>
+  <actor>
+    <name>Kory Ison</name>
+    <role>Lead Paramedic</role>
+    <profile>https://www.themoviedb.org/person/5951640</profile>
+    <tmdbid>5951640</tmdbid>
+  </actor>
+  <actor>
+    <name>Veronica Rosa Ray</name>
+    <role>Female Police Officer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/fSKm3BGTz90j34KUvOY9xBIriCn.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/1870476</profile>
+    <tmdbid>1870476</tmdbid>
+  </actor>
+  <actor>
+    <name>George Cambio</name>
+    <role>Mercy Chair Victim</role>
+    <profile>https://www.themoviedb.org/person/4146238</profile>
+    <tmdbid>4146238</tmdbid>
+  </actor>
+  <actor>
+    <name>Ryan Hailey</name>
+    <role>Homeless Man (uncredited)</role>
+    <profile>https://www.themoviedb.org/person/3384682</profile>
+    <tmdbid>3384682</tmdbid>
+  </actor>
+  <producer tmdbid="1993720">
+    <name>Majd Nassif</name>
+    <role>Producer</role>
+    <profile>https://www.themoviedb.org/person/1993720</profile>
+  </producer>
+  <producer tmdbid="3896422">
+    <name>Robert Amidon</name>
+    <role>Producer</role>
+    <profile>https://www.themoviedb.org/person/3896422</profile>
+  </producer>
+  <producer tmdbid="23430">
+    <name>提莫·贝克曼贝托夫</name>
+    <role>Producer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/w4C8qeeWRvD7rbIj3elTvhdxjT.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/23430</profile>
+  </producer>
+  <producer tmdbid="282">
+    <name>查尔斯·罗文</name>
+    <role>Producer</role>
+    <thumb>https://image.tmdb.org/t/p/h632/5fxOnoI6jKicdLBtbeumKxxV9Jp.jpg</thumb>
+    <profile>https://www.themoviedb.org/person/282</profile>
+  </producer>
+  <producer tmdbid="1223078">
+    <name>Mark Moran</name>
+    <role>Executive Producer</role>
+    <profile>https://www.themoviedb.org/person/1223078</profile>
+  </producer>
+  <producer tmdbid="71882">
+    <name>Todd Williams</name>
+    <role>Executive Producer</role>
+    <profile>https://www.themoviedb.org/person/71882</profile>
+  </producer>
+  <trailer>plugin://plugin.video.youtube/play/?video_id=JUADqWkJiiE</trailer>
+  <languages>英语</languages>
+  <dateadded>2026-02-21 19:54:52</dateadded>
+  <fileinfo>
+    <streamdetails>
+      <video>
+        <codec>hevc</codec>
+        <aspect>2.20</aspect>
+        <width>3840</width>
+        <height>1746</height>
+        <resolution>4K</resolution>
+        <hdrtype>hdr10plus</hdrtype>
+        <durationinseconds>5968</durationinseconds>
+      </video>
+      <audio>
+        <codec>eac3_ddp_atmos</codec>
+        <language>eng</language>
+        <channels>6</channels>
+      </audio>
+      <subtitle>
+        <language>zho</language>
+      </subtitle>
+      <subtitle>
+        <language>zho</language>
+      </subtitle>
+      <subtitle>
+        <language>ara</language>
+      </subtitle>
+      <subtitle>
+        <language>ces</language>
+      </subtitle>
+      <subtitle>
+        <language>dan</language>
+      </subtitle>
+      <subtitle>
+        <language>deu</language>
+      </subtitle>
+      <subtitle>
+        <language>ell</language>
+      </subtitle>
+      <subtitle>
+        <language>spa</language>
+      </subtitle>
+      <subtitle>
+        <language>spa</language>
+      </subtitle>
+      <subtitle>
+        <language>fin</language>
+      </subtitle>
+      <subtitle>
+        <language>fil</language>
+      </subtitle>
+      <subtitle>
+        <language>fra</language>
+      </subtitle>
+      <subtitle>
+        <language>fra</language>
+      </subtitle>
+      <subtitle>
+        <language>heb</language>
+      </subtitle>
+      <subtitle>
+        <language>hin</language>
+      </subtitle>
+      <subtitle>
+        <language>hun</language>
+      </subtitle>
+      <subtitle>
+        <language>ind</language>
+      </subtitle>
+      <subtitle>
+        <language>ita</language>
+      </subtitle>
+      <subtitle>
+        <language>jpn</language>
+      </subtitle>
+      <subtitle>
+        <language>kan</language>
+      </subtitle>
+      <subtitle>
+        <language>kor</language>
+      </subtitle>
+      <subtitle>
+        <language>mal</language>
+      </subtitle>
+      <subtitle>
+        <language>msa</language>
+      </subtitle>
+      <subtitle>
+        <language>nld</language>
+      </subtitle>
+      <subtitle>
+        <language>nor</language>
+      </subtitle>
+      <subtitle>
+        <language>pol</language>
+      </subtitle>
+      <subtitle>
+        <language>pob</language>
+      </subtitle>
+      <subtitle>
+        <language>por</language>
+      </subtitle>
+      <subtitle>
+        <language>swe</language>
+      </subtitle>
+      <subtitle>
+        <language>tam</language>
+      </subtitle>
+      <subtitle>
+        <language>tel</language>
+      </subtitle>
+      <subtitle>
+        <language>tha</language>
+      </subtitle>
+      <subtitle>
+        <language>tur</language>
+      </subtitle>
+      <subtitle>
+        <language>vie</language>
+      </subtitle>
+    </streamdetails>
+  </fileinfo>
+  <source>WEB_DL</source>
+  <edition>NONE</edition>
+  <original_filename>Mercy.2026.2160p.iTunes.WEB-DL.DDP.5.1.Atmos.HDR10+.H.265-CHDWEB.mkv</original_filename>
+  <user_note/>
+  <english_title>Mercy</english_title>
+  <uniqueid type="douban">36749573</uniqueid>
+</movie>

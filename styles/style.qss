@@ -1,0 +1,334 @@
+/*
+全局 QSS 样式表
+现代化鲜艳主题 (Modern Vibrant Theme)
+设计理念：层次感、呼吸感、高交互反馈
+*/
+
+/* =========================== 全局默认样式 =========================== */
+* {
+    font-family: "Microsoft YaHei", "Segoe UI", "SF Pro Display", Arial, sans-serif;
+}
+
+/* =========================== 主窗口 =========================== */
+QMainWindow {
+    background-color: #F4F5F7;  /* 浅灰背景，拉开层次 */
+}
+
+/* =========================== 左侧过滤面板 =========================== */
+#FilterPanel {
+    background-color: #FFFFFF;  /* 纯白卡片感 */
+}
+
+#FilterScrollArea {
+    background-color: #FFFFFF;
+    border-right: 1px solid #E8EAED;
+    border: none;
+}
+
+#FilterScrollArea QScrollBar:vertical {
+    background-color: #F8F9FA;
+    width: 10px;
+    margin: 0px;
+    border: none;
+}
+
+#FilterScrollArea QScrollBar::handle:vertical {
+    background-color: #CED4DA;
+    min-height: 30px;
+    border-radius: 5px;
+}
+
+#FilterScrollArea QScrollBar::handle:vertical:hover {
+    background-color: #ADB5BD;
+}
+
+#FilterScrollArea QScrollBar::add-line:vertical,
+#FilterScrollArea QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+#FilterScrollArea QScrollBar::add-page:vertical,
+#FilterScrollArea QScrollBar::sub-page:vertical {
+    background: none;
+}
+
+/* 过滤按钮样式 */
+#FilterButton {
+    background-color: #FFFFFF;
+    color: #5F6368;
+    border: 2px solid #E8EAED;
+    border-radius: 16px;
+    padding: 10px 16px;
+    text-align: left;
+    font-size: 13px;
+}
+
+#FilterButton:hover {
+    background-color: #F8F9FA;
+    border-color: #007AFF;
+    color: #007AFF;
+}
+
+#FilterButton:checked {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border-color: #007AFF;
+    font-weight: bold;
+}
+
+/* 重置筛选按钮 */
+#ResetButton {
+    background-color: #FFFFFF;
+    color: #007AFF;
+    border: 2px solid #007AFF;
+    border-radius: 12px;
+    font-weight: bold;
+    padding: 10px;
+}
+
+#ResetButton:hover {
+    background-color: #007AFF;
+    color: #FFFFFF;
+}
+
+#ResetButton:pressed {
+    background-color: #0051D5;
+}
+
+/* 排序按钮 */
+#SortButton {
+    background-color: #F8F9FA;
+    color: #495057;
+    border: 1px solid #DEE2E6;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 11px;
+}
+
+#SortButton:hover {
+    background-color: #E9ECEF;
+    border-color: #007AFF;
+    color: #007AFF;
+}
+
+#SortButton:checked {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border-color: #007AFF;
+    font-weight: bold;
+}
+
+/* 刷新媒体库按钮 */
+#RefreshButton {
+    background-color: #28A745;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: 12px;
+}
+
+#RefreshButton:hover {
+    background-color: #218838;
+}
+
+#RefreshButton:pressed {
+    background-color: #1E7E34;
+}
+
+/* 媒体库设置按钮 */
+#SettingsButton {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+    padding: 12px;
+    font-size: 13px;
+}
+
+#SettingsButton:hover {
+    background-color: #0051D5;
+}
+
+#SettingsButton:pressed {
+    background-color: #003DA5;
+}
+
+/* =========================== 右侧内容区域 =========================== */
+#RightContent {
+    background-color: #F4F5F7;  /* 与主背景一致 */
+}
+
+/* 状态标签 */
+#StatusLabel {
+    color: #5F6368;
+    font-size: 14px;
+    padding: 8px 0;
+}
+
+/* 进度条 */
+#ProgressBar {
+    border: none;
+    border-radius: 10px;
+    text-align: center;
+    background-color: #E8EAED;
+    color: #333333;
+    font-size: 12px;
+    font-weight: bold;
+    height: 20px;
+}
+
+#ProgressBar::chunk {
+    background-color: qlineargradient(
+        x1:0, y1:0, x2:1, y2:0,
+        stop:0 #007AFF,
+        stop:1 #00D9FF
+    );
+    border-radius: 10px;
+}
+
+/* 海报墙滚动区域 */
+#PosterScrollArea {
+    border: none;
+    background-color: transparent;
+}
+
+/* 海报墙容器 */
+#PosterWall {
+    background-color: transparent;
+}
+
+/* =========================== 海报卡片 =========================== */
+#MovieCard {
+    background-color: #FFFFFF;
+    border-radius: 12px;
+    border: 2px solid transparent;
+    padding: 12px;
+}
+
+#MovieCard:hover {
+    border: 2px solid #007AFF;
+}
+
+/* =========================== 空状态按钮 =========================== */
+#AddLibraryButton {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 14px;
+    font-size: 15px;
+    padding: 18px 35px;
+}
+
+#AddLibraryButton:hover {
+    background-color: #0051D5;
+}
+
+#AddLibraryButton:pressed {
+    background-color: #003DA5;
+}
+
+/* =========================== 滚动条样式 =========================== */
+QScrollBar:vertical {
+    border: none;
+    background-color: #F4F5F7;
+    width: 14px;
+    margin: 0px;
+    border-radius: 7px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #D0D3D8;
+    border-radius: 7px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #007AFF;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar:horizontal {
+    border: none;
+    background-color: #F4F5F7;
+    height: 14px;
+    margin: 0px;
+    border-radius: 7px;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #D0D3D8;
+    border-radius: 7px;
+    min-width: 30px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #007AFF;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+/* =========================== 对话框 =========================== */
+QDialog {
+    background-color: #FFFFFF;
+}
+
+/* =========================== 工具提示 =========================== */
+QToolTip {
+    background-color: #1C1C1E;
+    color: #FFFFFF;
+    border: 1px solid #007AFF;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+}
+
+/* =========================== 消息框 =========================== */
+QMessageBox {
+    background-color: #FFFFFF;
+}
+
+QMessageBox QLabel {
+    color: #1C1C1E;
+    font-size: 13px;
+    padding: 10px;
+}
+
+QMessageBox QPushButton {
+    background-color: #007AFF;
+    color: #FFFFFF;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 24px;
+    font-weight: bold;
+    min-width: 80px;
+    font-size: 13px;
+}
+
+QMessageBox QPushButton:hover {
+    background-color: #0051D5;
+}
+
+QMessageBox QPushButton:pressed {
+    background-color: #003DA5;
+}
+
+/* =========================== 通用按钮样式 =========================== */
+QPushButton {
+    outline: none;
+}
+
+QPushButton:focus {
+    outline: none;
+}
+
+/* =========================== 详情对话框特殊样式 =========================== */
+/* 播放按钮等特殊元素在各自文件中定义内联样式 */
+
