@@ -265,6 +265,29 @@ class HighResPosterBulkUpdater(QThread):
         self.finished_signal.emit(total, updated, skipped, failed)
 
 
+class _SingleScrapeWorker(QThread):
+    """单电影豆瓣刮削后台线程"""
+    finished_signal = pyqtSignal(dict)
+
+    def __init__(self, nfo_path, title, original_title="", year=""):
+        super().__init__()
+        self.nfo_path = nfo_path
+        self.title = title
+        self.original_title = original_title
+        self.year = year
+
+    def run(self):
+        from scraper.douban_cli import scrape_single_movie
+        try:
+            result = scrape_single_movie(
+                self.nfo_path, self.title,
+                self.original_title, self.year
+            )
+        except Exception as e:
+            result = {"success": False, "message": f"异常: {e}"}
+        self.finished_signal.emit(result)
+
+
 class MainWindow(QMainWindow):
     """
     主窗口类 - 三栏布局
@@ -2711,6 +2734,8 @@ class MainWindow(QMainWindow):
         action_play = menu.addAction("▶ 播放")
         action_open_folder = menu.addAction("📁 打开所在文件夹")
         menu.addSeparator()
+        action_scrape_douban = menu.addAction("🟢 刮削豆瓣评分")
+        menu.addSeparator()
         action_update_nfo = menu.addAction("📝 更新NFO文件")
         action_update_poster = menu.addAction("🖼 更新海报")
         action_properties = menu.addAction("⚙ 属性")
@@ -2722,6 +2747,8 @@ class MainWindow(QMainWindow):
             self._menu_play_movie(movie)
         elif selected == action_open_folder:
             self._menu_open_movie_folder(movie)
+        elif selected == action_scrape_douban:
+            self._menu_scrape_douban_rating(movie)
         elif selected == action_update_nfo:
             self._menu_refresh_movie_from_nfo(movie)
         elif selected == action_update_poster:
@@ -2761,6 +2788,80 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"右键打开文件夹失败: {e}")
             QMessageBox.warning(self, "打开失败", str(e))
+
+    def _menu_scrape_douban_rating(self, movie: Movie):
+        """右键菜单：刮削单部电影的豆瓣评分和链接"""
+        from PyQt6.QtWidgets import QProgressDialog
+        from scraper.douban_cli import scrape_single_movie
+
+        if not movie.nfo_path:
+            QMessageBox.warning(self, "刮削失败", "当前电影缺少 NFO 路径。")
+            return
+        if not movie.title:
+            QMessageBox.warning(self, "刮削失败", "当前电影缺少标题。")
+            return
+
+        # 创建后台工作线程
+        worker = _SingleScrapeWorker(
+            movie.nfo_path, movie.title,
+            movie.original_title or "", movie.year or ""
+        )
+
+        # 创建进度对话框
+        dialog = QProgressDialog("正在搜索豆瓣...", "取消", 0, 0, self)
+        dialog.setWindowTitle("刮削豆瓣评分")
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        dialog.setMinimumDuration(0)
+        dialog.setValue(0)
+        dialog.setCancelButton(None)  # 不可取消
+        dialog.setAutoClose(False)
+        dialog.setAutoReset(False)
+
+        def on_finished(result):
+            dialog.close()
+            if result.get("success"):
+                QMessageBox.information(
+                    self, "刮削成功",
+                    f"《{movie.title}》\n\n{result['message']}"
+                )
+                # 重新解析 NFO 并刷新电影数据
+                self._refresh_movie_after_scrape(movie)
+            else:
+                QMessageBox.warning(
+                    self, "刮削失败", result.get("message", "未知错误")
+                )
+
+        worker.finished_signal.connect(on_finished)
+        worker.start()
+        dialog.exec()
+
+    def _refresh_movie_after_scrape(self, movie: Movie):
+        """刮削成功后重新解析 NFO 并刷新显示"""
+        from parsers.nfo_parser import NFOParser
+
+        updated_movie = NFOParser.parse(movie.nfo_path)
+        if not updated_movie:
+            return
+
+        # 保留运行期状态
+        updated_movie.watched = self.watch_history.is_watched(movie.nfo_path)
+        if hasattr(movie, 'added_time') and not getattr(updated_movie, 'added_time', 0.0):
+            updated_movie.added_time = getattr(movie, 'added_time', 0.0)
+
+        for attr in vars(updated_movie):
+            setattr(movie, attr, getattr(updated_movie, attr))
+
+        # 刷新详情页
+        if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
+            self.detail_panel.show_movie(
+                movie, self.watch_history, self.favorite_manager,
+                self.all_movies, rank_info=self._get_movie_rank_info(movie)
+            )
+
+        # 更新本地缓存
+        movie_paths = self.config.get_movie_paths()
+        self.cache_manager.save_cache(self.all_movies, movie_paths)
+        logger.info(f"刮削后刷新完成: {movie.title}")
 
     def _menu_refresh_movie_from_nfo(self, movie: Movie):
         """右键菜单：重新解析NFO并更新本地数据库"""

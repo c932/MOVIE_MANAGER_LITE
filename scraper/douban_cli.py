@@ -257,3 +257,66 @@ def read_nfo_movie_info(nfo_path: str) -> Optional[dict]:
     except Exception as e:
         logger.error(f"读取 NFO 信息失败 [{nfo_path}]: {e}")
         return None
+
+
+# ─────────────────── 单电影刮削 ───────────────────
+
+
+def scrape_single_movie(nfo_path: str, title: str, original_title: str = "",
+                        year: str = "") -> dict:
+    """
+    刮削单部电影的豆瓣评分和链接。
+
+    多级搜索策略：中文名 → 英文原名 → 简化标题
+    仅写入 NFO：评分 + doubanid + doubanurl，不修改其他数据。
+
+    Returns:
+        {"success": bool, "message": str, "rating": str, "douban_id": str}
+    """
+    import time
+
+    if not title:
+        return {"success": False, "message": "电影标题为空"}
+
+    # === 多级搜索策略 ===
+    search_result = search_movie(title, year)
+
+    if not search_result and original_title and original_title != title:
+        time.sleep(0.5)
+        search_result = search_movie(original_title, year)
+
+    if not search_result and (':' in title or '：' in title):
+        simple_title = title.replace('：', ':').split(':')[0].strip()
+        if simple_title and simple_title != title:
+            time.sleep(0.5)
+            search_result = search_movie(simple_title, year)
+
+    if not search_result and original_title and (':' in original_title or '：' in original_title):
+        simple_original = original_title.replace('：', ':').split(':')[0].strip()
+        if simple_original and simple_original != original_title:
+            time.sleep(0.5)
+            search_result = search_movie(simple_original, year)
+
+    if not search_result:
+        return {"success": False, "message": f"未找到豆瓣结果: {title} ({year})"}
+
+    douban_id = search_result['id']
+    matched_title = search_result.get('title', '')
+
+    # === 获取详情 ===
+    time.sleep(0.5)
+    detail = get_movie_detail(douban_id)
+    if not detail:
+        return {"success": False, "message": f"获取详情失败: {matched_title}"}
+
+    # === 注入 NFO（仅评分 + 链接） ===
+    if inject_douban_to_nfo(nfo_path, douban_id, detail):
+        rating_str = detail.get('rating', '?')
+        return {
+            "success": True,
+            "message": f"成功: {matched_title} - {rating_str}/10",
+            "rating": rating_str,
+            "douban_id": douban_id,
+        }
+    else:
+        return {"success": False, "message": "NFO 写入失败"}
