@@ -2193,8 +2193,12 @@ class MainWindow(QMainWindow):
             if nfo_key not in visible_nfo_set:
                 card.hide()
                 if size_changed:
+                    card.setFixedSize(poster_width, poster_height)
+                    card.poster_width = poster_width
+                    card.poster_height = poster_height
                     card._poster_loaded = False
                     card._poster_loading = False
+                    card._relayout()  # 重新布局子控件
 
         # 为当前筛选结果创建或复用卡片
         self.movie_cards = []
@@ -2223,6 +2227,7 @@ class MainWindow(QMainWindow):
                     card._poster_loading = False
                     card._poster_fail_count = 0
                     card._poster_next_retry_at = 0.0
+                    card._relayout()  # 重新布局子控件
                 # 卡片池复用时同步更新排名角标
                 card.update_rank_badge(self._get_movie_rank_info(movie))
                 card.show()

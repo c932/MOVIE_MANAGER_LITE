@@ -180,6 +180,61 @@ class MovieCard(QWidget):
         """)
         badge.setFixedHeight(20)
         return badge
+
+    def _relayout(self):
+        """缩放后重新布局所有子控件"""
+        pw, ph = self.poster_width, self.poster_height
+
+        # 海报容器
+        self.poster_container.setGeometry(0, 0, pw, ph)
+
+        # 海报背景标签
+        self.poster_label.setGeometry(0, 0, pw, ph)
+
+        # 技术徽章容器
+        self.tech_badges_container.setGeometry(6, 6, pw - 12, 30)
+
+        # 评分徽章（右上角）
+        if hasattr(self, 'rating_badge') and self.rating_badge:
+            self.rating_badge.adjustSize()
+            self.rating_badge.move(pw - self.rating_badge.width() - 6, 6)
+
+        # 排名角标（左下角）
+        if self._rank_badges:
+            badge_font = max(9, min(11, pw // 18))
+            label_height = max(36, min(56, ph // 5))
+            base_y = ph - label_height - 4
+            for idx, badge in enumerate(self._rank_badges):
+                badge.setStyleSheet(f"""
+                    QLabel {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
+                        color: #1C1C1E;
+                        font-size: {badge_font}px;
+                        font-weight: bold;
+                        padding: 3px 8px;
+                        border-radius: 10px;
+                    }}
+                """)
+                badge.adjustSize()
+                badge_y = base_y - badge.height() - (idx * (badge.height() + 3))
+                badge.move(6, max(30, badge_y))
+
+        # 电影名称（底部半透明遮罩）
+        font_size = max(12, min(16, pw // 12))
+        label_height = max(36, min(56, ph // 5))
+        self.title_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: rgba(0, 0, 0, 0.7);
+                color: #FFFFFF;
+                font-size: {font_size}px;
+                font-weight: bold;
+                padding: 4px 6px;
+                border-bottom-left-radius: 8px;
+                border-bottom-right-radius: 8px;
+            }}
+        """)
+        self.title_label.setGeometry(0, ph - label_height, pw, label_height)
     
     def load_poster(self):
         """加载海报图片（异步）"""
