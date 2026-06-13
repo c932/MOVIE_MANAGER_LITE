@@ -336,8 +336,9 @@ class _MovieSelectDialog(QDialog):
 
     def _init_ui(self):
         from PyQt6.QtWidgets import (
-            QListWidget, QListWidgetItem, QInputDialog
+            QListWidget, QListWidgetItem, QInputDialog, QComboBox
         )
+        from datetime import datetime
         self.setWindowTitle("批量刮削豆瓣评分")
         self.setMinimumSize(500, 600)
         self.resize(550, 650)
@@ -345,24 +346,26 @@ class _MovieSelectDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(8)
 
-        # 搜索框
+        # 搜索框 + 排序
+        top_row = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("输入关键词筛选电影...")
         self.search_input.textChanged.connect(self._filter_movies)
-        layout.addWidget(self.search_input)
+        top_row.addWidget(self.search_input, stretch=1)
+
+        self.sort_combo = QComboBox()
+        self.sort_combo.addItems([
+            "按标题排序",
+            "加入时间 ↓ 最新",
+            "加入时间 ↑ 最旧",
+        ])
+        self.sort_combo.currentIndexChanged.connect(self._sort_movies)
+        top_row.addWidget(self.sort_combo)
+        layout.addLayout(top_row)
 
         # 电影列表
         self.list_widget = QListWidget()
-        for movie in self.movies:
-            item = QListWidgetItem(
-                f"{movie.title} ({movie.year or '?'})"
-            )
-            item.setFlags(
-                item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            )
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setData(Qt.ItemDataRole.UserRole, movie)
-            self.list_widget.addItem(item)
+        self._populate_list(self.movies)
         layout.addWidget(self.list_widget, stretch=1)
 
         # 统计
@@ -397,6 +400,28 @@ class _MovieSelectDialog(QDialog):
         btn_layout.addWidget(self.start_btn)
         layout.addLayout(btn_layout)
 
+    def _populate_list(self, movies):
+        """填充列表"""
+        from datetime import datetime
+        self.list_widget.clear()
+        for movie in movies:
+            added = getattr(movie, 'added_time', 0) or 0
+            if added > 0:
+                date_str = datetime.fromtimestamp(added).strftime(
+                    '%Y-%m-%d'
+                )
+            else:
+                date_str = '----'
+            item = QListWidgetItem(
+                f"{movie.title} ({movie.year or '?'})  [{date_str}]"
+            )
+            item.setFlags(
+                item.flags() | Qt.ItemFlag.ItemIsUserCheckable
+            )
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, movie)
+            self.list_widget.addItem(item)
+
     def _get_selected(self):
         selected = []
         for i in range(self.list_widget.count()):
@@ -429,6 +454,48 @@ class _MovieSelectDialog(QDialog):
                      or text in (getattr(movie, 'original_title', '')
                                  or '').lower())
             item.setHidden(not match)
+
+    def _sort_movies(self, index):
+        """按选中方式排序电影列表"""
+        # 收集当前所有条目（保留勾选状态）
+        checked_ids = set()
+        items_data = []
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            movie = item.data(Qt.ItemDataRole.UserRole)
+            is_checked = (
+                item.checkState() == Qt.CheckState.Checked
+            )
+            if is_checked:
+                checked_ids.add(id(movie))
+            items_data.append((movie, is_checked))
+
+        # 排序
+        if index == 0:  # 按标题
+            items_data.sort(key=lambda x: x[0].title)
+        elif index == 1:  # 加入时间↓最新
+            items_data.sort(
+                key=lambda x: getattr(x[0], 'added_time', 0) or 0,
+                reverse=True
+            )
+        elif index == 2:  # 加入时间↑最旧
+            items_data.sort(
+                key=lambda x: getattr(x[0], 'added_time', 0) or 0
+            )
+
+        # 重新填充（保留勾选状态）
+        sorted_movies = [m for m, _ in items_data]
+        self._populate_list(sorted_movies)
+
+        # 恢复勾选状态
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            movie = item.data(Qt.ItemDataRole.UserRole)
+            if id(movie) in checked_ids:
+                item.setCheckState(Qt.CheckState.Checked)
+
+        # 重新应用筛选
+        self._filter_movies(self.search_input.text())
 
     def _update_count(self):
         selected = self._get_selected()
