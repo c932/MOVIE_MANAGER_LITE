@@ -88,26 +88,25 @@ class MovieCard(QWidget):
         
         tech_layout.addStretch()
         
-        # === 评分徽章（右上角）===
+        # === 评分徽章（右上角，半透明）===
         if self.movie.rating > 0:
             self.rating_badge = QLabel(self.poster_container)
             rating_icon = "⭐" if self.movie.rating_source == "douban" else "★"
             self.rating_badge.setText(f"{rating_icon} {self.movie.rating:.1f}")
             self.rating_badge.setStyleSheet("""
                 QLabel {
-                    background-color: rgba(255, 193, 7, 0.95);
+                    background-color: rgba(255, 193, 7, 0.75);
                     color: #1C1C1E;
                     font-size: 11px;
                     font-weight: bold;
-                    padding: 4px 8px;
-                    border-radius: 10px;
+                    padding: 2px 6px;
+                    border-radius: 4px;
                 }
             """)
             self.rating_badge.adjustSize()
-            # 定位到右上角
             self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, 6)
         
-        # === 排名角标（左下角，标题区上方，支持豆瓣+IMDB多源）===
+        # === 排名角标（左下角，半透明，支持豆瓣+IMDB多源）===
         self._rank_badges = []
         if self.rank_info_list:
             badge_font = max(9, min(11, self.poster_width // 18))
@@ -115,20 +114,18 @@ class MovieCard(QWidget):
             base_y = self.poster_height - label_height - 4
             for idx, ri in enumerate(self.rank_info_list):
                 rank = ri.get('rank', 0)
-                total = ri.get('total', 250)
                 source = ri.get('source', 'douban')
-                badge_text = f"🏆 {source.upper()}TOP{total} #{rank}" if source == 'imdb' else f"🏆 豆瓣TOP{total} #{rank}"
+                badge_text = f"🏆 IMDB #{rank}" if source == 'imdb' else f"🏆 豆瓣 #{rank}"
                 badge = QLabel(self.poster_container)
                 badge.setText(badge_text)
                 badge.setStyleSheet(f"""
                     QLabel {{
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
-                        color: #1C1C1E;
+                        background-color: rgba(212, 160, 23, 0.75);
+                        color: #FFFFFF;
                         font-size: {badge_font}px;
                         font-weight: bold;
-                        padding: 3px 8px;
-                        border-radius: 10px;
+                        padding: 2px 6px;
+                        border-radius: 4px;
                     }}
                 """)
                 badge.adjustSize()
@@ -165,17 +162,30 @@ class MovieCard(QWidget):
         """)
         self.title_label.setGeometry(0, self.poster_height - label_height, self.poster_width, label_height)
     
+    # 技术徽章颜色映射（半透明）
+    _BADGE_COLORS = {
+        '4K':   'rgba(231, 76, 60, 0.75)',    # 红
+        '8K':   'rgba(192, 57, 43, 0.75)',    # 深红
+        'SD':   'rgba(149, 165, 166, 0.75)',  # 灰
+        '1080p':'rgba(52, 152, 219, 0.75)',   # 蓝
+        '720p': 'rgba(41, 128, 185, 0.75)',   # 深蓝
+        'HDR':  'rgba(155, 89, 182, 0.75)',   # 紫
+        'DV':   'rgba(155, 89, 182, 0.75)',   # 紫
+    }
+    _BADGE_DEFAULT = 'rgba(128, 128, 128, 0.75)'
+
     def _create_badge(self, text: str, color: str) -> QLabel:
-        """创建技术徽章标签"""
+        """创建技术徽章标签（半透明背景）"""
+        bg = self._BADGE_COLORS.get(text.upper(), self._BADGE_DEFAULT)
         badge = QLabel(text)
         badge.setStyleSheet(f"""
             QLabel {{
-                background-color: {color};
+                background-color: {bg};
                 color: #FFFFFF;
                 font-size: 10px;
                 font-weight: bold;
-                padding: 3px 6px;
-                border-radius: 8px;
+                padding: 2px 6px;
+                border-radius: 4px;
             }}
         """)
         badge.setFixedHeight(20)
@@ -207,13 +217,12 @@ class MovieCard(QWidget):
             for idx, badge in enumerate(self._rank_badges):
                 badge.setStyleSheet(f"""
                     QLabel {{
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
-                        color: #1C1C1E;
+                        background-color: rgba(212, 160, 23, 0.75);
+                        color: #FFFFFF;
                         font-size: {badge_font}px;
                         font-weight: bold;
-                        padding: 3px 8px;
-                        border-radius: 10px;
+                        padding: 2px 6px;
+                        border-radius: 4px;
                     }}
                 """)
                 badge.adjustSize()
@@ -325,20 +334,18 @@ class MovieCard(QWidget):
             base_y = self.poster_height - label_height - 4
             for idx, ri in enumerate(self.rank_info_list):
                 rank = ri.get('rank', 0)
-                total = ri.get('total', 250)
                 source = ri.get('source', 'douban')
-                badge_text = f"🏆 {source.upper()}TOP{total} #{rank}" if source == 'imdb' else f"🏆 豆瓣TOP{total} #{rank}"
+                badge_text = f"🏆 IMDB #{rank}" if source == 'imdb' else f"🏆 豆瓣 #{rank}"
                 badge = QLabel(self.poster_container)
                 badge.setText(badge_text)
                 badge.setStyleSheet(f"""
                     QLabel {{
-                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
-                        color: #1C1C1E;
+                        background-color: rgba(212, 160, 23, 0.75);
+                        color: #FFFFFF;
                         font-size: {badge_font}px;
                         font-weight: bold;
-                        padding: 3px 8px;
-                        border-radius: 10px;
+                        padding: 2px 6px;
+                        border-radius: 4px;
                     }}
                 """)
                 badge.adjustSize()
