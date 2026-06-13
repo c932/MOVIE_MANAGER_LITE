@@ -20,7 +20,8 @@ class MovieCard(QWidget):
     # 右键信号：传递 Movie 对象与全局坐标
     right_clicked = pyqtSignal(Movie, object)
     
-    def __init__(self, movie: Movie, poster_width: int = 200, poster_height: int = 300, parent=None):
+    def __init__(self, movie: Movie, poster_width: int = 200, poster_height: int = 300,
+                 rank_info=None, parent=None):
         """
         初始化电影卡片
         
@@ -28,11 +29,21 @@ class MovieCard(QWidget):
             movie: 电影数据对象
             poster_width: 海报宽度
             poster_height: 海报高度
+            rank_info: 排名信息，可以是 dict 或 list[dict]
+                       每个 dict: {"rank": int, "total": int, "source": "douban"|"imdb"}
         """
         super().__init__(parent)
         self.movie = movie
         self.poster_width = poster_width
         self.poster_height = poster_height
+        # 兼容：单个 dict 或 list
+        if isinstance(rank_info, dict):
+            self.rank_info_list = [rank_info] if rank_info else []
+        elif isinstance(rank_info, list):
+            self.rank_info_list = rank_info
+        else:
+            self.rank_info_list = []
+        self._rank_badges = []  # 排名角标 widget 列表
         self.is_hovered = False
         
         # 图片缓存
@@ -95,6 +106,35 @@ class MovieCard(QWidget):
             self.rating_badge.adjustSize()
             # 定位到右上角
             self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, 6)
+        
+        # === 排名角标（左下角，标题区上方，支持豆瓣+IMDB多源）===
+        self._rank_badges = []
+        if self.rank_info_list:
+            badge_font = max(9, min(11, self.poster_width // 18))
+            label_height = max(36, min(56, self.poster_height // 5))
+            base_y = self.poster_height - label_height - 4
+            for idx, ri in enumerate(self.rank_info_list):
+                rank = ri.get('rank', 0)
+                total = ri.get('total', 250)
+                source = ri.get('source', 'douban')
+                badge_text = f"🏆 {source.upper()}TOP{total} #{rank}" if source == 'imdb' else f"🏆 豆瓣TOP{total} #{rank}"
+                badge = QLabel(self.poster_container)
+                badge.setText(badge_text)
+                badge.setStyleSheet(f"""
+                    QLabel {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
+                        color: #1C1C1E;
+                        font-size: {badge_font}px;
+                        font-weight: bold;
+                        padding: 3px 8px;
+                        border-radius: 10px;
+                    }}
+                """)
+                badge.adjustSize()
+                badge_y = base_y - badge.height() - (idx * (badge.height() + 3))
+                badge.move(6, max(30, badge_y))
+                self._rank_badges.append(badge)
         
         # 设置卡片阴影（整体）
         shadow = QGraphicsDropShadowEffect()
@@ -204,6 +244,54 @@ class MovieCard(QWidget):
             }
         """)
         super().enterEvent(event)
+    
+    def update_rank_badge(self, rank_info=None):
+        """更新或添加排名角标（卡片池复用时调用），rank_info 可以是 dict 或 list"""
+        # 规范化为列表
+        if isinstance(rank_info, dict):
+            new_list = [rank_info] if rank_info else []
+        elif isinstance(rank_info, list):
+            new_list = rank_info
+        else:
+            new_list = []
+
+        if new_list == self.rank_info_list:
+            return  # 无变化，跳过
+
+        # 移除旧角标
+        for badge in self._rank_badges:
+            badge.deleteLater()
+        self._rank_badges = []
+        self.rank_info_list = new_list
+
+        if self.rank_info_list:
+            badge_font = max(9, min(11, self.poster_width // 18))
+            label_height = max(36, min(56, self.poster_height // 5))
+            base_y = self.poster_height - label_height - 4
+            for idx, ri in enumerate(self.rank_info_list):
+                rank = ri.get('rank', 0)
+                total = ri.get('total', 250)
+                source = ri.get('source', 'douban')
+                badge_text = f"🏆 {source.upper()}TOP{total} #{rank}" if source == 'imdb' else f"🏆 豆瓣TOP{total} #{rank}"
+                badge = QLabel(self.poster_container)
+                badge.setText(badge_text)
+                badge.setStyleSheet(f"""
+                    QLabel {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                            stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
+                        color: #1C1C1E;
+                        font-size: {badge_font}px;
+                        font-weight: bold;
+                        padding: 3px 8px;
+                        border-radius: 10px;
+                    }}
+                """)
+                badge.adjustSize()
+                badge_y = base_y - badge.height() - (idx * (badge.height() + 3))
+                badge.move(6, max(30, badge_y))
+                badge.raise_()
+                badge.show()
+                self._rank_badges.append(badge)
     
     def leaveEvent(self, event):
         """鼠标离开事件"""

@@ -281,6 +281,10 @@ class MainWindow(QMainWindow):
         self.all_movies: List[Movie] = []  # 所有电影列表
         self.filtered_movies: List[Movie] = []  # 过滤后的电影列表
         self.movie_cards: List[MovieCard] = []  # 海报卡片列表
+        self._card_pool: dict = {}  # 卡片池: normalized_nfo_path -> MovieCard
+        self._prev_poster_width = 0
+        self._prev_poster_height = 0
+        self._batch_loaders = []  # 批量图片加载线程列表
         
         # 过滤器状态
         self.selected_genres: Set[str] = set()
@@ -305,6 +309,8 @@ class MainWindow(QMainWindow):
         self._show_refresh_cleanup_popup = False
         self._incremental_refresh_mode = False
         self._refresh_old_movies_by_nfo = {}
+        self._rank_lookup: dict = {}  # 豆瓣Top250排名查询表 {normalized_title: {rank, total}}
+        self._imdb_rank_lookup: dict = {}  # IMDB Top250排名查询表
         
         # 排序状态
         self.sort_mode = 'release'  # default, rating, release, added, random
@@ -318,6 +324,7 @@ class MainWindow(QMainWindow):
         self.scale_value_label.setText(f"{saved_scale}%")
         
         self.start_scan()
+        self._load_rank_lookup()  # 加载豆瓣Top250排名查询表（供角标使用）
     
     def closeEvent(self, event):
         """窗口关闭事件，保存状态并清理线程"""
@@ -330,13 +337,20 @@ class MainWindow(QMainWindow):
                 self.scanner.terminate()
         
         # 停止所有批量图片加载线程
-        if hasattr(self, '_batch_loaders'):
-            for loader in self._batch_loaders:
+        for loader in self._batch_loaders:
+            if loader.isRunning():
+                loader.cancel()
+                loader.wait(1000)  # 等待最多1秒
                 if loader.isRunning():
-                    loader.cancel()
-                    loader.wait(1000)  # 等待最多1秒
-                    if loader.isRunning():
-                        loader.terminate()
+                    loader.terminate()
+        
+        # 清理卡片池
+        for card in self._card_pool.values():
+            try:
+                card.deleteLater()
+            except RuntimeError:
+                pass
+        self._card_pool.clear()
 
         # 停止后台在线更新线程
         if hasattr(self, '_bg_updater') and self._bg_updater.isRunning():
@@ -698,6 +712,46 @@ class MainWindow(QMainWindow):
         """)
         self.scrape_btn.clicked.connect(self._open_scrape_dialog)
         toolbar_layout.addWidget(self.scrape_btn)
+
+        # 榜单对比按钮
+        self.ranking_btn = QPushButton("榜单对比")
+        self.ranking_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        self.ranking_btn.setFixedHeight(28)
+        self.ranking_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.ranking_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #34C759;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 4px 14px;
+            }
+            QPushButton:hover {
+                background-color: #28A745;
+            }
+        """)
+        self.ranking_btn.clicked.connect(self._open_ranking_dialog)
+        toolbar_layout.addWidget(self.ranking_btn)
+
+        # 新片推荐按钮
+        self.new_movie_btn = QPushButton("新片推荐")
+        self.new_movie_btn.setFont(QFont("Microsoft YaHei", 10, QFont.Weight.Bold))
+        self.new_movie_btn.setFixedHeight(28)
+        self.new_movie_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.new_movie_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #AF52DE;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 4px 14px;
+            }
+            QPushButton:hover {
+                background-color: #9B3CC8;
+            }
+        """)
+        self.new_movie_btn.clicked.connect(self._open_new_movie_dialog)
+        toolbar_layout.addWidget(self.new_movie_btn)
         
         return toolbar
     
@@ -717,6 +771,8 @@ class MainWindow(QMainWindow):
         """实际执行缩放刷新和保存"""
         self.config.set_poster_scale(int(self.poster_scale * 100))
         self.config.save_config()
+        # 缩放改变后清空内存缓存（旧尺寸图片不再适用，新尺寸会从磁盘缓存重新加载）
+        ImageCache().clear()
         self.refresh_poster_wall()
     
     def _on_search_changed(self, text: str):
@@ -811,14 +867,139 @@ class MainWindow(QMainWindow):
         from scraper.scrape_dialog import ScrapeDialog
         movie_paths = self.config.get_movie_paths()
         if not movie_paths:
-            from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "提示", "请先在配置文件中设置电影目录路径。")
             return
+
+        def on_scrape_complete(force_rescan=False):
+            """刮削完成后回调：清空内存海报缓存，再触发重新扫描"""
+            # 刮削可能更新了海报文件，清空内存缓存以确保加载新海报
+            ImageCache().clear()
+            # 重置卡片池中海报加载状态，让下次 refresh_poster_wall 重新加载
+            for card in self._card_pool.values():
+                card._poster_loaded = False
+                card._poster_loading = False
+                card._poster_fail_count = 0
+                card._poster_next_retry_at = 0.0
+            self.status_label.setText("刮削完成，正在刷新媒体库...")
+            self.start_scan(force_rescan=True)
+
         dialog = ScrapeDialog(
             movie_paths=movie_paths,
-            on_complete=self.start_scan,
+            on_complete=on_scrape_complete,
             parent=self
         )
+        dialog.exec()
+
+    def _get_movies_for_dialog(self):
+        """获取可用于对话框的电影列表，处理扫描中等边界情况"""
+        if self.all_movies:
+            return self.all_movies
+        if self.filtered_movies:
+            return self.filtered_movies
+        return None
+
+    def _load_rank_lookup(self):
+        """加载豆瓣Top250和IMDB Top250排名查询表（供卡片/详情角标使用）"""
+        try:
+            from scraper.douban_ranking import get_top250_rank_lookup, get_imdb_top250_rank_lookup
+            self._rank_lookup = get_top250_rank_lookup()
+            self._imdb_rank_lookup = get_imdb_top250_rank_lookup()
+        except Exception as e:
+            logger.debug(f"加载排名查询表失败: {e}")
+            self._rank_lookup = {}
+            self._imdb_rank_lookup = {}
+
+    def _get_movie_rank_info(self, movie) -> list:
+        """
+        查询某部电影的所有排名信息（豆瓣+IMDB），返回列表。
+        每个元素: {"rank": int, "total": int, "source": "douban"|"imdb"}
+        返回空列表表示无排名信息。
+        """
+        results = []
+        if not self._rank_lookup and not self._imdb_rank_lookup:
+            return results
+
+        from scraper.douban_ranking import _normalize_title
+        title = movie.title or ""
+        orig = movie.original_title or ""
+        year = getattr(movie, 'year', '') or ""
+
+        for lookup, source_key in [(self._rank_lookup, "douban"), (self._imdb_rank_lookup, "imdb")]:
+            if not lookup:
+                continue
+            for t in (title, orig):
+                norm = _normalize_title(t)
+                if not norm:
+                    continue
+                if year:
+                    key_with_year = f"{norm}_{year}"
+                    if key_with_year in lookup:
+                        info = dict(lookup[key_with_year])
+                        info["source"] = source_key
+                        results.append(info)
+                        break
+                if norm in lookup:
+                    info = dict(lookup[norm])
+                    info["source"] = source_key
+                    results.append(info)
+                    break
+        return results
+
+    def _open_ranking_dialog(self):
+        """打开豆瓣榜单对比对话框（复用已隐藏的实例）"""
+        from ui.douban_ranking_dialog import DoubanRankingDialog
+        movies = self._get_movies_for_dialog()
+        if not movies:
+            scanning = hasattr(self, 'scanner') and self.scanner.isRunning()
+            if scanning:
+                QMessageBox.information(self, "提示", "媒体库正在扫描中，请加载完成后再试。")
+            else:
+                QMessageBox.warning(self, "提示", "电影库为空，请先点击左下角「媒体库」按钮扫描。")
+            return
+
+        # 复用已隐藏的对话框（用户从详情返回时直接显示）
+        if getattr(self, '_ranking_dialog', None) is not None:
+            self._ranking_dialog.show()
+            self._ranking_dialog.raise_()
+            self._ranking_dialog.activateWindow()
+            return
+
+        dialog = DoubanRankingDialog(movies, parent=self)
+        self._ranking_dialog = dialog
+
+        def _on_navigate(local_movie):
+            """榜单双击跳转：切换到海报墙并展示对应电影详情（对话框保持后台）"""
+            self._switch_to_poster_wall()
+            if self.search_keyword:
+                self.search_keyword = ""
+                self.search_input.clear()
+                self._apply_filters()
+            self.on_movie_card_clicked(local_movie)
+
+        dialog.navigate_to_movie.connect(_on_navigate)
+
+        def _on_dialog_finished(result):
+            """对话框关闭后：刷新排名查询表并重建卡片角标"""
+            self._ranking_dialog = None
+            self._load_rank_lookup()
+            # 刷新海报墙，复用卡片并通过 update_rank_badge 更新角标
+            self.refresh_poster_wall()
+
+        dialog.finished.connect(_on_dialog_finished)
+        dialog.open()  # 非阻塞打开，允许跳转后与主窗口交互
+
+    def _open_new_movie_dialog(self):
+        """打开新片推荐对话框"""
+        from ui.new_movie_dialog import NewMovieDialog
+        movies = self._get_movies_for_dialog()
+        if not movies:
+            scanning = hasattr(self, 'scanner') and self.scanner.isRunning()
+            if scanning:
+                QMessageBox.information(self, "提示", "媒体库正在扫描中，请加载完成后再试。")
+            else:
+                QMessageBox.warning(self, "提示", "电影库为空，请先点击左下角「媒体库」按钮扫描。")
+            return
+        dialog = NewMovieDialog(movies, parent=self)
         dialog.exec()
     
     def _switch_to_poster_wall(self):
@@ -1109,6 +1290,15 @@ class MainWindow(QMainWindow):
         self.all_movies.clear()
         self.filtered_movies.clear()
         self.movie_cards.clear()
+        # 清空卡片池和海报墙，避免扫描期间显示过期的卡片
+        for card in self._card_pool.values():
+            card.hide()
+            card.deleteLater()
+        self._card_pool.clear()
+        while self.poster_wall_layout.count():
+            item = self.poster_wall_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
         
         # 显示进度条
         self.progress_bar.setVisible(True)
@@ -1264,7 +1454,7 @@ class MainWindow(QMainWindow):
             for movie in self.all_movies:
                 if movie.nfo_path == last_nfo:
                     logger.info(f"✓ 成功恢复上次打开的电影: {movie.title}")
-                    self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies)
+                    self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
                     found = True
                     break
             if not found:
@@ -1933,106 +2123,122 @@ class MainWindow(QMainWindow):
         self.refresh_poster_wall()
     
     def refresh_poster_wall(self):
-        """刷新海报墙显示 - 分批创建卡片避免UI假死"""
+        """刷新海报墙显示 - 卡片池复用模式，避免重建已加载的卡片"""
         # 停止之前的批量加载线程
-        if hasattr(self, '_batch_loaders'):
-            for loader in self._batch_loaders:
-                if loader.isRunning():
-                    loader.cancel()
+        for loader in self._batch_loaders:
+            if loader.isRunning():
+                loader.cancel()
         self._batch_loaders = []
-        
-        # 停止之前的分批创建定时器
+
+        # 停止分批创建定时器（兼容旧逻辑）
         if hasattr(self, '_card_batch_timer') and self._card_batch_timer is not None:
             self._card_batch_timer.stop()
             self._card_batch_timer = None
-        
-        # 清空现有卡片
+
+        # 清除旧的空状态视图或残余布局项
         while self.poster_wall_layout.count():
             item = self.poster_wall_layout.takeAt(0)
-            if item.widget():
+            if item.widget() and item.widget() not in self._card_pool.values():
                 item.widget().deleteLater()
-        
-        self.movie_cards.clear()
-        
+
         # === 空状态视图 ===
         if not self.filtered_movies:
+            self.movie_cards.clear()
             self._show_empty_state()
             return
-        
+
         # 基础海报尺寸
         base_width, base_height = self.config.get_poster_size()
-        
+
         # 应用缩放
         poster_width = int(base_width * self.poster_scale)
         poster_height = int(base_height * self.poster_scale)
-        
+
+        # 判断海报尺寸是否变化（决定是否需要重新加载海报图片）
+        size_changed = (
+            poster_width != getattr(self, '_prev_poster_width', 0)
+            or poster_height != getattr(self, '_prev_poster_height', 0)
+        )
+        self._prev_poster_width = poster_width
+        self._prev_poster_height = poster_height
+
         # 根据缩放自动计算列数（海报墙区域宽度）
         wall_width = self.scroll_area.width() - 20  # 减去滚动条宽度
         columns = max(1, wall_width // poster_width)
-        
+
         # 应用排序
         sorted_movies = self._apply_sorting(self.filtered_movies.copy())
-        
+
         # 保存排序后的电影列表和尺寸信息（懒加载用）
         self._sorted_movies = sorted_movies
         self._poster_width = poster_width
         self._poster_height = poster_height
         self._columns = columns
-        
+
         # 连接滚动事件（懒加载） — 避免重复连接
         try:
             self.scroll_area.verticalScrollBar().valueChanged.connect(
                 self._on_scroll_lazy_load, Qt.ConnectionType.UniqueConnection)
         except TypeError:
             pass  # 已连接，跳过
-        
-        # 启动分批创建卡片
-        self._card_create_index = 0
-        self._card_batch_create()
-    
-    def _card_batch_create(self):
-        """分批创建电影卡片，每批创建若干张，避免阻塞UI"""
-        BATCH_SIZE = 50  # 每批创建50个卡片
-        
-        total = len(self._sorted_movies)
-        end = min(self._card_create_index + BATCH_SIZE, total)
-        columns = self._columns
-        
-        for idx in range(self._card_create_index, end):
-            movie = self._sorted_movies[idx]
-            card = MovieCard(movie, self._poster_width, self._poster_height)
-            card.clicked.connect(self.on_movie_card_clicked)
-            card.right_clicked.connect(self.on_movie_card_right_clicked)
-            card._poster_loaded = False
-            card._poster_loading = False
-            card._poster_fail_count = 0
-            card._poster_next_retry_at = 0.0
-            
+
+        # === 卡片池复用逻辑 ===
+        visible_nfo_set = set()
+        for m in sorted_movies:
+            if m.nfo_path:
+                visible_nfo_set.add(m.nfo_path.replace('\\', '/'))
+
+        # 隐藏不在当前筛选结果中的卡片（保留在池中，不销毁）
+        for nfo_key, card in self._card_pool.items():
+            if nfo_key not in visible_nfo_set:
+                card.hide()
+                if size_changed:
+                    card._poster_loaded = False
+                    card._poster_loading = False
+
+        # 为当前筛选结果创建或复用卡片
+        self.movie_cards = []
+        for idx, movie in enumerate(sorted_movies):
+            nfo_key = movie.nfo_path.replace('\\', '/') if movie.nfo_path else f"_no_nfo_{idx}"
+
+            if nfo_key not in self._card_pool:
+                # 创建新卡片并加入池中（传入豆瓣Top250排名信息）
+                rank_info = self._get_movie_rank_info(movie)
+                card = MovieCard(movie, poster_width, poster_height, rank_info=rank_info)
+                card.clicked.connect(self.on_movie_card_clicked)
+                card.right_clicked.connect(self.on_movie_card_right_clicked)
+                card._poster_loaded = False
+                card._poster_loading = False
+                card._poster_fail_count = 0
+                card._poster_next_retry_at = 0.0
+                self._card_pool[nfo_key] = card
+            else:
+                card = self._card_pool[nfo_key]
+                # 尺寸变化时：调整卡片大小并标记需要重新加载海报
+                if size_changed:
+                    card.setFixedSize(poster_width, poster_height)
+                    card.poster_width = poster_width
+                    card.poster_height = poster_height
+                    card._poster_loaded = False
+                    card._poster_loading = False
+                    card._poster_fail_count = 0
+                    card._poster_next_retry_at = 0.0
+                # 卡片池复用时同步更新排名角标
+                card.update_rank_badge(self._get_movie_rank_info(movie))
+                card.show()
+
             row = idx // columns
             col = idx % columns
             self.poster_wall_layout.addWidget(card, row, col)
             self.movie_cards.append(card)
-        
-        self._card_create_index = end
-        
-        # 更新状态栏进度
-        if end < total:
-            self.status_label.setText(f"正在加载海报墙... {end}/{total}")
-            # 用 QTimer 让 UI 处理事件后继续创建下一批
-            from PyQt6.QtCore import QTimer
-            self._card_batch_timer = QTimer(self)
-            self._card_batch_timer.setSingleShot(True)
-            self._card_batch_timer.timeout.connect(self._card_batch_create)
-            self._card_batch_timer.start(0)  # 尽快执行但让出UI线程
-        else:
-            # 全部创建完成
-            self._card_batch_timer = None
-            self.poster_wall_layout.setRowStretch(self.poster_wall_layout.rowCount(), 1)
-            self.status_label.setText(f"✅ 共 {total} 部电影")
-            
-            # 加载可见区域海报
-            from PyQt6.QtCore import QTimer
-            QTimer.singleShot(50, self._load_visible_posters)
+
+        self.poster_wall_layout.setRowStretch(self.poster_wall_layout.rowCount(), 1)
+
+        total = len(sorted_movies)
+        self.status_label.setText(f"共 {total} 部电影")
+
+        # 加载可见区域海报
+        QTimer.singleShot(50, self._load_visible_posters)
     
     def _on_scroll_lazy_load(self):
         """滚动时触发懒加载"""
@@ -2315,6 +2521,10 @@ class MainWindow(QMainWindow):
             self.all_movies.clear()
             self.filtered_movies.clear()
             self.movie_cards.clear()
+            # 清理卡片池（全量重扫时旧卡片不再有效）
+            for card in self._card_pool.values():
+                card.deleteLater()
+            self._card_pool.clear()
             self.selected_genres.clear()
             self.selected_countries.clear()
             self.selected_years.clear()
@@ -2348,6 +2558,10 @@ class MainWindow(QMainWindow):
         self.all_movies.clear()
         self.filtered_movies.clear()
         self.movie_cards.clear()
+        # 清理卡片池（路径可能变化，旧卡片不再有效）
+        for card in self._card_pool.values():
+            card.deleteLater()
+        self._card_pool.clear()
         self.selected_genres.clear()
         self.selected_countries.clear()
         self.selected_years.clear()
@@ -2457,7 +2671,7 @@ class MainWindow(QMainWindow):
         def _render_detail():
             if current_generation != self._detail_request_generation:
                 return
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies)
+            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
             logger.info(f"点击到详情渲染调度完成: {(time.perf_counter() - t0) * 1000:.1f} ms - {movie.get_display_title()}")
 
         QTimer.singleShot(0, _render_detail)
@@ -2566,7 +2780,7 @@ class MainWindow(QMainWindow):
 
         # 若当前详情页就是该电影，刷新详情
         if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies)
+            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
 
         movie_paths = self.config.get_movie_paths()
         self.cache_manager.save_cache(self.all_movies, movie_paths)
@@ -2602,7 +2816,7 @@ class MainWindow(QMainWindow):
 
         # 若当前详情页就是该电影，刷新详情（会触发详情异步海报加载）
         if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies)
+            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
 
         logger.info(f"右键更新海报: {movie.title}, 清理缓存条目={removed}")
 
@@ -2628,7 +2842,7 @@ class MainWindow(QMainWindow):
             setattr(movie, attr, getattr(updated_movie, attr))
 
         if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies)
+            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
 
         movie_paths = self.config.get_movie_paths()
         self.cache_manager.save_cache(self.all_movies, movie_paths)
@@ -2653,6 +2867,14 @@ class MainWindow(QMainWindow):
         # 从本地状态中移除（不触碰实际文件）
         self.all_movies = [m for m in self.all_movies if m.nfo_path != target_nfo]
         self.filtered_movies = [m for m in self.filtered_movies if m.nfo_path != target_nfo]
+
+        # 从卡片池中移除对应卡片
+        if target_nfo:
+            nfo_key = target_nfo.replace('\\', '/')
+            if nfo_key in self._card_pool:
+                card = self._card_pool.pop(nfo_key)
+                card.hide()
+                card.deleteLater()
 
         # 同步移除收藏/观看状态（仅本地JSON）
         if target_nfo:

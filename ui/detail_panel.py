@@ -198,8 +198,13 @@ class MovieDetailPanel(QWidget):
         """)
         self.main_layout.addWidget(loading_label)
     
-    def show_movie(self, movie: Movie, watch_history=None, favorite_manager=None, all_movies=None):
-        """显示电影详情"""
+    def show_movie(self, movie: Movie, watch_history=None, favorite_manager=None, all_movies=None, rank_info=None):
+        """显示电影详情
+
+        Args:
+            rank_info: 排名信息，可以是 dict 或 list[dict]
+                       每个 dict: {"rank": int, "total": int, "source": "douban"|"imdb"}
+        """
         t0 = time.perf_counter()
         self._detail_render_generation += 1
         render_generation = self._detail_render_generation
@@ -341,6 +346,38 @@ class MovieDetailPanel(QWidget):
         title_label.setStyleSheet("color: #212529;")
         title_label.setWordWrap(True)
         content_layout.addWidget(title_label)
+
+        # 排名角标（支持豆瓣+IMDB多源）
+        # 规范化为列表
+        rank_list = []
+        if rank_info:
+            if isinstance(rank_info, dict):
+                rank_list = [rank_info]
+            elif isinstance(rank_info, list):
+                rank_list = rank_info
+        
+        for ri in rank_list:
+            rank = ri.get('rank', 0)
+            total = ri.get('total', 250)
+            source = ri.get('source', 'douban')
+            if source == 'imdb':
+                label_text = f"🏆 IMDB TOP{total}  排名 第{rank}名"
+            else:
+                label_text = f"🏆 豆瓣TOP{total}  排名 第{rank}名"
+            rank_label = QLabel(label_text)
+            rank_label.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
+            rank_label.setStyleSheet("""
+                QLabel {
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                        stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
+                    color: #1C1C1E;
+                    padding: 4px 12px;
+                    border-radius: 12px;
+                }
+            """)
+            rank_label.setFixedHeight(28)
+            rank_label.setFixedWidth(rank_label.sizeHint().width() + 4)
+            content_layout.addWidget(rank_label)
         
         # 元信息行
         meta_layout = QHBoxLayout()

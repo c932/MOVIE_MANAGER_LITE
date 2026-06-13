@@ -5,12 +5,19 @@
 from pathlib import Path
 import logging
 import shutil
+import sys
 
 logger = logging.getLogger(__name__)
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
+# 打包后 sys.frozen=True；data 目录放到 %APPDATA%（避免 Program Files 权限问题）
+if getattr(sys, 'frozen', False):
+    import os
+    PROJECT_ROOT = Path(sys.executable).resolve().parent
+    DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "LocalMovieWall" / "data"
+else:
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    DATA_DIR = PROJECT_ROOT / "data"
 
 
 def ensure_data_dir() -> Path:
