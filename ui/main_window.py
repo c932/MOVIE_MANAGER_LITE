@@ -363,6 +363,17 @@ class _MovieSelectDialog(QDialog):
         top_row.addWidget(self.sort_combo)
         layout.addLayout(top_row)
 
+        # 筛选行
+        filter_row = QHBoxLayout()
+        from PyQt6.QtWidgets import QCheckBox
+        self.no_douban_cb = QCheckBox("仅显示无豆瓣评分")
+        self.no_douban_cb.toggled.connect(
+            lambda _: self._filter_movies(self.search_input.text())
+        )
+        filter_row.addWidget(self.no_douban_cb)
+        filter_row.addStretch()
+        layout.addLayout(filter_row)
+
         # 电影列表
         self.list_widget = QListWidget()
         self._populate_list(self.movies)
@@ -402,6 +413,7 @@ class _MovieSelectDialog(QDialog):
 
     def _populate_list(self, movies):
         """填充列表"""
+        from PyQt6.QtWidgets import QListWidgetItem
         from datetime import datetime
         self.list_widget.clear()
         for movie in movies:
@@ -446,14 +458,30 @@ class _MovieSelectDialog(QDialog):
 
     def _filter_movies(self, text):
         text = text.lower()
+        only_no_douban = self.no_douban_cb.isChecked()
+        visible = 0
         for i in range(self.list_widget.count()):
             item = self.list_widget.item(i)
             movie = item.data(Qt.ItemDataRole.UserRole)
-            match = (not text
-                     or text in movie.title.lower()
-                     or text in (getattr(movie, 'original_title', '')
-                                 or '').lower())
-            item.setHidden(not match)
+            # 文本匹配
+            text_match = (not text
+                          or text in movie.title.lower()
+                          or text in (getattr(movie, 'original_title', '')
+                                      or '').lower())
+            # 无豆瓣评分筛选
+            douban_rating = getattr(movie, 'ratings', {}).get('douban')
+            douban_match = (
+                not only_no_douban
+                or not douban_rating
+                or str(douban_rating).strip() == ''
+            )
+            show = text_match and douban_match
+            item.setHidden(not show)
+            if show:
+                visible += 1
+        self.count_label.setText(
+            f"显示 {visible}/{self.list_widget.count()} 部"
+        )
 
     def _sort_movies(self, index):
         """按选中方式排序电影列表"""
