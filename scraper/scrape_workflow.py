@@ -179,6 +179,8 @@ class ScrapeWorker(QThread):
             # 收集所有 NFO 文件
             all_nfo_files = []
             for movie_path in self.movie_paths:
+                # 规范化路径（将 //server/share 转换为 \\server\share 等）
+                movie_path = os.path.normpath(movie_path)
                 if not os.path.exists(movie_path):
                     self.step_progress.emit(f"  ⚠️ 路径不存在: {movie_path}")
                     continue
