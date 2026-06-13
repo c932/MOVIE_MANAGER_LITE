@@ -340,15 +340,18 @@ class MovieDetailPanel(QWidget):
         button_bar = self._create_button_bar(movie)
         content_layout.addWidget(button_bar)
         
-        # 标题
+        # 标题 + 排名角标（水平布局：标题左，角标右）
+        title_row = QHBoxLayout()
+        title_row.setSpacing(12)
+        title_row.setAlignment(Qt.AlignmentFlag.AlignVCenter)
+        
         title_label = QLabel(movie.title)
         title_label.setFont(QFont("Microsoft YaHei", 24, QFont.Weight.Bold))
         title_label.setStyleSheet("color: #212529;")
         title_label.setWordWrap(True)
-        content_layout.addWidget(title_label)
-
-        # 排名角标（支持豆瓣+IMDB多源）
-        # 规范化为列表
+        title_row.addWidget(title_label)
+        
+        # 排名角标（支持豆瓣+IMDB多源，水平并排在标题右侧）
         rank_list = []
         if rank_info:
             if isinstance(rank_info, dict):
@@ -356,28 +359,34 @@ class MovieDetailPanel(QWidget):
             elif isinstance(rank_info, list):
                 rank_list = rank_info
         
-        for ri in rank_list:
-            rank = ri.get('rank', 0)
-            total = ri.get('total', 250)
-            source = ri.get('source', 'douban')
-            if source == 'imdb':
-                label_text = f"🏆 IMDB TOP{total}  排名 第{rank}名"
-            else:
-                label_text = f"🏆 豆瓣TOP{total}  排名 第{rank}名"
-            rank_label = QLabel(label_text)
-            rank_label.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
-            rank_label.setStyleSheet("""
-                QLabel {
-                    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                        stop:0 #D4A017, stop:0.5 #F5C842, stop:1 #D4A017);
-                    color: #1C1C1E;
-                    padding: 4px 12px;
-                    border-radius: 12px;
-                }
-            """)
-            rank_label.setFixedHeight(28)
-            rank_label.setFixedWidth(rank_label.sizeHint().width() + 4)
-            content_layout.addWidget(rank_label)
+        if rank_list:
+            rank_badges_widget = QWidget()
+            rank_badges_layout = QHBoxLayout(rank_badges_widget)
+            rank_badges_layout.setContentsMargins(0, 0, 0, 0)
+            rank_badges_layout.setSpacing(6)
+            for ri in rank_list:
+                rank = ri.get('rank', 0)
+                total = ri.get('total', 250)
+                source = ri.get('source', 'douban')
+                if source == 'imdb':
+                    label_text = f"🏆 IMDB TOP{total}  排名 第{rank}名"
+                else:
+                    label_text = f"🏆 豆瓣TOP{total}  排名 第{rank}名"
+                rank_label = QLabel(label_text)
+                rank_label.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.Bold))
+                rank_label.setStyleSheet("""
+                    QLabel {
+                        background-color: rgba(212, 160, 23, 0.85);
+                        color: #FFFFFF;
+                        padding: 4px 10px;
+                        border-radius: 8px;
+                    }
+                """)
+                rank_label.setFixedHeight(28)
+                rank_badges_layout.addWidget(rank_label)
+            title_row.addWidget(rank_badges_widget)
+        
+        content_layout.addLayout(title_row)
         
         # 元信息行
         meta_layout = QHBoxLayout()
