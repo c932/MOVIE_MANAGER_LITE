@@ -11,7 +11,6 @@ import re
 import html
 import json
 import logging
-import sys
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
@@ -562,31 +561,7 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedM
 
 _DOUBAN_CLI_MIN_RATING = 7.0  # 豆瓣热门最低评分筛选
 
-
-def _run_douban_cli(*args: str, timeout: int = 30) -> Optional[dict | list]:
-    """调用 douban-cli 并返回解析后的 JSON，失败返回 None"""
-    import subprocess
-    import shutil
-    # 在 Windows 上需要找到 npx 的完整路径（.CMD 文件）
-    npx_path = shutil.which("npx") or "npx"
-    cmd = [npx_path, "--yes", "@marvae24/douban-cli"] + list(args) + ["--json"]
-    try:
-        result = subprocess.run(
-            cmd, capture_output=True, timeout=timeout,
-            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-        )
-        stdout = result.stdout.decode('utf-8', errors='replace') if isinstance(result.stdout, bytes) else result.stdout
-        stderr = result.stderr.decode('utf-8', errors='replace') if isinstance(result.stderr, bytes) else result.stderr
-        if result.returncode != 0:
-            logger.warning(f"douban-cli 命令失败 ({result.returncode}): {' '.join(args)} {stderr.strip()}")
-            return None
-        return json.loads(stdout)
-    except subprocess.TimeoutExpired:
-        logger.warning(f"douban-cli 命令超时 ({timeout}s): {' '.join(args)}")
-        return None
-    except (json.JSONDecodeError, Exception) as e:
-        logger.error(f"douban-cli 命令异常: {e}")
-        return None
+from .douban_cli import run_douban_cli as _run_douban_cli
 
 
 def _parse_pubdate(pubdate_list: list) -> str:

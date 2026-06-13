@@ -11,7 +11,7 @@ from typing import List, Optional, Callable
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QTextEdit, QProgressBar, QGroupBox, QCheckBox, QLineEdit,
-    QFrame, QWidget, QSizePolicy, QRadioButton, QButtonGroup
+    QFrame, QWidget, QSizePolicy
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QFont, QColor, QTextCursor, QIcon
@@ -63,7 +63,7 @@ class ScrapeDialog(QDialog):
         layout.addWidget(title_label)
 
         desc_label = QLabel(
-            "一键完成：TMM 元数据刮削 → 豆瓣评分注入 → 刷新媒体库"
+            "一键完成：豆瓣评分注入 → 刷新媒体库"
         )
         desc_label.setStyleSheet("color: #6C757D; font-size: 12px; margin-bottom: 8px;")
         layout.addWidget(desc_label)
@@ -76,9 +76,8 @@ class ScrapeDialog(QDialog):
         steps_layout.setSpacing(8)
 
         step_configs = [
-            ("step_tmm", "① TMM 刮削", "🎬"),
-            ("step_douban", "② 豆瓣注入", "🟢"),
-            ("step_refresh", "③ 刷新媒体库", "🔄"),
+            ("step_douban", "① 豆瓣注入", "🟢"),
+            ("step_refresh", "② 刷新媒体库", "🔄"),
         ]
 
         for key, text, icon in step_configs:
@@ -271,7 +270,7 @@ class ScrapeDialog(QDialog):
 
     def _create_options_group(self) -> QGroupBox:
         """创建选项配置区"""
-        group = QGroupBox("⚙️ 刮削选项")
+        group = QGroupBox("⚙️ 豆瓣注入选项")
         group.setFont(QFont("Microsoft YaHei", 10))
         group_layout = QVBoxLayout(group)
         group_layout.setSpacing(8)
@@ -279,102 +278,6 @@ class ScrapeDialog(QDialog):
 
         # 统一的行标签宽度
         LABEL_W = 55
-
-        # ===== 步骤选择行 =====
-        step_row = QHBoxLayout()
-        step_row.setSpacing(12)
-        step_label = QLabel("步骤:")
-        step_label.setFixedWidth(LABEL_W)
-        step_row.addWidget(step_label)
-
-        self.chk_enable_tmm = QCheckBox("TMM 刮削")
-        self.chk_enable_tmm.setChecked(True)
-        self.chk_enable_tmm.setToolTip("启用/禁用 TinyMediaManager 元数据刮削步骤")
-        self.chk_enable_tmm.toggled.connect(self._on_step_toggle)
-        step_row.addWidget(self.chk_enable_tmm)
-
-        self.chk_enable_douban = QCheckBox("豆瓣注入")
-        self.chk_enable_douban.setChecked(True)
-        self.chk_enable_douban.setToolTip("启用/禁用豆瓣评分注入步骤")
-        self.chk_enable_douban.toggled.connect(self._on_step_toggle)
-        step_row.addWidget(self.chk_enable_douban)
-
-        step_row.addStretch()
-        group_layout.addLayout(step_row)
-
-        # ===== TMM 选项行 =====
-        tmm_row = QHBoxLayout()
-        tmm_row.setSpacing(12)
-        tmm_label = QLabel("TMM:")
-        tmm_label.setFixedWidth(LABEL_W)
-        tmm_row.addWidget(tmm_label)
-
-        self.chk_tmm_update = QCheckBox("扫描数据源 (-u)")
-        self.chk_tmm_update.setChecked(True)
-        tmm_row.addWidget(self.chk_tmm_update)
-
-        self.chk_tmm_scrape_new = QCheckBox("刮削新电影 (-n)")
-        self.chk_tmm_scrape_new.setChecked(True)
-        tmm_row.addWidget(self.chk_tmm_scrape_new)
-
-        self.chk_tmm_scrape_all = QCheckBox("刮削所有未刮削")
-        self.chk_tmm_scrape_all.setChecked(False)
-        tmm_row.addWidget(self.chk_tmm_scrape_all)
-
-        self.chk_tmm_rename = QCheckBox("重命名 (-r)")
-        self.chk_tmm_rename.setChecked(False)
-        tmm_row.addWidget(self.chk_tmm_rename)
-
-        tmm_row.addStretch()
-        group_layout.addLayout(tmm_row)
-
-        # ===== 豆瓣引擎选择行 =====
-        engine_row = QHBoxLayout()
-        engine_row.setSpacing(12)
-        engine_label = QLabel("引擎:")
-        engine_label.setFixedWidth(LABEL_W)
-        engine_row.addWidget(engine_label)
-
-        self.engine_group = QButtonGroup(self)
-
-        self.radio_normal = QRadioButton("普通模式 (requests)")
-        self.radio_normal.setChecked(True)
-        self.radio_normal.setToolTip("使用 HTTP 请求抓取，速度快但可能触发反爬")
-        self.engine_group.addButton(self.radio_normal, 0)
-        engine_row.addWidget(self.radio_normal)
-
-        self.radio_selenium = QRadioButton("Selenium 增强模式")
-        self.radio_selenium.setToolTip("使用真实浏览器访问，成功率高，支持登录")
-        self.engine_group.addButton(self.radio_selenium, 1)
-        engine_row.addWidget(self.radio_selenium)
-
-        self.radio_normal.toggled.connect(self._on_engine_changed)
-
-        engine_row.addStretch()
-        group_layout.addLayout(engine_row)
-
-        # ===== Selenium 选项行 =====
-        selenium_row = QHBoxLayout()
-        selenium_row.setSpacing(12)
-        selenium_spacer = QLabel("")
-        selenium_spacer.setFixedWidth(LABEL_W)
-        selenium_row.addWidget(selenium_spacer)
-
-        self.chk_selenium_login = QCheckBox("🔐 启用豆瓣登录")
-        self.chk_selenium_login.setChecked(False)
-        self.chk_selenium_login.setEnabled(False)
-        self.chk_selenium_login.setToolTip("打开浏览器手动登录豆瓣账号（提升抓取成功率）")
-        self.chk_selenium_login.toggled.connect(self._on_login_toggle)
-        selenium_row.addWidget(self.chk_selenium_login)
-
-        self.chk_selenium_headless = QCheckBox("无头模式 (后台运行)")
-        self.chk_selenium_headless.setChecked(True)
-        self.chk_selenium_headless.setEnabled(False)
-        self.chk_selenium_headless.setToolTip("不显示浏览器窗口，后台运行")
-        selenium_row.addWidget(self.chk_selenium_headless)
-
-        selenium_row.addStretch()
-        group_layout.addLayout(selenium_row)
 
         # ===== 豆瓣选项行 1 =====
         douban_row1 = QHBoxLayout()
@@ -434,82 +337,12 @@ class ScrapeDialog(QDialog):
         # 连接信号
         self.chk_douban_new_only.toggled.connect(self._on_new_only_toggle)
 
-        # ===== Cookie 行 =====
-        cookie_row = QHBoxLayout()
-        cookie_row.setSpacing(12)
-        self.cookie_label = QLabel("Cookie:")
-        self.cookie_label.setFixedWidth(LABEL_W)
-        cookie_row.addWidget(self.cookie_label)
-
-        self.cookie_input = QLineEdit()
-        self.cookie_input.setPlaceholderText("可选：粘贴豆瓣 Cookie 提升成功率（仅普通模式）")
-        cookie_row.addWidget(self.cookie_input)
-
-        group_layout.addLayout(cookie_row)
-
         return group
 
-    def _on_step_toggle(self, checked: bool):
-        """步骤启用/禁用时更新相关选项的可用性"""
-        tmm_enabled = self.chk_enable_tmm.isChecked()
-        douban_enabled = self.chk_enable_douban.isChecked()
-
-        # TMM 相关选项
-        self.chk_tmm_update.setEnabled(tmm_enabled)
-        self.chk_tmm_scrape_new.setEnabled(tmm_enabled)
-        self.chk_tmm_scrape_all.setEnabled(tmm_enabled)
-        self.chk_tmm_rename.setEnabled(tmm_enabled)
-
-        # 豆瓣相关选项
-        self.radio_normal.setEnabled(douban_enabled)
-        self.radio_selenium.setEnabled(douban_enabled)
-        self.chk_douban_skip.setEnabled(douban_enabled)
-        self.chk_douban_recursive.setEnabled(douban_enabled)
-        self.chk_douban_new_only.setEnabled(douban_enabled)
-        self.chk_douban_skip_failed.setEnabled(douban_enabled)
-        self.delay_input.setEnabled(douban_enabled)
-        self.cookie_input.setEnabled(douban_enabled)
-        
-        # 天数输入框仅在启用“仅注入新电影”时可用
-        self.new_days_label.setEnabled(douban_enabled and self.chk_douban_new_only.isChecked())
-        self.new_days_input.setEnabled(douban_enabled and self.chk_douban_new_only.isChecked())
-        
-        # Selenium 选项根据引擎和豆瓣步骤启用状态
-        is_selenium = self.radio_selenium.isChecked()
-        self.chk_selenium_login.setEnabled(douban_enabled and is_selenium)
-        self.chk_selenium_headless.setEnabled(douban_enabled and is_selenium)
-
-    def _on_engine_changed(self, checked: bool):
-        """引擎切换时更新 UI 状态"""
-        is_selenium = self.radio_selenium.isChecked()
-        douban_enabled = self.chk_enable_douban.isChecked()
-        
-        # Selenium 选项仅在 Selenium 模式且豆瓣步骤启用时可用
-        self.chk_selenium_login.setEnabled(douban_enabled and is_selenium)
-        self.chk_selenium_headless.setEnabled(douban_enabled and is_selenium)
-        
-        # Cookie 输入仅在普通模式有意义
-        self.cookie_input.setEnabled(not is_selenium)
-        
-        # 更新提示文本
-        if is_selenium:
-            self.cookie_input.setPlaceholderText("Selenium 模式使用浏览器 Cookie，无需手动填写")
-        else:
-            self.cookie_input.setPlaceholderText("可选：粘贴豆瓣 Cookie 提升成功率（仅普通模式）")
-
-    def _on_login_toggle(self, checked: bool):
-        """启用登录时自动关闭无头模式（否则用户看不到浏览器窗口）"""
-        if checked:
-            # 启用登录时，必须关闭无头模式
-            self.chk_selenium_headless.setChecked(False)
-            # 暂时禁用无头模式复选框，防止用户误操作
-            # self.chk_selenium_headless.setEnabled(False)
-    
     def _on_new_only_toggle(self, checked: bool):
         """仅注入新电影选项切换时更新天数输入框状态"""
-        douban_enabled = self.chk_enable_douban.isChecked()
-        self.new_days_label.setEnabled(douban_enabled and checked)
-        self.new_days_input.setEnabled(douban_enabled and checked)
+        self.new_days_label.setEnabled(checked)
+        self.new_days_input.setEnabled(checked)
 
     def _load_saved_config(self):
         """加载之前保存的配置（如有）"""
@@ -520,49 +353,18 @@ class ScrapeDialog(QDialog):
                 with open(config_path, 'r', encoding='utf-8') as f:
                     saved = json.load(f)
                 
-                # 步骤启用状态
-                if 'enable_tmm_step' in saved:
-                    self.chk_enable_tmm.setChecked(saved['enable_tmm_step'])
-                if 'enable_douban_step' in saved:
-                    self.chk_enable_douban.setChecked(saved['enable_douban_step'])
-                
-                # 抓取引擎
-                if saved.get('douban_mode') == 'selenium':
-                    self.radio_selenium.setChecked(True)
-                else:
-                    self.radio_normal.setChecked(True)
-                
-                # Selenium 选项
-                if 'selenium_headless' in saved:
-                    self.chk_selenium_headless.setChecked(saved['selenium_headless'])
-                if 'selenium_enable_login' in saved:
-                    self.chk_selenium_login.setChecked(saved['selenium_enable_login'])
-                
-                # Cookie 和延迟
-                if saved.get('douban_cookie'):
-                    self.cookie_input.setText(saved['douban_cookie'])
                 if saved.get('douban_delay'):
                     self.delay_input.setText(str(saved['douban_delay']))
-                
-                # 新增选项
                 if 'douban_inject_new_only' in saved:
                     self.chk_douban_new_only.setChecked(saved['douban_inject_new_only'])
                 if 'douban_new_days' in saved:
                     self.new_days_input.setText(str(saved['douban_new_days']))
                 if 'douban_skip_failed' in saved:
                     self.chk_douban_skip_failed.setChecked(saved['douban_skip_failed'])
-                
-                # 路径
-                if 'tmm_path' in saved:
-                    self.config.tmm_path = saved['tmm_path']
-                if 'douban_tool_path' in saved:
-                    self.config.douban_tool_path = saved['douban_tool_path']
             except Exception:
                 pass
         
-        # 加载完配置后，手动触发一次状态同步，确保所有控件的启用/禁用状态正确
-        self._on_step_toggle(True)
-        self._on_engine_changed(True)
+        # 加载完配置后，手动触发一次状态同步
         self._on_new_only_toggle(self.chk_douban_new_only.isChecked())
 
     def _save_config(self):
@@ -571,18 +373,10 @@ class ScrapeDialog(QDialog):
         config_path = str(resolve_data_file('scrape_config.json'))
         try:
             saved = {
-                'enable_tmm_step': self.chk_enable_tmm.isChecked(),
-                'enable_douban_step': self.chk_enable_douban.isChecked(),
-                'douban_mode': 'selenium' if self.radio_selenium.isChecked() else 'normal',
-                'douban_cookie': self.cookie_input.text().strip(),
                 'douban_delay': float(self.delay_input.text() or 2.5),
                 'douban_inject_new_only': self.chk_douban_new_only.isChecked(),
                 'douban_new_days': int(self.new_days_input.text() or 7),
                 'douban_skip_failed': self.chk_douban_skip_failed.isChecked(),
-                'selenium_headless': self.chk_selenium_headless.isChecked(),
-                'selenium_enable_login': self.chk_selenium_login.isChecked(),
-                'tmm_path': self.config.tmm_path,
-                'douban_tool_path': self.config.douban_tool_path,
             }
             with open(config_path, 'w', encoding='utf-8') as f:
                 json.dump(saved, f, indent=2, ensure_ascii=False)
@@ -595,28 +389,11 @@ class ScrapeDialog(QDialog):
         """开始执行刮削工作流"""
         self._save_config()
 
-        # 从 UI 读取步骤启用状态
-        self.config.enable_tmm_step = self.chk_enable_tmm.isChecked()
-        self.config.enable_douban_step = self.chk_enable_douban.isChecked()
-
         # 从 UI 读取配置
-        self.config.tmm_update_all = self.chk_tmm_update.isChecked()
-        self.config.tmm_scrape_new = self.chk_tmm_scrape_new.isChecked()
-        self.config.tmm_scrape_unscraped = self.chk_tmm_scrape_all.isChecked()
-        self.config.tmm_rename = self.chk_tmm_rename.isChecked()
-        
-        # 读取抓取引擎模式
-        self.config.douban_mode = "selenium" if self.radio_selenium.isChecked() else "normal"
-        
         self.config.douban_skip_existing = self.chk_douban_skip.isChecked()
         self.config.douban_inject_new_only = self.chk_douban_new_only.isChecked()
         self.config.douban_skip_failed = self.chk_douban_skip_failed.isChecked()
         self.config.douban_recursive = self.chk_douban_recursive.isChecked()
-        self.config.douban_cookie = self.cookie_input.text().strip()
-        
-        # Selenium 选项
-        self.config.selenium_headless = self.chk_selenium_headless.isChecked()
-        self.config.selenium_enable_login = self.chk_selenium_login.isChecked()
 
         try:
             self.config.douban_delay = float(self.delay_input.text() or 2.5)
@@ -642,10 +419,7 @@ class ScrapeDialog(QDialog):
         self._log("=" * 60)
         self._log("🎬 刮削工作流开始")
         self._log(f"电影目录: {', '.join(self.movie_paths)}")
-        self._log(f"抓取引擎: {'Selenium 增强模式' if self.config.douban_mode == 'selenium' else '普通模式 (requests)'}")
-        if self.config.douban_mode == "selenium":
-            self._log(f"  - 无头模式: {'是' if self.config.selenium_headless else '否'}")
-            self._log(f"  - 豆瓣登录: {'是' if self.config.selenium_enable_login else '否'}")
+        self._log(f"引擎: douban-cli")
         self._log("=" * 60)
 
         # 启动工作线程
@@ -678,9 +452,7 @@ class ScrapeDialog(QDialog):
         self._log(f"{'─' * 50}")
 
         # 更新指示器
-        if "TMM" in desc:
-            self._update_step_status("step_tmm", "running")
-        elif "豆瓣" in desc:
+        if "豆瓣" in desc:
             self._update_step_status("step_douban", "running")
         elif "刷新" in desc:
             self._update_step_status("step_refresh", "running")
@@ -692,9 +464,7 @@ class ScrapeDialog(QDialog):
         self._log(msg)
         
         # 检测跳过消息，更新步骤状态为 skipped
-        if "⏭️ 已跳过 TMM" in msg:
-            self._update_step_status("step_tmm", "skipped")
-        elif "⏭️ 已跳过豆瓣" in msg:
+        if "⏭️ 已跳过豆瓣" in msg:
             self._update_step_status("step_douban", "skipped")
 
     def _on_step_finished(self, desc: str, success: bool):
@@ -703,9 +473,7 @@ class ScrapeDialog(QDialog):
             return
         
         status = "success" if success else "failed"
-        if "TMM" in desc:
-            self._update_step_status("step_tmm", status)
-        elif "豆瓣" in desc:
+        if "豆瓣" in desc:
             self._update_step_status("step_douban", status)
         elif "刷新" in desc:
             self._update_step_status("step_refresh", status)
@@ -752,102 +520,66 @@ class ScrapeDialog(QDialog):
         """处理匹配失败的电影，弹出手动匹配对话框"""
         from .manual_match_dialog import ManualMatchDialog
         from .scrape_workflow import FailedMovie
-        import importlib.util
+        from scraper.douban_cli import get_movie_detail, inject_douban_to_nfo
         import random
         import time
         
         if not failed_movies:
             return
         
-        # 导入 TMM_DOUBAN 模块
-        douban_script = os.path.join(
-            self.config.douban_tool_path, self.config.douban_script
-        )
+        # 初始化失败记录管理器
+        from utils.failed_movies_manager import FailedMoviesManager
+        failed_manager = FailedMoviesManager()
         
-        try:
-            spec = importlib.util.spec_from_file_location(
-                "douban_injector", douban_script
+        manual_matched = 0
+        manual_skipped = 0
+        
+        for idx, failed_movie in enumerate(failed_movies, 1):
+            # 弹出手动匹配对话框
+            dialog = ManualMatchDialog(
+                movie_title=failed_movie.title,
+                year=failed_movie.year,
+                nfo_path=failed_movie.nfo_file,
+                parent=self
             )
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
             
-            NFOHandler = module.NFOHandler
-            nfo_handler = NFOHandler()
-            
-            # 选择API模式
-            if self.config.douban_mode == "selenium":
-                DoubanAPISelenium = module.DoubanAPISelenium
-                api = DoubanAPISelenium(
-                    headless=self.config.selenium_headless,
-                    enable_login=self.config.selenium_enable_login,
-                    cookie_file=self.config.selenium_cookie_file
-                )
-            else:
-                DoubanAPI = module.DoubanAPI
-                cookie = self.config.douban_cookie or None
-                api = DoubanAPI(cookie=cookie)
-            
-            # 初始化失败记录管理器
-            from utils.failed_movies_manager import FailedMoviesManager
-            failed_manager = FailedMoviesManager()
-            
-            manual_matched = 0
-            manual_skipped = 0
-            
-            for idx, failed_movie in enumerate(failed_movies, 1):
-                # 弹出手动匹配对话框
-                dialog = ManualMatchDialog(
-                    movie_title=failed_movie.title,
-                    year=failed_movie.year,
-                    nfo_path=failed_movie.nfo_file,
-                    parent=self
-                )
-                
-                if dialog.exec() == QDialog.DialogCode.Accepted:
-                    douban_id = dialog.get_douban_id()
-                    if douban_id:
-                        try:
-                            self._log(f"\n[{idx}/{len(failed_movies)}] 手动匹配: {failed_movie.title}")
-                            self._log(f"  豆瓣ID: {douban_id}")
+            if dialog.exec() == QDialog.DialogCode.Accepted:
+                douban_id = dialog.get_douban_id()
+                if douban_id:
+                    try:
+                        self._log(f"\n[{idx}/{len(failed_movies)}] 手动匹配: {failed_movie.title}")
+                        self._log(f"  豆瓣ID: {douban_id}")
+                        
+                        # 获取详情
+                        detail = get_movie_detail(douban_id)
+                        if detail:
+                            rating_str = detail.get('rating', '?')
                             
-                            # 获取评分
-                            rating_info = api.get_movie_rating(douban_id)
-                            if rating_info:
-                                rating = rating_info['rating']
-                                votes = rating_info['votes']
+                            # 注入 NFO
+                            if inject_douban_to_nfo(failed_movie.nfo_file, douban_id, detail):
+                                self._log(f"  ✓ 成功注入: {rating_str}/10")
+                                manual_matched += 1
                                 
-                                # 注入
-                                if nfo_handler.inject_douban_data(
-                                    failed_movie.nfo_file, douban_id, rating, votes
-                                ):
-                                    self._log(f"  ✓ 成功注入: {rating}/10 ({votes}票)")
-                                    manual_matched += 1
-                                    
-                                    # 从失败记录中移除
-                                    if failed_manager.is_failed(failed_movie.nfo_file):
-                                        failed_manager.remove_failed(failed_movie.nfo_file)
-                                        self._log(f"  ✓ 已从失败记录中移除")
-                                else:
-                                    self._log(f"  ✗ 注入失败")
+                                # 从失败记录中移除
+                                if failed_manager.is_failed(failed_movie.nfo_file):
+                                    failed_manager.remove_failed(failed_movie.nfo_file)
+                                    self._log(f"  ✓ 已从失败记录中移除")
                             else:
-                                self._log(f"  ✗ 获取评分失败")
-                            
-                            # 延迟
-                            time.sleep(self.config.douban_delay + random.uniform(-0.5, 1.0))
-                        except Exception as e:
-                            self._log(f"  ✗ 异常: {e}")
-                else:
-                    manual_skipped += 1
-                    self._log(f"\n[{idx}/{len(failed_movies)}] 跳过: {failed_movie.title}")
-            
-            api.close()
-            
-            self._log(f"\n{'=' * 60}")
-            self._log(f"📊 手动匹配完成: 成功 {manual_matched} | 跳过 {manual_skipped}")
-            self._log(f"{'=' * 60}")
-            
-        except Exception as e:
-            self._log(f"\n❌ 手动匹配过程出错: {e}")
+                                self._log(f"  ✗ 注入失败")
+                        else:
+                            self._log(f"  ✗ 获取详情失败")
+                        
+                        # 延迟
+                        time.sleep(self.config.douban_delay + random.uniform(-0.5, 1.0))
+                    except Exception as e:
+                        self._log(f"  ✗ 异常: {e}")
+            else:
+                manual_skipped += 1
+                self._log(f"\n[{idx}/{len(failed_movies)}] 跳过: {failed_movie.title}")
+        
+        self._log(f"\n{'=' * 60}")
+        self._log(f"📊 手动匹配完成: 成功 {manual_matched} | 跳过 {manual_skipped}")
+        self._log(f"{'=' * 60}")
 
     # ─────────────── 工具方法 ───────────────
 
@@ -914,27 +646,6 @@ class ScrapeDialog(QDialog):
                 image: none;
             }
             QCheckBox::indicator:disabled {
-                background-color: #E9ECEF;
-                border-color: #CED4DA;
-            }
-            QRadioButton {
-                font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
-                font-size: 13px;
-                color: #343A40;
-                spacing: 6px;
-            }
-            QRadioButton::indicator {
-                width: 15px;
-                height: 15px;
-                border: 1.5px solid #ADB5BD;
-                border-radius: 8px;
-                background-color: #FFFFFF;
-            }
-            QRadioButton::indicator:checked {
-                background-color: #007AFF;
-                border-color: #007AFF;
-            }
-            QRadioButton::indicator:disabled {
                 background-color: #E9ECEF;
                 border-color: #CED4DA;
             }

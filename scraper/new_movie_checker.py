@@ -102,9 +102,9 @@ def load_new_movie_cache() -> Tuple[List[NewMovie], List[NewMovie]]:
 # ─────────────────── 抓取函数（douban-cli）───────────────────
 
 def _run_cli(*args: str, timeout: int = 30) -> Optional[list | dict]:
-    """复用 douban_ranking 的 douban-cli 调用"""
-    from scraper.douban_ranking import _run_douban_cli
-    return _run_douban_cli(*args, timeout=timeout)
+    """复用 douban_cli 的 douban-cli 调用"""
+    from scraper.douban_cli import run_douban_cli
+    return run_douban_cli(*args, timeout=timeout)
 
 
 def _fetch_details_concurrent(ids: List[str]) -> dict:
