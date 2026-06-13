@@ -70,7 +70,7 @@ class MovieCard(QWidget):
         
         # === 技术徽章层（左上角）===
         self.tech_badges_container = QWidget(self.poster_container)
-        self.tech_badges_container.setGeometry(6, 6, self.poster_width - 12, 30)
+        self.tech_badges_container.setGeometry(6, 6, self.poster_width - 12, 20)
         tech_layout = QHBoxLayout(self.tech_badges_container)
         tech_layout.setContentsMargins(0, 0, 0, 0)
         tech_layout.setSpacing(4)
@@ -201,8 +201,8 @@ class MovieCard(QWidget):
         # 海报背景标签
         self.poster_label.setGeometry(0, 0, pw, ph)
 
-        # 技术徽章容器
-        self.tech_badges_container.setGeometry(6, 6, pw - 12, 30)
+        # 技术徽章容器（高度与徽章一致，确保左右对齐）
+        self.tech_badges_container.setGeometry(6, 6, pw - 12, 20)
 
         # 评分徽章（右上角）
         if hasattr(self, 'rating_badge') and self.rating_badge:
