@@ -55,7 +55,32 @@ data/config.json
 data/movie_cache.json
 data/scrape_config.json
 data/douban_cookies.pkl
+data/douban_ranking_cache.json
+data/new_movie_cache.json
 
 # OS
 .DS_Store
 Thumbs.db
+NUL
+
+# Crash dumps / debug logs
+crash_dump.txt
+stress_crash_dump.txt
+qt_log.txt
+
+# Scraped data (auto-generated)
+pycdc_latest.json
+pycdc_releases.html
+
+# Screenshots / temp images
+wall_row9.png
+wall_screenshot.png
+
+# Third-party tools
+.qoder/
+
+# Structure dumps
+game_main_window_structure.json
+gamewall_structure.json
+gw_methods_dump.txt
+gw_structure.json

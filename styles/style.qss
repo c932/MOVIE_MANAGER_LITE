@@ -52,6 +52,11 @@ QMainWindow {
     background: none;
 }
 
+#GameFilterFooter {
+    background-color: #FFFFFF;
+    border-top: 1px solid #E8EAED;
+}
+
 /* 过滤按钮样式 */
 #FilterButton {
     background-color: #FFFFFF;
@@ -199,14 +204,14 @@ QMainWindow {
 }
 
 /* =========================== 海报卡片 =========================== */
-#MovieCard {
+#MovieCard, #GameCard {
     background-color: #FFFFFF;
     border-radius: 12px;
     border: 2px solid transparent;
     padding: 12px;
 }
 
-#MovieCard:hover {
+#MovieCard:hover, #GameCard:hover {
     border: 2px solid #007AFF;
 }
 

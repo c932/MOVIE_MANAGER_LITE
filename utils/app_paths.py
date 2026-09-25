@@ -4,6 +4,7 @@
 """
 from pathlib import Path
 import logging
+import os
 import shutil
 import sys
 
@@ -11,13 +12,17 @@ logger = logging.getLogger(__name__)
 
 
 # 打包后 sys.frozen=True；data 目录放到 %APPDATA%（避免 Program Files 权限问题）
+# 同仓库的两个应用（电影墙/游戏墙）通过 exe 名或环境变量区分各自的数据目录
 if getattr(sys, 'frozen', False):
-    import os
     PROJECT_ROOT = Path(sys.executable).resolve().parent
-    DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / "LocalMovieWall" / "data"
+    _exe_stem = Path(sys.executable).stem.lower()
+    _app_name = "LocalGameWall" if "game" in _exe_stem else "LocalMovieWall"
+    DATA_DIR = Path(os.environ.get("APPDATA", Path.home())) / _app_name / "data"
 else:
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    DATA_DIR = PROJECT_ROOT / "data"
+    _app_name = os.environ.get("APP_DIR_NAME_OVERRIDE", "LocalMovieWall")
+    DATA_DIR = PROJECT_ROOT / "data" if _app_name == "LocalMovieWall" \
+        else Path(os.environ.get("APPDATA", Path.home())) / _app_name / "data"
 
 
 def ensure_data_dir() -> Path:

@@ -132,6 +132,14 @@ class ConfigManager:
             "main": [],
             "right": []
         })
+
+    def get_value(self, key: str, default=None):
+        """读取通用配置项（供游戏墙等模块扩展使用）"""
+        return self._config.get(key, default)
+
+    def set_value(self, key: str, value):
+        """写入通用配置项"""
+        self._config[key] = value
     
     def set_splitter_sizes(self, main_sizes: list, right_sizes: list):
         """保存分割器尺寸"""

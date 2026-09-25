@@ -1,55 +1,93 @@
 @echo off
-REM Local Movie Wall å¯åŠ¨è„šæœ¬
-REM è‡ªåŠ¨æ£€æŸ¥ä¾èµ–å¹¶å¯åŠ¨ç¨‹åº
+REM Ò»¼üÆô¶¯ - µçÓ°Ç½ / ÓÎÏ·Ç½Ñ¡ÔñÆ÷
+REM ×Ô¶¯¼ì²éÒÀÀµ£¬ÈÃÓÃ»§Ñ¡ÔñÆô¶¯ÄÄ¸öÓ¦ÓÃ
+REM Ë«»÷ÔËÐÐ£¬´°¿Ú²»»á×Ô¶¯¹Ø±Õ
 
 pushd "%~dp0.."
 
 echo =========================================
-echo   Local Movie Wall - æœ¬åœ°ç”µå½±æµ·æŠ¥å¢™
+echo   Local Movie Wall  /  Local Game Wall
+echo   ±¾µØµçÓ°º£±¨Ç½  /  ±¾µØÓÎÏ·º£±¨Ç½
 echo =========================================
 echo.
 
-REM æ£€æŸ¥ Python æ˜¯å¦å®‰è£…
-python --version >nul 2>&1
+REM ¼ì²é Python ÊÇ·ñ°²×°
+python --version >/dev/null 2>&1
 if errorlevel 1 (
-    echo [é”™è¯¯] æœªæ£€æµ‹åˆ° Pythonï¼Œè¯·å…ˆå®‰è£… Python 3.8+
-    echo ä¸‹è½½åœ°å€: https://www.python.org/downloads/
+    echo [´íÎó] Î´¼ì²âµ½ Python£¬ÇëÏÈ°²×° Python 3.10+
+    echo ÏÂÔØµØÖ·: https://www.python.org/downloads/
+    echo.
     pause
+    popd
     exit /b 1
 )
 
-echo [âœ“] Python çŽ¯å¢ƒæ£€æµ‹æˆåŠŸ
+echo [OK] Python »·¾³¼ì²â³É¹¦
 echo.
 
-REM æ£€æŸ¥ä¾èµ–æ˜¯å¦å®‰è£…
-python -c "import PyQt6" >nul 2>&1
+REM ¼ì²éÒÀÀµÊÇ·ñ°²×°
+python -c "import PyQt6" >/dev/null 2>&1
 if errorlevel 1 (
-    echo [!] æ£€æµ‹åˆ°ç¼ºå°‘ä¾èµ–ï¼Œæ­£åœ¨è‡ªåŠ¨å®‰è£…...
+    echo [!] ¼ì²âµ½È±ÉÙÒÀÀµ£¬ÕýÔÚ×Ô¶¯°²×°...
     echo.
     pip install -r requirements.txt
     if errorlevel 1 (
-        echo [é”™è¯¯] ä¾èµ–å®‰è£…å¤±è´¥
+        echo [´íÎó] ÒÀÀµ°²×°Ê§°Ü
+        echo.
         pause
+        popd
         exit /b 1
     )
     echo.
-    echo [âœ“] ä¾èµ–å®‰è£…å®Œæˆ
+    echo [OK] ÒÀÀµ°²×°Íê³É
 ) else (
-    echo [âœ“] PyQt6 ä¾èµ–å·²å®‰è£…
+    echo [OK] PyQt6 ÒÀÀµÒÑ°²×°
 )
 
 echo.
-echo [å¯åŠ¨] æ­£åœ¨å¯åŠ¨ Local Movie Wall...
+echo ÇëÑ¡ÔñÒªÆô¶¯µÄÓ¦ÓÃ:
+echo.
+echo   [1] µçÓ°Ç½  Local Movie Wall
+echo   [2] ÓÎÏ·Ç½  Local Game Wall
+echo   [3] Í¬Ê±Æô¶¯Á½¸öÓ¦ÓÃ
+echo   [0] ÍË³ö
 echo.
 
-REM å¯åŠ¨ç¨‹åº
-python main.py
+set /p choice=ÇëÊäÈëÑ¡Ôñ (0-3):
 
-REM æ•èŽ·é€€å‡ºç 
-if errorlevel 1 (
-    echo.
-    echo [é”™è¯¯] ç¨‹åºå¼‚å¸¸é€€å‡º
-    pause
-)
+if "%choice%"=="1" goto movie_wall
+if "%choice%"=="2" goto game_wall
+if "%choice%"=="3" goto both
+if "%choice%"=="0" goto end
+echo.
+echo [!] ÎÞÐ§Ñ¡Ôñ
+goto end
 
+:movie_wall
+echo.
+echo [Æô¶¯] ÕýÔÚÆô¶¯µçÓ°Ç½...
+start "" python main.py
+echo [OK] µçÓ°Ç½ÒÑÆô¶¯
+goto end
+
+:game_wall
+echo.
+echo [Æô¶¯] ÕýÔÚÆô¶¯ÓÎÏ·Ç½...
+start "" python game_main.py
+echo [OK] ÓÎÏ·Ç½ÒÑÆô¶¯
+goto end
+
+:both
+echo.
+echo [Æô¶¯] ÕýÔÚÍ¬Ê±Æô¶¯Á½¸öÓ¦ÓÃ...
+start "" python main.py
+echo [OK] µçÓ°Ç½ÒÑÆô¶¯
+start "" python game_main.py
+echo [OK] ÓÎÏ·Ç½ÒÑÆô¶¯
+echo.
+echo Á½¸öÓ¦ÓÃÒÑÆô¶¯£¬¹Ø±Õ´Ë´°¿Ú²»Ó°ÏìÔËÐÐ¡£
+
+:end
+echo.
+pause
 popd
