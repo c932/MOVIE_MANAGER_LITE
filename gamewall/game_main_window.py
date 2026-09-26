@@ -1022,14 +1022,18 @@ class GameMainWindow(QMainWindow):
         self._cover_retry_timer.stop()
         image_cache = ImageCache()
 
-        # 全量预加载：遍历 movie_cards 全部条目，排满一批即停，由 finish_loader 触发下一批
-        view_top = float('-inf')
-        view_bottom = float('inf')
+        # 真可见区懒加载：只加载当前视口上下各 1 屏缓冲内的封面
+        viewport = self.scroll_area.viewport()
+        scroll_y = self.scroll_area.verticalScrollBar().value()
+        visible_height = viewport.height()
+        buffer = visible_height
+        view_top = scroll_y - buffer
+        view_bottom = scroll_y + visible_height + buffer
 
         load_tasks = []
         card_map = {}
         batch_cards = []
-        max_tasks_per_batch = 120
+        max_tasks_per_batch = 32
         now_ts = time.perf_counter()
         next_retry_in = None
         poster_w = self._poster_width
