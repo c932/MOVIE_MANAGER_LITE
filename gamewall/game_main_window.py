@@ -1442,7 +1442,7 @@ class GameMainWindow(QMainWindow):
 
     def _open_settings(self):
         """打开设置对话框；保存后按需重载数据源"""
-        dialog = GameSettingsDialog(self.config, self)
+        dialog = GameSettingsDialog(self, self.config)
         dialog.settings_saved.connect(self._on_settings_saved)
         dialog.enrich_requested.connect(self._start_background_tasks_safely)
         dialog.rescan_requested.connect(self._start_local_scan)
