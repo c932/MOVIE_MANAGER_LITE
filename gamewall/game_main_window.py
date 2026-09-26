@@ -215,7 +215,7 @@ class GameMainWindow(QMainWindow):
         self._rating_buttons = []
         for text, value in [("全部", 0), ("> 50%", 50), ("> 75%", 75), ("> 90%", 90), ("无评分", -1)]:
             btn = self._create_filter_button(text, value == 0)
-            btn.clicked.connect(lambda checked, v=value: self._on_rating_filter_changed(v, btn))
+            btn.clicked.connect(lambda checked, v=value, b=btn: self._on_rating_filter_changed(v, b))
             self.rating_filter_layout.addWidget(btn)
             self._rating_buttons.append(btn)
         layout.addWidget(rating_widget)
@@ -509,7 +509,7 @@ class GameMainWindow(QMainWindow):
                     background-color: #007AFF; color: white; border-color: #007AFF;
                 }
             """)
-            btn.clicked.connect(lambda checked, m=mode: self._on_sort_changed(m, btn))
+            btn.clicked.connect(lambda checked, m=mode, b=btn: self._on_sort_changed(m, b))
             toolbar_layout.addWidget(btn)
 
         toolbar_layout.addSpacing(16)
@@ -702,7 +702,7 @@ class GameMainWindow(QMainWindow):
         top_genres = [genre for genre, _ in counter.most_common()]
         for genre in top_genres:
             btn = self._create_filter_button(genre, False)
-            btn.clicked.connect(lambda checked, g=genre: self._on_genre_filter_changed(g, btn))
+            btn.clicked.connect(lambda checked, g=genre, b=btn: self._on_genre_filter_changed(g, b))
             self.genre_filter_layout.addWidget(btn)
         QTimer.singleShot(0, self._reflow_filter_buttons)
 
