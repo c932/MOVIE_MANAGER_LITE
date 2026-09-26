@@ -1292,6 +1292,8 @@ class GameMainWindow(QMainWindow):
 
         aaa_menu = menu.addMenu("3A 分类")
         aaa_menu.addAction("🤖 LLM 判定 3A", lambda: self._start_llm_classify(game))
+        aaa_menu.addAction("🤖 LLM 判定所有新增游戏", lambda: self._start_llm_classify_new())
+        aaa_menu.addAction("🤖 LLM 判定所有游戏", lambda: self._start_llm_classify_all())
         aaa_menu.addSeparator()
         aaa_menu.addAction("标记为 3A", lambda: self._set_manual_aaa_override(game, True))
         aaa_menu.addAction("标记为非 3A", lambda: self._set_manual_aaa_override(game, False))
@@ -1336,7 +1338,23 @@ class GameMainWindow(QMainWindow):
             self.detail_panel.show_game(game)
 
     def _start_llm_classify(self, game):
-        """对单款游戏启动 LLM 3A 判定（需在设置中配置 LLM API）。"""
+        """对单款游戏启动 LLM 3A 判定。"""
+        self._start_llm_classify_batch(
+            [game], f"正在用 LLM 判定《{game.display_title()}》是否 3A…")
+
+    def _start_llm_classify_all(self):
+        """对所有游戏启动 LLM 3A 判定（覆盖已判定）。"""
+        self._start_llm_classify_batch(
+            self.all_games, f"正在用 LLM 判定全部 {len(self.all_games)} 款游戏…")
+
+    def _start_llm_classify_new(self):
+        """对尚未做过 LLM 判定的游戏启动判定。"""
+        new_games = [g for g in self.all_games if not g.aaa_llm_verdict]
+        self._start_llm_classify_batch(
+            new_games, f"正在用 LLM 判定 {len(new_games)} 款新增游戏…")
+
+    def _start_llm_classify_batch(self, games, label):
+        """批量 LLM 3A 判定（需在设置中配置 LLM API）。"""
         base_url = (self.config.get_value("llm_base_url", "") or "").strip()
         api_key = (self.config.get_value("llm_api_key", "") or "").strip()
         model = (self.config.get_value("llm_model", "") or "gpt-4o-mini").strip()
@@ -1345,26 +1363,37 @@ class GameMainWindow(QMainWindow):
                 self, "未配置 LLM",
                 "请先在「设置」中启用 LLM 3A 判定，并填写 API Base URL 与 API Key。")
             return
+        games = list(games)
+        if not games:
+            self.status_label.setText("没有需要判定的游戏")
+            return
 
-        self.status_label.setText(f"正在用 LLM 判定《{game.display_title()}》是否 3A…")
-        worker = LLMClassifyWorker([game], base_url, api_key, model, parent=self)
+        games_by_key = {g.norm_key: g for g in self.all_games}
+        self.status_label.setText(label)
+        self.progress_bar.setRange(0, len(games))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat(f"LLM 判定 0/{len(games)}")
+        self.progress_bar.show()
+
+        worker = LLMClassifyWorker(games, base_url, api_key, model, parent=self)
 
         def _on_verdict(norm_key, verdict):
-            g = self._games_by_key.get(norm_key)
-            if g is None:
-                g = next((x for x in self.all_games if x.norm_key == norm_key), None)
+            g = games_by_key.get(norm_key)
             if g is None or not isinstance(verdict, dict):
                 return
             g.aaa_llm_verdict = verdict
             self.cache.set_llm_aaa_verdict(g.norm_key, verdict)
-            self.cache.save()
             self._sync_aaa_ui(g)
+            done = self.progress_bar.value() + 1
+            self.progress_bar.setValue(done)
+            self.progress_bar.setFormat(f"LLM 判定 {done}/{len(games)}")
             verdict_is_aaa = verdict.get("is_aaa")
             conf = verdict.get("confidence", "low")
             self.status_label.setText(
                 f"LLM 判定《{g.display_title()}》：{'是 3A' if verdict_is_aaa else '非 3A'}（置信度 {conf}）")
 
         def _on_finished(summary):
+            self.cache.save()
             self.status_label.setText(summary)
 
         worker.game_verdict.connect(_on_verdict)

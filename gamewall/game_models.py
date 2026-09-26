@@ -102,7 +102,7 @@ class Game:
             return f"人工标记为非 3A；{self.aaa_auto_label}"
         if self.aaa_excel_marked:
             return f"Excel 标记为 3A；{self.aaa_auto_label}"
-        if self.aaa_llm_label and self.is_aaa:
+        if self.aaa_llm_label:
             return f"{self.aaa_llm_label}；{self.aaa_auto_label}"
         return self.aaa_auto_label
 
