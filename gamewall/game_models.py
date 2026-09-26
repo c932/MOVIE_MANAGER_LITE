@@ -30,6 +30,7 @@ class Game:
     aaa_evidence: dict = field(default_factory=dict)
     aaa_rule_version: str = ""
     aaa_manual_override: Optional[bool] = None
+    aaa_llm_verdict: dict = field(default_factory=dict)  # LLM 判定结论 {is_aaa, confidence, score, reasoning}
     excel_row: int = 0  # Excel 行号（诊断用）
 
     # Steam 联网补全
@@ -65,13 +66,33 @@ class Game:
         """供现有卡片与筛选使用的最终 3A 展示结论。"""
         if self.aaa_manual_override is not None:
             return self.aaa_manual_override
-        return self.aaa_excel_marked or self.aaa_tier == "AAA"
+        if self.aaa_excel_marked or self.aaa_tier == "AAA":
+            return True
+        # LLM 判定只做「提升」（规则漏判时补上），不做「降级」。
+        verdict = self.aaa_llm_verdict
+        if isinstance(verdict, dict) and verdict.get("is_aaa"):
+            return True
+        return False
 
     @property
     def aaa_auto_label(self) -> str:
         if not self.aaa_rule_version:
             return "自动分类未评估"
         return f"规则计算：{self.aaa_tier}（{self.aaa_score} 分）"
+
+    @property
+    def aaa_llm_label(self) -> str:
+        """LLM 判定结论的可读文本；未判定时返回空串。"""
+        verdict = self.aaa_llm_verdict
+        if not isinstance(verdict, dict) or not verdict:
+            return ""
+        verdict_is_aaa = verdict.get("is_aaa")
+        confidence = verdict.get("confidence", "low")
+        reasoning = verdict.get("reasoning", "")
+        label = f"LLM 判定：{'是 3A' if verdict_is_aaa else '非 3A'}（置信度 {confidence}）"
+        if reasoning:
+            label += f"：{reasoning}"
+        return label
 
     @property
     def aaa_source_label(self) -> str:
@@ -81,6 +102,8 @@ class Game:
             return f"人工标记为非 3A；{self.aaa_auto_label}"
         if self.aaa_excel_marked:
             return f"Excel 标记为 3A；{self.aaa_auto_label}"
+        if self.aaa_llm_label and self.is_aaa:
+            return f"{self.aaa_llm_label}；{self.aaa_auto_label}"
         return self.aaa_auto_label
 
     def display_title(self) -> str:

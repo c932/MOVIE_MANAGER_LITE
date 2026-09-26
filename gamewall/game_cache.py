@@ -30,8 +30,9 @@ _EXCEL_FIELDS = (
 _CLASSIFICATION_FIELDS = (
     "aaa_score", "aaa_tier", "aaa_evidence", "aaa_rule_version",
 )
+_LLM_FIELDS = ("aaa_llm_verdict",)
 _MANUAL_OVERRIDE_FIELD = "aaa_manual_override"
-_ALL_FIELDS = _EXCEL_FIELDS + _WEB_FIELDS + _LOCAL_FIELDS + _CLASSIFICATION_FIELDS + (
+_ALL_FIELDS = _EXCEL_FIELDS + _WEB_FIELDS + _LOCAL_FIELDS + _CLASSIFICATION_FIELDS + _LLM_FIELDS + (
     _MANUAL_OVERRIDE_FIELD, "excel_row",
 )
 _MERGEABLE_FIELDS = _WEB_FIELDS + _LOCAL_FIELDS
@@ -100,13 +101,13 @@ class GameCacheManager:
             return False
         applied = False
         fields = _ALL_FIELDS if force else (
-            _WEB_FIELDS + _LOCAL_FIELDS + _CLASSIFICATION_FIELDS + (_MANUAL_OVERRIDE_FIELD,)
+            _WEB_FIELDS + _LOCAL_FIELDS + _CLASSIFICATION_FIELDS + _LLM_FIELDS + (_MANUAL_OVERRIDE_FIELD,)
         )
         for field in fields:
             if field not in data:
                 continue
             value = copy.deepcopy(data[field])
-            if field in _CLASSIFICATION_FIELDS or field == _MANUAL_OVERRIDE_FIELD:
+            if field in _CLASSIFICATION_FIELDS or field in _LLM_FIELDS or field == _MANUAL_OVERRIDE_FIELD:
                 if getattr(game, field, None) != value:
                     setattr(game, field, value)
                     applied = True
@@ -163,6 +164,31 @@ class GameCacheManager:
     def get_manual_aaa_override(self, norm_key: str) -> Optional[bool]:
         value = self._data["games"].get(norm_key, {}).get(_MANUAL_OVERRIDE_FIELD)
         return value if isinstance(value, bool) else None
+
+    def set_llm_aaa_verdict(self, norm_key: str, verdict: dict):
+        """持久化 LLM 3A 判定结论；空 dict 表示清除。"""
+        entry = self._data["games"].setdefault(norm_key, {})
+        if not isinstance(verdict, dict) or not verdict:
+            if "aaa_llm_verdict" in entry:
+                del entry["aaa_llm_verdict"]
+                self._dirty = True
+            return
+        value = {
+            "is_aaa": bool(verdict.get("is_aaa")),
+            "confidence": str(verdict.get("confidence", "low")),
+            "score": int(verdict.get("score", 0)),
+            "reasoning": str(verdict.get("reasoning", "")),
+        }
+        if entry.get("aaa_llm_verdict") != value:
+            entry["aaa_llm_verdict"] = value
+            self._dirty = True
+
+    def get_llm_aaa_verdict(self, norm_key: str) -> dict:
+        """读取已持久化的 LLM 3A 判定。"""
+        value = self._data["games"].get(norm_key, {}).get("aaa_llm_verdict")
+        if isinstance(value, dict):
+            return copy.deepcopy(value)
+        return {}
 
     def set_manual_aaa_override(self, norm_key: str, override: Optional[bool]):
         """保存人工 3A 覆盖；None 表示清除覆盖并恢复自动判断。"""

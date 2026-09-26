@@ -21,7 +21,7 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 _COVER_CACHE_SUFFIX = "#cv1"
 
 # 并发下载数：串行下载时一张慢图（超时 8s）会拖住整面墙
-_MAX_WORKERS = 6
+_MAX_WORKERS = 8
 
 
 def fit_cover(image: QImage, target_width: int, target_height: int) -> QImage:
@@ -50,7 +50,7 @@ def fit_cover(image: QImage, target_width: int, target_height: int) -> QImage:
                           Qt.TransformationMode.SmoothTransformation)
 
 
-def download_image_bytes(url: str, timeout: float = 8.0) -> bytes:
+def download_image_bytes(url: str, timeout: float = 6.0) -> bytes:
     """下载图片字节（自动处理 gzip），失败抛异常"""
     request = urllib.request.Request(url, headers={
         "User-Agent": _UA,

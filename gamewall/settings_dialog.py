@@ -166,12 +166,51 @@ class GameSettingsDialog(QDialog):
         self.enrich_check = QCheckBox("Steam 数据自动补全（封面/简介/好评率）")
         self.gamersky_check = QCheckBox("游民星空评分刮削（尽力而为）")
         self.ign_check = QCheckBox("IGN 评分刮削（海外源，国内网络通常不可达）")
+        self.llm_check = QCheckBox("启用 LLM 3A 判定（需自行配置 API）")
+        self.llm_key_edit = QLineEdit()
+        self.llm_key_edit.setPlaceholderText("sk-...")
+        self.llm_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.llm_url_edit = QLineEdit()
+        self.llm_url_edit.setPlaceholderText("https://api.openai.com/v1")
+        self.llm_model_edit = QLineEdit()
+        self.llm_model_edit.setPlaceholderText("gpt-4o-mini")
         for i, check in enumerate((self.network_check, self.enrich_check,
-                                   self.gamersky_check, self.ign_check)):
+                                   self.gamersky_check, self.ign_check,
+                                   self.llm_check)):
             check.setFont(QFont("Microsoft YaHei", 11))
             main.addWidget(check)
             if i == 0:
                 check.toggled.connect(self._on_network_toggled)
+
+        # LLM 配置区：仅在启用 LLM 时显示
+        self.llm_config_widget = QWidget()
+        llm_layout = QVBoxLayout(self.llm_config_widget)
+        llm_layout.setContentsMargins(30, 0, 0, 0)
+        llm_layout.setSpacing(6)
+        for label, widget in [("API Base URL", self.llm_url_edit),
+                              ("API Key", self.llm_key_edit),
+                              ("Model", self.llm_model_edit)]:
+            row = QHBoxLayout()
+            lbl = QLabel(label)
+            lbl.setFixedWidth(100)
+            lbl.setStyleSheet("color: #666666; font-size: 12px;")
+            row.addWidget(lbl)
+            widget.setStyleSheet("""
+                QLineEdit {
+                    border: 1px solid #E0E0E0; border-radius: 4px;
+                    padding: 4px 8px; font-size: 12px;
+                }
+            """)
+            row.addWidget(widget, 1)
+            llm_layout.addLayout(row)
+        desc = QLabel("LLM 仅做判定兜底：规则漏判为 3A 时可补上，不会将规则已判定的游戏降级。"
+                      "需 OpenAI 兼容 API。")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #999999; font-size: 11px; padding-top: 4px;")
+        llm_layout.addWidget(desc)
+        main.addWidget(self.llm_config_widget)
+        self.llm_config_widget.hide()
+        self.llm_check.toggled.connect(self.llm_config_widget.setVisible)
 
         main.addWidget(self._separator())
         scale_row = QHBoxLayout()
@@ -254,8 +293,13 @@ class GameSettingsDialog(QDialog):
         self.enrich_check.setChecked(self.config.get_value("enable_enrichment", True))
         self.gamersky_check.setChecked(self.config.get_value("enable_gamersky_scraper", True))
         self.ign_check.setChecked(self.config.get_value("enable_ign_scraper", False))
+        self.llm_check.setChecked(self.config.get_value("llm_enabled", False))
+        self.llm_url_edit.setText(self.config.get_value("llm_base_url", "") or "")
+        self.llm_key_edit.setText(self.config.get_value("llm_api_key", "") or "")
+        self.llm_model_edit.setText(self.config.get_value("llm_model", "gpt-4o-mini") or "")
         self.scale_spin.setValue(int(self.config.get_value("poster_scale", 100)))
         self._on_network_toggled(self.network_check.isChecked())
+        self.llm_config_widget.setVisible(self.llm_check.isChecked())
 
     def _save_values(self):
         self.config.set_value("excel_path", self.excel_edit.text().strip())
@@ -264,6 +308,10 @@ class GameSettingsDialog(QDialog):
         self.config.set_value("enable_enrichment", self.enrich_check.isChecked())
         self.config.set_value("enable_gamersky_scraper", self.gamersky_check.isChecked())
         self.config.set_value("enable_ign_scraper", self.ign_check.isChecked())
+        self.config.set_value("llm_enabled", self.llm_check.isChecked())
+        self.config.set_value("llm_base_url", self.llm_url_edit.text().strip())
+        self.config.set_value("llm_api_key", self.llm_key_edit.text().strip())
+        self.config.set_value("llm_model", self.llm_model_edit.text().strip() or "gpt-4o-mini")
         self.config.set_value("poster_scale", self.scale_spin.value())
         self.config.save_config()
         logger.info("游戏库设置已保存")
@@ -280,7 +328,7 @@ class GameSettingsDialog(QDialog):
 
     # ── 交互 ──
     def _on_network_toggled(self, on: bool):
-        for check in (self.enrich_check, self.gamersky_check, self.ign_check):
+        for check in (self.enrich_check, self.gamersky_check, self.ign_check, self.llm_check):
             check.setEnabled(on)
             if not on:
                 check.setChecked(False)

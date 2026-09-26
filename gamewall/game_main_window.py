@@ -25,6 +25,7 @@ from ui.flow_layout import FlowWidget
 from gamewall.game_models import Game
 from gamewall.game_cache import GameCacheManager
 from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
+from gamewall.llm_classifier import classify_with_llm
 from gamewall import steam_client
 from gamewall.game_card import GameCard
 from gamewall.game_detail_panel import GameDetailPanel
@@ -57,6 +58,39 @@ class ExcelImportWorker(QThread):
         except Exception as e:
             logger.exception("Excel 导入失败")
             self.diff_error.emit(str(e))
+
+
+class LLMClassifyWorker(QThread):
+    """后台 LLM 3A 判定线程：逐个调用 OpenAI 兼容 API，结果经信号交回主线程。"""
+    game_verdict = pyqtSignal(str, object)   # (norm_key, verdict dict | None)
+    finished_with = pyqtSignal(str)          # 汇总信息
+
+    def __init__(self, games, base_url: str, api_key: str, model: str, parent=None):
+        super().__init__(parent)
+        self._games = list(games)
+        self._base_url = base_url
+        self._api_key = api_key
+        self._model = model
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        done = 0
+        for game in self._games:
+            if self._cancelled:
+                break
+            try:
+                verdict = classify_with_llm(
+                    game, self._base_url, self._api_key, self._model)
+            except Exception as e:
+                logger.warning(f"LLM 判定异常 {game.norm_key}: {e}")
+                verdict = None
+            if verdict is not None:
+                self.game_verdict.emit(game.norm_key, verdict)
+            done += 1
+        self.finished_with.emit(f"LLM 判定完成：{done} 款游戏")
 
 
 class GameMainWindow(QMainWindow):
@@ -1257,6 +1291,8 @@ class GameMainWindow(QMainWindow):
         menu.addSeparator()
 
         aaa_menu = menu.addMenu("3A 分类")
+        aaa_menu.addAction("🤖 LLM 判定 3A", lambda: self._start_llm_classify(game))
+        aaa_menu.addSeparator()
         aaa_menu.addAction("标记为 3A", lambda: self._set_manual_aaa_override(game, True))
         aaa_menu.addAction("标记为非 3A", lambda: self._set_manual_aaa_override(game, False))
         aaa_menu.addAction("恢复自动判断", lambda: self._set_manual_aaa_override(game, None))
@@ -1298,6 +1334,43 @@ class GameMainWindow(QMainWindow):
         if (self.detail_panel.current_game is not None
                 and self.detail_panel.current_game.norm_key == game.norm_key):
             self.detail_panel.show_game(game)
+
+    def _start_llm_classify(self, game):
+        """对单款游戏启动 LLM 3A 判定（需在设置中配置 LLM API）。"""
+        base_url = (self.config.get_value("llm_base_url", "") or "").strip()
+        api_key = (self.config.get_value("llm_api_key", "") or "").strip()
+        model = (self.config.get_value("llm_model", "") or "gpt-4o-mini").strip()
+        if not base_url or not api_key:
+            QMessageBox.information(
+                self, "未配置 LLM",
+                "请先在「设置」中启用 LLM 3A 判定，并填写 API Base URL 与 API Key。")
+            return
+
+        self.status_label.setText(f"正在用 LLM 判定《{game.display_title()}》是否 3A…")
+        worker = LLMClassifyWorker([game], base_url, api_key, model, parent=self)
+
+        def _on_verdict(norm_key, verdict):
+            g = self._games_by_key.get(norm_key)
+            if g is None:
+                g = next((x for x in self.all_games if x.norm_key == norm_key), None)
+            if g is None or not isinstance(verdict, dict):
+                return
+            g.aaa_llm_verdict = verdict
+            self.cache.set_llm_aaa_verdict(g.norm_key, verdict)
+            self.cache.save()
+            self._sync_aaa_ui(g)
+            verdict_is_aaa = verdict.get("is_aaa")
+            conf = verdict.get("confidence", "low")
+            self.status_label.setText(
+                f"LLM 判定《{g.display_title()}》：{'是 3A' if verdict_is_aaa else '非 3A'}（置信度 {conf}）")
+
+        def _on_finished(summary):
+            self.status_label.setText(summary)
+
+        worker.game_verdict.connect(_on_verdict)
+        worker.finished_with.connect(_on_finished)
+        self._llm_worker = worker
+        worker.start()
 
     def _pick_game_exe(self, game):
         """手动标记已安装：选择游戏主程序 exe"""
