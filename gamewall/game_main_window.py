@@ -21,6 +21,7 @@ from PyQt6.QtGui import QFont, QFontMetrics, QCursor, QPixmap
 from utils.config_manager import ConfigManager
 from utils.app_paths import DATA_DIR
 from utils.image_loader import ImageCache, get_poster_cache_manager
+from ui.flow_layout import FlowWidget
 from gamewall.game_models import Game
 from gamewall.game_cache import GameCacheManager
 from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
@@ -172,8 +173,6 @@ class GameMainWindow(QMainWindow):
 
     def _create_filter_panel(self):
         """左侧筛选面板，筛选内容可滚动而重置操作始终可见。"""
-        from ui.flow_layout import FlowLayout, FlowWidget
-
         sidebar = QWidget()
         sidebar.setObjectName("GameFilterSidebar")
         sidebar.setMinimumWidth(180)
