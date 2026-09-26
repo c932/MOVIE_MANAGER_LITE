@@ -166,7 +166,7 @@ class GameSettingsDialog(QDialog):
         self.enrich_check = QCheckBox("Steam 数据自动补全（封面/简介/好评率）")
         self.gamersky_check = QCheckBox("游民星空评分刮削（尽力而为）")
         self.ign_check = QCheckBox("IGN 评分刮削（海外源，国内网络通常不可达）")
-        self.llm_check = QCheckBox("启用 LLM 3A 判定（需自行配置 API）")
+        self.llm_check = QCheckBox("启用 LLM 五档判定（3A/2A/精品小众/普通游戏/避坑，需自行配置 API）")
         self.llm_key_edit = QLineEdit()
         self.llm_key_edit.setPlaceholderText("sk-...")
         self.llm_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
@@ -203,7 +203,7 @@ class GameSettingsDialog(QDialog):
             """)
             row.addWidget(widget, 1)
             llm_layout.addLayout(row)
-        desc = QLabel("LLM 仅做判定兜底：规则漏判为 3A 时可补上，不会将规则已判定的游戏降级。"
+        desc = QLabel("LLM 将游戏归入五档（3A/2A/精品小众/普通游戏/避坑）；仅做判定兜底：规则漏判时可补上 3A/2A，不会将规则已判定的游戏降级。"
                       "需 OpenAI 兼容 API。")
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #999999; font-size: 11px; padding-top: 4px;")

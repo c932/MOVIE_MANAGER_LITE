@@ -10,8 +10,17 @@ from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QPixmap, QCursor
 
 from gamewall.game_models import Game
+from gamewall.llm_classifier import TIER_3A, TIER_2A, TIER_NICHE, TIER_AVOID
 from gamewall.cover_loader import BatchCoverLoader
 from utils.image_loader import ImageCache
+
+# 档位 → (徽章文案, 背景色)；普通游戏不显示徽章
+_TIER_BADGE = {
+    TIER_3A: ("3A 大作", "rgba(212, 160, 23, 0.9)"),
+    TIER_2A: ("2A", "rgba(58, 125, 191, 0.9)"),
+    TIER_NICHE: ("精品小众", "rgba(124, 77, 179, 0.9)"),
+    TIER_AVOID: ("避坑", "rgba(192, 57, 43, 0.9)"),
+}
 
 logger = logging.getLogger(__name__)
 
@@ -178,21 +187,22 @@ class GameDetailPanel(QWidget):
         title_label.setStyleSheet("color: #212529;")
         title_label.setWordWrap(True)
         title_row.addWidget(title_label, 1)
-        if game.is_aaa:
-            aaa_label = QLabel("3A 大作")
+        badge = _TIER_BADGE.get(game.tier)
+        if badge:
+            aaa_label = QLabel(badge[0])
             aaa_label.setFont(QFont("Microsoft YaHei", 11, QFont.Weight.Bold))
-            aaa_label.setStyleSheet("""
-                QLabel {
-                    background-color: rgba(212, 160, 23, 0.9);
+            aaa_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {badge[1]};
                     color: white;
                     padding: 4px 10px;
                     border-radius: 6px;
-                }
+                }}
             """)
             title_row.addWidget(aaa_label)
         content_layout.addLayout(title_row)
 
-        classification_label = QLabel(f"3A 分类：{game.aaa_source_label}")
+        classification_label = QLabel(f"游戏分类：{game.aaa_source_label}")
         classification_label.setFont(QFont("Microsoft YaHei", 10))
         classification_label.setStyleSheet("color: #8A6D1D;")
         classification_label.setWordWrap(True)

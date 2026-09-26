@@ -7,13 +7,22 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap, QColor, QCursor
 
 from gamewall.game_models import Game
+from gamewall.llm_classifier import TIER_3A, TIER_2A, TIER_NICHE, TIER_AVOID
 from utils.image_loader import ImageCache
+
+# 档位 → (徽章文案, 背景色)；普通游戏不显示徽章
+_TIER_BADGE = {
+    TIER_3A: ("3A", "rgba(212, 160, 23, 0.9)"),
+    TIER_2A: ("2A", "rgba(58, 125, 191, 0.9)"),
+    TIER_NICHE: ("精品", "rgba(124, 77, 179, 0.9)"),
+    TIER_AVOID: ("避坑", "rgba(192, 57, 43, 0.9)"),
+}
 
 
 class GameCard(QWidget):
     """
     游戏封面卡片组件（与电影墙 MovieCard 同一视觉规范）
-    徽章布局：左上 3A（金）、右上 Steam 好评率（半透明金）、左下 已安装（绿）
+    徽章布局：左上 档位（3A/2A/精品小众/避坑）、右上 Steam 好评率（半透明金）、左下 已安装（绿）
     """
 
     clicked = pyqtSignal(Game)
@@ -51,10 +60,11 @@ class GameCard(QWidget):
         self.poster_label.setStyleSheet("background-color: #2C2C2E; border-radius: 8px;")
         self.poster_label.setScaledContents(False)
 
-        # === 3A 徽章（左上角）===
+        # === 档位徽章（左上角）===
         self.aaa_badge = None
-        if self.game.is_aaa:
-            self.aaa_badge = self._make_badge("3A", "rgba(212, 160, 23, 0.85)")
+        badge = _TIER_BADGE.get(self.game.tier)
+        if badge:
+            self.aaa_badge = self._make_badge(badge[0], badge[1])
             self.aaa_badge.setParent(self.poster_container)
             self.aaa_badge.move(6, 6)
 
@@ -157,13 +167,27 @@ class GameCard(QWidget):
         self.game = game
         # 标题
         self.title_label.setText(game.display_title())
-        # 3A
-        if game.is_aaa and self.aaa_badge is None:
-            self.aaa_badge = self._make_badge("3A", "rgba(212, 160, 23, 0.85)")
-            self.aaa_badge.setParent(self.poster_container)
-            self.aaa_badge.move(6, 6)
+        # 档位徽章
+        badge = _TIER_BADGE.get(game.tier)
+        if badge:
+            if self.aaa_badge is None:
+                self.aaa_badge = self._make_badge(badge[0], badge[1])
+                self.aaa_badge.setParent(self.poster_container)
+                self.aaa_badge.move(6, 6)
+            else:
+                self.aaa_badge.setText(badge[0])
+                self.aaa_badge.setStyleSheet(f"""
+                    QLabel {{
+                        background-color: {badge[1]};
+                        color: #FFFFFF;
+                        font-size: 10px;
+                        font-weight: bold;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                    }}
+                """)
             self.aaa_badge.show()
-        elif not game.is_aaa and self.aaa_badge is not None:
+        elif self.aaa_badge is not None:
             self.aaa_badge.hide()
             self.aaa_badge.deleteLater()
             self.aaa_badge = None

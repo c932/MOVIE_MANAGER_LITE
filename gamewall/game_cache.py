@@ -13,9 +13,13 @@ from typing import Optional
 
 from utils.app_paths import resolve_data_file
 
+from gamewall.llm_classifier import TIER_3A, TIER_NORMAL, TIER_VALUES
+
 logger = logging.getLogger(__name__)
 
-CACHE_VERSION = 2
+CACHE_VERSION = 3
+# 旧规则档位 → 五档映射（兼容缓存中旧数据）
+_OLD_TIER_MAP = {"AAA": TIER_3A, "AAA_EDGE": "2A", "AA": "精品小众", "INDIE": TIER_NORMAL}
 _WEB_FIELDS = (
     "steam_appid", "steam_name", "developer", "publishers", "platforms",
     "steam_categories", "genres", "description", "header_image",
@@ -80,6 +84,21 @@ class GameCacheManager:
                 if isinstance(entry, dict):
                     entry.pop("is_aaa", None)
             logger.info("游戏缓存已迁移至 v2；旧 is_aaa 不作为人工 3A 结论保留")
+        if version < 3:
+            # 二分类 → 五档：旧规则档位与 bool 人工覆盖迁移为五档值
+            for entry in self._data["games"].values():
+                if not isinstance(entry, dict):
+                    continue
+                tier = entry.get("aaa_tier")
+                if isinstance(tier, str) and tier in _OLD_TIER_MAP:
+                    entry["aaa_tier"] = _OLD_TIER_MAP[tier]
+                verdict = entry.get("aaa_llm_verdict")
+                if isinstance(verdict, dict) and "is_aaa" in verdict and "tier" not in verdict:
+                    verdict["tier"] = TIER_3A if verdict.get("is_aaa") else TIER_NORMAL
+                override = entry.get("aaa_manual_override")
+                if isinstance(override, bool):
+                    entry["aaa_manual_override"] = TIER_3A if override else TIER_NORMAL
+            logger.info("游戏缓存已迁移至 v3：3A 二分类升级为五档分类")
         self._data["version"] = CACHE_VERSION
         self._dirty = True
 
@@ -161,20 +180,24 @@ class GameCacheManager:
                 entry[field] = value
                 self._dirty = True
 
-    def get_manual_aaa_override(self, norm_key: str) -> Optional[bool]:
+    def get_manual_aaa_override(self, norm_key: str) -> Optional[str]:
         value = self._data["games"].get(norm_key, {}).get(_MANUAL_OVERRIDE_FIELD)
-        return value if isinstance(value, bool) else None
+        return value if value in TIER_VALUES else None
 
     def set_llm_aaa_verdict(self, norm_key: str, verdict: dict):
-        """持久化 LLM 3A 判定结论；空 dict 表示清除。"""
+        """持久化 LLM 五档判定结论；空 dict 表示清除。"""
         entry = self._data["games"].setdefault(norm_key, {})
         if not isinstance(verdict, dict) or not verdict:
             if "aaa_llm_verdict" in entry:
                 del entry["aaa_llm_verdict"]
                 self._dirty = True
             return
+        tier = verdict.get("tier")
+        if tier not in TIER_VALUES:
+            tier = TIER_3A if verdict.get("is_aaa") else TIER_NORMAL
         value = {
-            "is_aaa": bool(verdict.get("is_aaa")),
+            "tier": tier,
+            "is_aaa": tier == TIER_3A,
             "confidence": str(verdict.get("confidence", "low")),
             "score": int(verdict.get("score", 0)),
             "reasoning": str(verdict.get("reasoning", "")),
@@ -184,16 +207,16 @@ class GameCacheManager:
             self._dirty = True
 
     def get_llm_aaa_verdict(self, norm_key: str) -> dict:
-        """读取已持久化的 LLM 3A 判定。"""
+        """读取已持久化的 LLM 判定。"""
         value = self._data["games"].get(norm_key, {}).get("aaa_llm_verdict")
         if isinstance(value, dict):
             return copy.deepcopy(value)
         return {}
 
-    def set_manual_aaa_override(self, norm_key: str, override: Optional[bool]):
-        """保存人工 3A 覆盖；None 表示清除覆盖并恢复自动判断。"""
-        if override is not None and not isinstance(override, bool):
-            raise ValueError("3A 人工覆盖只能是 True、False 或 None")
+    def set_manual_aaa_override(self, norm_key: str, override: Optional[str]):
+        """保存人工五档覆盖；None 表示清除覆盖并恢复自动判断。"""
+        if override is not None and override not in TIER_VALUES:
+            raise ValueError(f"人工覆盖只能是五档之一或 None：{TIER_VALUES}")
         entry = self._data["games"].setdefault(norm_key, {})
         if override is None:
             if _MANUAL_OVERRIDE_FIELD in entry:
@@ -213,9 +236,9 @@ class GameCacheManager:
         score = result.get("score", 0)
         if not isinstance(score, int) or isinstance(score, bool):
             score = 0
-        tier = result.get("tier", "INDIE")
-        if tier not in {"AAA", "AAA_EDGE", "AA", "INDIE"}:
-            tier = "INDIE"
+        tier = result.get("tier", TIER_NORMAL)
+        if tier not in TIER_VALUES:
+            tier = _OLD_TIER_MAP.get(tier, TIER_NORMAL)
         values = {
             "aaa_score": score,
             "aaa_tier": tier,

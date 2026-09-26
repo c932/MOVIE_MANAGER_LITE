@@ -1,5 +1,5 @@
 """
-可追溯的 3A 自动分类规则。
+可追溯的五档自动分类规则（3A / 2A / 精品小众 / 普通游戏 / 避坑）。
 
 证据必须带来源，格式示例：
 {
@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from typing import Any
 
 
-RULE_VERSION = "3.0"
+RULE_VERSION = "4.0"
 
 RULES = (
     ("large_developer", "大型开发商", 15),
@@ -32,8 +32,11 @@ RULES = (
 if len(RULES) != 10 or sum(weight for _, _, weight in RULES) != 100:
     raise RuntimeError("3A 分类规则必须恰好十项且总权重为 100")
 
-# 命名档位：>=55 AAA；>=40 准 3A；>=25 AA；其余 INDIE
-_TIER_THRESHOLDS = ((55, "AAA"), (40, "AAA_EDGE"), (25, "AA"))
+from gamewall.llm_classifier import TIER_3A, TIER_2A, TIER_NICHE, TIER_NORMAL
+
+# 命名档位（放宽）：>=45 3A；>=30 2A；>=15 精品小众；其余 普通游戏
+# 「避坑」不由规则分数判定，交由 LLM/人工标记。
+_TIER_THRESHOLDS = ((45, TIER_3A), (30, TIER_2A), (15, TIER_NICHE))
 
 _BOOLEAN_EVIDENCE = {
     "large_developer": "large_developer",
@@ -202,7 +205,7 @@ def _tier(score: int) -> str:
     for threshold, tier in _TIER_THRESHOLDS:
         if score >= threshold:
             return tier
-    return "INDIE"
+    return TIER_NORMAL
 
 
 def classify_aaa(evidence: Any) -> dict:

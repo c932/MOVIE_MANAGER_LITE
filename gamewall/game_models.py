@@ -5,7 +5,33 @@
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from gamewall.llm_classifier import (
+    TIER_3A, TIER_2A, TIER_NICHE, TIER_NORMAL, TIER_AVOID, TIER_VALUES,
+)
 from gamewall.name_utils import normalize_name
+
+# 旧规则/LLM 档位 → 五档映射（兼容缓存中旧数据）
+_OLD_TIER_MAP = {"AAA": TIER_3A, "AAA_EDGE": TIER_2A, "AA": TIER_NICHE, "INDIE": TIER_NORMAL}
+
+
+def _normalize_tier(raw) -> str:
+    """将旧档位或任意值规范化为五档之一。"""
+    if isinstance(raw, str) and raw in TIER_VALUES:
+        return raw
+    if isinstance(raw, str):
+        return _OLD_TIER_MAP.get(raw, TIER_NORMAL)
+    return TIER_NORMAL
+
+
+def _normalize_manual_override(value) -> Optional[str]:
+    """兼容旧版 bool 人工覆盖：True→3A，False→普通游戏。"""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return TIER_3A if value else TIER_NORMAL
+    if isinstance(value, str) and value in TIER_VALUES:
+        return value
+    return None
 
 
 @dataclass
@@ -26,11 +52,11 @@ class Game:
     release_date: str = ""  # 发售日期 (YYYY-MM-DD)，Excel 或 Steam
     aaa_excel_marked: bool = False  # 当前 Excel 原始 3A 标记
     aaa_score: int = 0
-    aaa_tier: str = "INDIE"
+    aaa_tier: str = TIER_NORMAL  # 规则计算的五档结果
     aaa_evidence: dict = field(default_factory=dict)
     aaa_rule_version: str = ""
-    aaa_manual_override: Optional[bool] = None
-    aaa_llm_verdict: dict = field(default_factory=dict)  # LLM 判定结论 {is_aaa, confidence, score, reasoning}
+    aaa_manual_override: Optional[str] = None  # 人工五档覆盖（3A/2A/精品小众/普通游戏/避坑）
+    aaa_llm_verdict: dict = field(default_factory=dict)  # LLM 判定结论 {tier, is_aaa, confidence, score, reasoning}
     excel_row: int = 0  # Excel 行号（诊断用）
 
     # Steam 联网补全
@@ -62,23 +88,35 @@ class Game:
         return normalize_name(self.raw_name or self.title_cn)
 
     @property
+    def tier(self) -> str:
+        """最终展示的五档分类（3A/2A/精品小众/普通游戏/避坑）。
+
+        优先级：人工标记 > Excel 3A 标记 > LLM 判定 > 规则计算。
+        """
+        if isinstance(self.aaa_manual_override, str) and self.aaa_manual_override in TIER_VALUES:
+            return self.aaa_manual_override
+        if self.aaa_excel_marked:
+            return TIER_3A
+        verdict = self.aaa_llm_verdict
+        if isinstance(verdict, dict):
+            v_tier = _normalize_tier(verdict.get("tier", ""))
+            # LLM 判定只做「提升」（规则漏判时补上），不做「降级」。
+            if v_tier in (TIER_3A, TIER_2A):
+                return v_tier
+        return _normalize_tier(self.aaa_tier)
+
+    @property
     def is_aaa(self) -> bool:
         """供现有卡片与筛选使用的最终 3A 展示结论。"""
-        if self.aaa_manual_override is not None:
+        if isinstance(self.aaa_manual_override, bool):
             return self.aaa_manual_override
-        if self.aaa_excel_marked or self.aaa_tier == "AAA":
-            return True
-        # LLM 判定只做「提升」（规则漏判时补上），不做「降级」。
-        verdict = self.aaa_llm_verdict
-        if isinstance(verdict, dict) and verdict.get("is_aaa"):
-            return True
-        return False
+        return self.tier == TIER_3A
 
     @property
     def aaa_auto_label(self) -> str:
         if not self.aaa_rule_version:
             return "自动分类未评估"
-        return f"规则计算：{self.aaa_tier}（{self.aaa_score} 分）"
+        return f"规则计算：{_normalize_tier(self.aaa_tier)}（{self.aaa_score} 分）"
 
     @property
     def aaa_llm_label(self) -> str:
@@ -86,16 +124,18 @@ class Game:
         verdict = self.aaa_llm_verdict
         if not isinstance(verdict, dict) or not verdict:
             return ""
-        verdict_is_aaa = verdict.get("is_aaa")
+        tier = _normalize_tier(verdict.get("tier", ""))
         confidence = verdict.get("confidence", "low")
         reasoning = verdict.get("reasoning", "")
-        label = f"LLM 判定：{'是 3A' if verdict_is_aaa else '非 3A'}（置信度 {confidence}）"
+        label = f"LLM 判定：{tier}（置信度 {confidence}）"
         if reasoning:
             label += f"：{reasoning}"
         return label
 
     @property
     def aaa_source_label(self) -> str:
+        if isinstance(self.aaa_manual_override, str) and self.aaa_manual_override in TIER_VALUES:
+            return f"人工标记为 {self.aaa_manual_override}；{self.aaa_auto_label}"
         if self.aaa_manual_override is True:
             return f"人工标记为 3A；{self.aaa_auto_label}"
         if self.aaa_manual_override is False:

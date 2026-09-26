@@ -184,12 +184,12 @@ def test_long_genre_labels_wrap_and_reset_footer_stays_visible():
 
         window.selected_genres.add(long_genres[0])
         window.min_rating = 90.0
-        window.aaa_only = True
+        window.filter_tiers.add('3A')
         window.reset_button.click()
         app.processEvents()
         assert window.selected_genres == set()
         assert window.min_rating == 0.0
-        assert window.aaa_only is False
+        assert window.filter_tiers == set()
         assert window.reset_button.isVisibleTo(window)
     finally:
         window.hide()
@@ -483,20 +483,20 @@ def test_manual_aaa_override_updates_filter_result_immediately():
     try:
         game = Game(raw_name="测试游戏/Test Game", aaa_excel_marked=True)
         window.all_games = [game]
-        window.aaa_only = True
+        window.filter_tiers.add('3A')
 
-        window._set_manual_aaa_override(game, False)
-        assert cache.manual_overrides[game.norm_key] is False
-        assert game.is_aaa is False
+        window._set_manual_aaa_override(game, '普通游戏')
+        assert cache.manual_overrides[game.norm_key] == '普通游戏'
+        assert game.tier == '普通游戏'
         assert window.filtered_games == []
 
-        window._set_manual_aaa_override(game, True)
-        assert cache.manual_overrides[game.norm_key] is True
-        assert game.is_aaa is True
+        window._set_manual_aaa_override(game, '3A')
+        assert cache.manual_overrides[game.norm_key] == '3A'
+        assert game.tier == '3A'
         assert window.filtered_games == [game]
 
         window._set_manual_aaa_override(game, None)
-        assert cache.manual_overrides[game.norm_key] is None
+        assert cache.manual_overrides.get(game.norm_key) is None
         assert game.aaa_manual_override is None
         assert window.filtered_games == [game]
     finally:

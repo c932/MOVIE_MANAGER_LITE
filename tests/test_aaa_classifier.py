@@ -84,7 +84,7 @@ def test_tier_boundaries():
         **_metric("game_size_gb", 60),
     }
     assert classify_aaa(full)["score"] == 62
-    assert classify_aaa(full)["tier"] == "AAA"
+    assert classify_aaa(full)["tier"] == "3A"
 
     edge = {
         **_boolean("large_developer"),
@@ -93,7 +93,7 @@ def test_tier_boundaries():
         **_metric("steam_review_total", 150_000),
     }
     assert classify_aaa(edge)["score"] == 52
-    assert classify_aaa(edge)["tier"] == "AAA_EDGE"
+    assert classify_aaa(edge)["tier"] == "3A"
 
     aa = {
         **_boolean("large_developer"),
@@ -101,8 +101,8 @@ def test_tier_boundaries():
         **_metric("steam_review_total", 30_000),
     }
     assert classify_aaa(aa)["score"] == 33
-    assert classify_aaa(aa)["tier"] == "AA"
-    assert classify_aaa({})["tier"] == "INDIE"
+    assert classify_aaa(aa)["tier"] == "2A"
+    assert classify_aaa({})["tier"] == "普通游戏"
 
 
 def test_unsourced_evidence_scores_zero():
@@ -143,7 +143,7 @@ def test_build_auto_evidence_for_typical_aaa():
 
     result = classify_aaa(evidence)
     assert result["score"] == 62
-    assert result["tier"] == "AAA"
+    assert result["tier"] == "3A"
 
 
 def test_build_auto_evidence_curated_matching_is_case_insensitive():
@@ -173,7 +173,7 @@ def test_build_auto_evidence_skips_unknown_studio_and_missing_fields():
     empty = build_auto_evidence(_FakeGame())
     assert empty == {}
     assert classify_aaa(empty)["score"] == 0
-    assert classify_aaa(empty)["tier"] == "INDIE"
+    assert classify_aaa(empty)["tier"] == "普通游戏"
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ from ui.flow_layout import FlowWidget
 from gamewall.game_models import Game
 from gamewall.game_cache import GameCacheManager
 from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
-from gamewall.llm_classifier import classify_with_llm
+from gamewall.llm_classifier import classify_with_llm, TIER_VALUES, TIER_NORMAL
 from gamewall import steam_client
 from gamewall.game_card import GameCard
 from gamewall.game_detail_panel import GameDetailPanel
@@ -61,7 +61,7 @@ class ExcelImportWorker(QThread):
 
 
 class LLMClassifyWorker(QThread):
-    """后台 LLM 3A 判定线程：逐个调用 OpenAI 兼容 API，结果经信号交回主线程。"""
+    """后台 LLM 五档判定线程：逐个调用 OpenAI 兼容 API，结果经信号交回主线程。"""
     game_verdict = pyqtSignal(str, object)   # (norm_key, verdict dict | None)
     finished_with = pyqtSignal(str)          # 汇总信息
 
@@ -107,7 +107,7 @@ class GameMainWindow(QMainWindow):
         self.selected_genres = set()
         self.min_rating = 0
         self.no_rating_only = False
-        self.aaa_only = False
+        self.filter_tiers = set()
         self.installed_only = False
         self.filter_years = set()
         self.filter_developers = set()
@@ -259,9 +259,12 @@ class GameMainWindow(QMainWindow):
         layout.addWidget(feature_label)
         feature_widget = FlowWidget(margin=0, spacing=4)
         self.feature_filter_layout = feature_widget.flow_layout
-        self.aaa_btn = self._create_filter_button("3A大作", False)
-        self.aaa_btn.clicked.connect(self._on_aaa_filter_toggled)
-        self.feature_filter_layout.addWidget(self.aaa_btn)
+        self.tier_filter_buttons = {}
+        for tier in TIER_VALUES:
+            btn = self._create_filter_button(tier, False)
+            btn.clicked.connect(lambda checked, t=tier, b=btn: self._on_tier_filter_changed(t, b))
+            self.feature_filter_layout.addWidget(btn)
+            self.tier_filter_buttons[tier] = btn
         self.installed_btn = self._create_filter_button("已安装", False)
         self.installed_btn.clicked.connect(self._on_installed_filter_toggled)
         self.feature_filter_layout.addWidget(self.installed_btn)
@@ -627,7 +630,7 @@ class GameMainWindow(QMainWindow):
             game.aaa_evidence = evidence
             result = classify_aaa(evidence)
             game.aaa_score = result.get("score", 0)
-            game.aaa_tier = result.get("tier", "INDIE")
+            game.aaa_tier = result.get("tier", TIER_NORMAL)
             game.aaa_rule_version = result.get("rule_version", "")
             self.cache.set_auto_aaa_classification(game.norm_key, result, evidence)
 
@@ -709,8 +712,11 @@ class GameMainWindow(QMainWindow):
             self.no_rating_only = False
         self.apply_filters()
 
-    def _on_aaa_filter_toggled(self):
-        self.aaa_only = self.aaa_btn.isChecked()
+    def _on_tier_filter_changed(self, tier, btn):
+        if btn.isChecked():
+            self.filter_tiers.add(tier)
+        else:
+            self.filter_tiers.discard(tier)
         self.apply_filters()
 
     def _on_installed_filter_toggled(self):
@@ -766,7 +772,7 @@ class GameMainWindow(QMainWindow):
             elif self.min_rating > 0:
                 if game.steam_positive_pct <= 0 or game.steam_positive_pct < self.min_rating:
                     continue
-            if self.aaa_only and not game.is_aaa:
+            if self.filter_tiers and game.tier not in self.filter_tiers:
                 continue
             if self.installed_only and not game.installed:
                 continue
@@ -788,7 +794,7 @@ class GameMainWindow(QMainWindow):
         self.selected_genres.clear()
         self.min_rating = 0
         self.no_rating_only = False
-        self.aaa_only = False
+        self.filter_tiers.clear()
         self.installed_only = False
         self.search_keyword = ""
         self.search_input.clear()
@@ -796,7 +802,8 @@ class GameMainWindow(QMainWindow):
         self.filter_developers.clear()
         for b in self._rating_buttons:
             b.setChecked(b.text() == "全部")
-        self.aaa_btn.setChecked(False)
+        for b in self.tier_filter_buttons.values():
+            b.setChecked(False)
         self.installed_btn.setChecked(False)
         self.generate_genre_options()
         self.generate_year_options()
@@ -1290,14 +1297,15 @@ class GameMainWindow(QMainWindow):
                                f"https://store.steampowered.com/app/{game.steam_appid}/"))
         menu.addSeparator()
 
-        aaa_menu = menu.addMenu("3A 分类")
-        aaa_menu.addAction("🤖 LLM 判定 3A", lambda: self._start_llm_classify(game))
-        aaa_menu.addAction("🤖 LLM 判定所有新增游戏", lambda: self._start_llm_classify_new())
-        aaa_menu.addAction("🤖 LLM 判定所有游戏", lambda: self._start_llm_classify_all())
-        aaa_menu.addSeparator()
-        aaa_menu.addAction("标记为 3A", lambda: self._set_manual_aaa_override(game, True))
-        aaa_menu.addAction("标记为非 3A", lambda: self._set_manual_aaa_override(game, False))
-        aaa_menu.addAction("恢复自动判断", lambda: self._set_manual_aaa_override(game, None))
+        tier_menu = menu.addMenu("游戏分类")
+        tier_menu.addAction("🤖 LLM 判定", lambda: self._start_llm_classify(game))
+        tier_menu.addAction("🤖 LLM 判定所有新增游戏", lambda: self._start_llm_classify_new())
+        tier_menu.addAction("🤖 LLM 判定所有游戏", lambda: self._start_llm_classify_all())
+        tier_menu.addSeparator()
+        for tier in TIER_VALUES:
+            tier_menu.addAction(f"标记为 {tier}",
+                                lambda checked=False, t=tier: self._set_manual_aaa_override(game, t))
+        tier_menu.addAction("恢复自动判断", lambda: self._set_manual_aaa_override(game, None))
 
         if not game.installed:
             menu.addAction("⚙ 设置游戏主程序…", lambda: self._pick_game_exe(game))
@@ -1313,22 +1321,20 @@ class GameMainWindow(QMainWindow):
         menu.exec(global_pos)
 
     def _set_manual_aaa_override(self, game, override):
-        """保存人工 3A 结论，并同步筛选、卡片和详情。"""
+        """保存人工五档覆盖，并同步筛选、卡片和详情。"""
         game.aaa_manual_override = override
         self.cache.set_manual_aaa_override(game.norm_key, override)
         self.cache.save()
         self._sync_aaa_ui(game)
-        if override is True:
-            status = f"已手动标记为 3A: {game.display_title()}"
-        elif override is False:
-            status = f"已手动标记为非 3A: {game.display_title()}"
+        if override is None:
+            status = f"已恢复自动分类判断: {game.display_title()}"
         else:
-            status = f"已恢复自动 3A 判断: {game.display_title()}"
+            status = f"已手动标记为 {override}: {game.display_title()}"
         self.status_label.setText(status)
 
     def _sync_aaa_ui(self, game):
-        """3A 展示结论变化后同步筛选、卡片和详情。"""
-        if self.aaa_only:
+        """档位结论变化后同步筛选、卡片和详情。"""
+        if self.filter_tiers:
             self.apply_filters()
         card = self._card_pool.get(game.norm_key)
         if card:
@@ -1338,12 +1344,12 @@ class GameMainWindow(QMainWindow):
             self.detail_panel.show_game(game)
 
     def _start_llm_classify(self, game):
-        """对单款游戏启动 LLM 3A 判定。"""
+        """对单款游戏启动 LLM 判定。"""
         self._start_llm_classify_batch(
-            [game], f"正在用 LLM 判定《{game.display_title()}》是否 3A…")
+            [game], f"正在用 LLM 判定《{game.display_title()}》…")
 
     def _start_llm_classify_all(self):
-        """对所有游戏启动 LLM 3A 判定（覆盖已判定）。"""
+        """对所有游戏启动 LLM 判定（覆盖已判定）。"""
         self._start_llm_classify_batch(
             self.all_games, f"正在用 LLM 判定全部 {len(self.all_games)} 款游戏…")
 
@@ -1354,14 +1360,14 @@ class GameMainWindow(QMainWindow):
             new_games, f"正在用 LLM 判定 {len(new_games)} 款新增游戏…")
 
     def _start_llm_classify_batch(self, games, label):
-        """批量 LLM 3A 判定（需在设置中配置 LLM API）。"""
+        """批量 LLM 判定（需在设置中配置 LLM API）。"""
         base_url = (self.config.get_value("llm_base_url", "") or "").strip()
         api_key = (self.config.get_value("llm_api_key", "") or "").strip()
         model = (self.config.get_value("llm_model", "") or "gpt-4o-mini").strip()
         if not base_url or not api_key:
             QMessageBox.information(
                 self, "未配置 LLM",
-                "请先在「设置」中启用 LLM 3A 判定，并填写 API Base URL 与 API Key。")
+                "请先在「设置」中启用 LLM 判定，并填写 API Base URL 与 API Key。")
             return
         games = list(games)
         if not games:
@@ -1387,10 +1393,9 @@ class GameMainWindow(QMainWindow):
             done = self.progress_bar.value() + 1
             self.progress_bar.setValue(done)
             self.progress_bar.setFormat(f"LLM 判定 {done}/{len(games)}")
-            verdict_is_aaa = verdict.get("is_aaa")
             conf = verdict.get("confidence", "low")
             self.status_label.setText(
-                f"LLM 判定《{g.display_title()}》：{'是 3A' if verdict_is_aaa else '非 3A'}（置信度 {conf}）")
+                f"LLM 判定《{g.display_title()}》：{verdict.get('tier', '?')}（置信度 {conf}）")
 
         def _on_finished(summary):
             self.cache.save()

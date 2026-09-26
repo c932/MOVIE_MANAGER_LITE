@@ -275,29 +275,29 @@ def test_aaa_override_persists_across_snapshot_and_restart():
         cache.set_auto_aaa_classification(game.norm_key, result, {
             'large_developer': {'confirmed': True, 'source': '官方开发团队介绍'},
         })
-        cache.set_manual_aaa_override(game.norm_key, False)
+        cache.set_manual_aaa_override(game.norm_key, '普通游戏')
         cache.save()
 
         cache2 = GameCacheManager()
         updated_excel_game = Game(raw_name='测试游戏/Test Game', aaa_excel_marked=False)
         cache2.apply_to_game(updated_excel_game)
-        assert updated_excel_game.aaa_manual_override is False
+        assert updated_excel_game.aaa_manual_override == '普通游戏'
         assert updated_excel_game.aaa_score == 15
-        assert updated_excel_game.is_aaa is False
+        assert updated_excel_game.tier == '普通游戏'
 
         cache2.snapshot_games([updated_excel_game])
         cache2.save()
         cache3 = GameCacheManager()
         restored = Game(raw_name='测试游戏/Test Game', aaa_excel_marked=False)
         cache3.apply_to_game(restored)
-        assert restored.aaa_manual_override is False
-        assert restored.is_aaa is False
+        assert restored.aaa_manual_override == '普通游戏'
+        assert restored.tier == '普通游戏'
 
         cache3.clear_manual_aaa_override(restored.norm_key)
         assert cache3.get_manual_aaa_override(restored.norm_key) is None
         cache3.apply_to_game(restored)
         restored.aaa_manual_override = None
-        assert restored.is_aaa is False
+        assert restored.tier == '精品小众'
 
 
 def test_v1_cache_does_not_promote_legacy_aaa_flag():

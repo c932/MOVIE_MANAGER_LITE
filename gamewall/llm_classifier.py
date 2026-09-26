@@ -1,12 +1,11 @@
 """
-LLM 驱动的 3A 游戏分类器
+LLM 驱动的游戏五档分类器
 
 通过调用 OpenAI 兼容 API，结合游戏元数据（名称、开发商、发行商、类型、
-评分、评价数、体积等）综合判定是否为 3A 大作。结果以结构化 JSON 返回，
-由主线程合并为可追溯证据。
+评分、评价数、体积等）将游戏归入五档：3A / 2A / 精品小众 / 普通游戏 / 避坑。
 
 配置项（config.json）：
-  llm_enabled: bool        是否启用 LLM 3A 判定
+  llm_enabled: bool        是否启用 LLM 判定
   llm_base_url: str        API 端点（默认 https://api.openai.com/v1）
   llm_api_key: str         API Key
   llm_model: str           模型名（默认 gpt-4o-mini）
@@ -18,14 +17,24 @@ import urllib.error
 
 logger = logging.getLogger(__name__)
 
-_PROMPT_TEMPLATE = """你是一位资深游戏编辑。请根据以下游戏信息，判断它是否属于"3A 大作"（AAA级游戏）。
+# 五档分类（前端筛选、缓存持久化保持一致）
+TIER_3A = "3A"
+TIER_2A = "2A"
+TIER_NICHE = "精品小众"
+TIER_NORMAL = "普通游戏"
+TIER_AVOID = "避坑"
+TIER_VALUES = (TIER_3A, TIER_2A, TIER_NICHE, TIER_NORMAL, TIER_AVOID)
 
-3A 大作的典型特征：
-- 由知名大型开发商/发行商制作发行
-- 开发预算高、制作规模大（通常 50GB+ 或开放世界/复杂系统）
-- 媒体评分高（Metacritic 80+）
-- 玩家评价高、评价数量大（Steam 好评率 80%+、评价数 5 万+）
-- 跨多平台发行
+_PROMPT_TEMPLATE = """你是一位资深游戏编辑。请根据以下游戏信息，将这款游戏归入五档分类之一。
+
+五档定义：
+- 3A：知名大型开发商/发行商，高预算大规模制作（50GB+ 或开放世界/复杂系统），媒体评分高（Metacritic 80+），Steam 好评率高且评价量大（5 万+）。体育年货大作（NBA2K、FIFA/EA FC 等）、知名即时战略（家园、英雄连、星际争霸等）、育碧/EA/动视/2K/Rockstar/万代南梦宫/Capcom/索尼/微软等大厂新作，即使类型相对小众也通常属于 3A。
+- 2A：中等规模商业制作，预算体量低于 3A，但质量口碑不错。
+- 精品小众：制作精良但受众较窄的中型/独立作品，口碑好（Steam 好评 85%+），但评价量不大。
+- 普通游戏：质量口碑中等的普通商业游戏。
+- 避坑：口碑差（好评率或媒体评分低）、存在严重问题不建议购买。
+
+重要：不要因为游戏类型（体育、RTS、模拟经营、格斗等）相对小众就低估其制作体量。大厂高预算的知名系列新作应判为 3A 或 2A，而不是普通游戏。
 
 游戏信息：
 - 名称：{title}
@@ -40,7 +49,7 @@ _PROMPT_TEMPLATE = """你是一位资深游戏编辑。请根据以下游戏信�
 
 请返回 JSON（只返回 JSON，不要其他文字）：
 {{
-  "is_aaa": true或false,
+  "tier": "3A/2A/精品小众/普通游戏/避坑",
   "confidence": "high/medium/low",
   "score": 0-100的整数,
   "reasoning": "简短理由（1-2句中文）"
@@ -75,10 +84,11 @@ def _build_prompt(game) -> str:
 def classify_with_llm(game, base_url: str, api_key: str, model: str,
                       timeout: float = 30.0) -> dict | None:
     """
-    调用 LLM API 判定游戏是否为 3A。
+    调用 LLM API 将游戏归入五档分类。
 
     Returns:
-        {"is_aaa": bool, "confidence": str, "score": int, "reasoning": str} | None
+        {"tier", "is_aaa", "confidence", "score", "reasoning"} | None
+        其中 is_aaa 为 tier=="3A" 的派生值，兼容既有 3A 筛选逻辑。
     """
     prompt = _build_prompt(game)
     payload = json.dumps({
@@ -116,10 +126,14 @@ def classify_with_llm(game, base_url: str, api_key: str, model: str,
                 content = content[:-3]
             content = content.strip()
         result = json.loads(content)
-        if not isinstance(result, dict) or "is_aaa" not in result:
+        if not isinstance(result, dict):
+            return None
+        tier = str(result.get("tier", "")).strip()
+        if tier not in TIER_VALUES:
             return None
         return {
-            "is_aaa": bool(result.get("is_aaa")),
+            "tier": tier,
+            "is_aaa": tier == TIER_3A,
             "confidence": str(result.get("confidence", "low")),
             "score": int(result.get("score", 0)),
             "reasoning": str(result.get("reasoning", "")),
@@ -127,35 +141,3 @@ def classify_with_llm(game, base_url: str, api_key: str, model: str,
     except (json.JSONDecodeError, KeyError, IndexError, ValueError) as e:
         logger.warning(f"LLM 响应解析失败: {e} | raw={content[:200]}")
         return None
-
-
-def result_to_evidence(result: dict, model: str) -> dict:
-    """将 LLM 判定结果转为与 aaa_classifier 兼容的证据格式。"""
-    if not result or not isinstance(result, dict):
-        return {}
-    score = result.get("score", 0)
-    is_aaa = result.get("is_aaa", False)
-    confidence = result.get("confidence", "low")
-    reasoning = result.get("reasoning", "")
-
-    # 将 LLM 分数映射到规则系统的证据结构
-    evidence = {}
-    source = f"LLM 判定（{model}，置信度 {confidence}）"
-
-    if is_aaa:
-        # LLM 判定为 3A：至少让分数达到 AAA 阈值 55
-        evidence["llm_aaa_verdict"] = {
-            "confirmed": True,
-            "sources": [f"{source}：{reasoning}"],
-        }
-        evidence["llm_aaa_score"] = {
-            "value": float(score),
-            "sources": [source],
-        }
-    else:
-        evidence["llm_aaa_verdict"] = {
-            "confirmed": False,
-            "sources": [f"{source}：{reasoning}"],
-        }
-
-    return evidence
