@@ -202,19 +202,31 @@ def test_developer_options_refresh_preserves_current_selection():
     window, _cache = _create_window()
     existing = Game(raw_name="现有游戏", developer="Existing Studio")
     enriched = Game(raw_name="待补全游戏")
+
+    def developer_buttons():
+        return {
+            button.property("filter_label"): button
+            for button in window.developer_filter_widget.findChildren(QPushButton)
+            if button.property("filter_label")
+        }
+
     try:
         window.all_games = [existing, enriched]
-        window.filter_developer = existing.developer
+        window.filter_developers = {existing.developer}
         window.generate_developer_options()
-        assert window.developer_combo.currentText() == existing.developer
+
+        buttons = developer_buttons()
+        assert existing.developer in buttons
+        assert buttons[existing.developer].isChecked()
 
         window._games_by_key = {enriched.norm_key: enriched}
         window._on_game_enriched(enriched.norm_key, {"developer": "New Studio"})
         QTest.qWait(150)
 
         assert enriched.developer == "New Studio"
-        assert window.developer_combo.findText("New Studio") >= 0
-        assert window.developer_combo.currentText() == existing.developer
+        buttons = developer_buttons()
+        assert "New Studio" in buttons
+        assert buttons[existing.developer].isChecked()
     finally:
         window.hide()
         window.deleteLater()

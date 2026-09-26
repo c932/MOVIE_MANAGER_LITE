@@ -42,33 +42,33 @@ def test_rule_contract_and_individual_scores():
 
     assert classify_aaa(_boolean("large_developer"))["score"] == 15
     assert classify_aaa(_boolean("large_publisher"))["score"] == 10
-    assert classify_aaa(_boolean("open_world_or_complex_systems"))["score"] == 5
-    assert classify_aaa(_boolean("global_multiplatform"))["score"] == 5
-    assert classify_aaa(_metric("metacritic", 85))["score"] == 15
-    assert classify_aaa(_metric("metacritic", 80))["score"] == 5
-    assert classify_aaa(_metric("steam_review_total", 100_000))["score"] == 20
-    assert classify_aaa(_metric("steam_review_total", 20_000))["score"] == 10
+    assert classify_aaa(_boolean("open_world_or_complex_systems"))["score"] == 10
+    assert classify_aaa(_boolean("global_multiplatform"))["score"] == 10
+    assert classify_aaa(_metric("metacritic", 85))["score"] == 12
+    assert classify_aaa(_metric("metacritic", 75))["score"] == 5
+    assert classify_aaa(_metric("steam_review_total", 100_000))["score"] == 15
+    assert classify_aaa(_metric("steam_review_total", 20_000))["score"] == 8
     assert classify_aaa(_metric("game_size_gb", 50))["score"] == 10
     assert classify_aaa(_metric("game_size_gb", 20))["score"] == 5
 
 
 def test_metric_bands_are_mutually_exclusive():
     top = classify_aaa(_metric("metacritic", 94))
-    assert _status(top, "metacritic_85") == "hit"
-    assert _status(top, "metacritic_80") == "not_met"
+    assert _status(top, "metacritic_high") == "hit"
+    assert _status(top, "metacritic_mid") == "not_met"
 
-    mid = classify_aaa(_metric("metacritic", 82))
-    assert _status(mid, "metacritic_85") == "not_met"
-    assert _status(mid, "metacritic_80") == "hit"
+    mid = classify_aaa(_metric("metacritic", 75))
+    assert _status(mid, "metacritic_high") == "not_met"
+    assert _status(mid, "metacritic_mid") == "hit"
     assert mid["score"] == 5
 
     viral = classify_aaa(_metric("steam_review_total", 150_000))
-    assert _status(viral, "steam_reviews_100k") == "hit"
-    assert _status(viral, "steam_reviews_20k") == "not_met"
+    assert _status(viral, "steam_reviews_high") == "hit"
+    assert _status(viral, "steam_reviews_mid") == "not_met"
 
     small = classify_aaa(_metric("steam_review_total", 5_000))
     assert small["score"] == 0
-    assert _status(small, "steam_reviews_20k") == "not_met"
+    assert _status(small, "steam_reviews_mid") == "not_met"
 
     big = classify_aaa(_metric("game_size_gb", 60.5))
     assert _status(big, "game_size_50gb") == "hit"
@@ -83,7 +83,7 @@ def test_tier_boundaries():
         **_metric("steam_review_total", 250_000),
         **_metric("game_size_gb", 60),
     }
-    assert classify_aaa(full)["score"] == 70
+    assert classify_aaa(full)["score"] == 62
     assert classify_aaa(full)["tier"] == "AAA"
 
     edge = {
@@ -92,7 +92,7 @@ def test_tier_boundaries():
         **_metric("metacritic", 82),
         **_metric("steam_review_total", 150_000),
     }
-    assert classify_aaa(edge)["score"] == 50
+    assert classify_aaa(edge)["score"] == 52
     assert classify_aaa(edge)["tier"] == "AAA_EDGE"
 
     aa = {
@@ -100,7 +100,7 @@ def test_tier_boundaries():
         **_boolean("large_publisher"),
         **_metric("steam_review_total", 30_000),
     }
-    assert classify_aaa(aa)["score"] == 35
+    assert classify_aaa(aa)["score"] == 33
     assert classify_aaa(aa)["tier"] == "AA"
     assert classify_aaa({})["tier"] == "INDIE"
 
@@ -142,7 +142,7 @@ def test_build_auto_evidence_for_typical_aaa():
     assert "global_multiplatform" not in evidence
 
     result = classify_aaa(evidence)
-    assert result["score"] == 70
+    assert result["score"] == 62
     assert result["tier"] == "AAA"
 
 
@@ -161,7 +161,7 @@ def test_build_auto_evidence_open_world_and_multiplatform():
     evidence = build_auto_evidence(game)
     assert evidence["open_world_or_complex_systems"]["confirmed"] is True
     assert evidence["global_multiplatform"]["confirmed"] is True
-    assert classify_aaa(evidence)["score"] == 10
+    assert classify_aaa(evidence)["score"] == 20
 
 
 def test_build_auto_evidence_skips_unknown_studio_and_missing_fields():

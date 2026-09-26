@@ -14,26 +14,26 @@ from collections.abc import Mapping
 from typing import Any
 
 
-RULE_VERSION = "2.0"
+RULE_VERSION = "3.0"
 
 RULES = (
     ("large_developer", "大型开发商", 15),
     ("large_publisher", "大型发行商", 10),
-    ("metacritic_85", "Metacritic 85 分以上", 15),
-    ("metacritic_80", "Metacritic 80-84 分", 5),
-    ("steam_reviews_100k", "Steam 评价数 10 万以上", 20),
-    ("steam_reviews_20k", "Steam 评价数 2-10 万", 10),
+    ("metacritic_high", "Metacritic 80 分以上", 12),
+    ("metacritic_mid", "Metacritic 70-79 分", 5),
+    ("steam_reviews_high", "Steam 评价数 5 万以上", 15),
+    ("steam_reviews_mid", "Steam 评价数 1-5 万", 8),
     ("game_size_50gb", "资源体积 50GB 以上", 10),
     ("game_size_20gb", "资源体积 20-50GB", 5),
-    ("open_world_or_complex_systems", "开放世界/沙盒等大型系统", 5),
-    ("global_multiplatform", "跨多平台发行", 5),
+    ("open_world_or_complex_systems", "开放世界/沙盒等大型系统", 10),
+    ("global_multiplatform", "跨多平台发行", 10),
 )
 
 if len(RULES) != 10 or sum(weight for _, _, weight in RULES) != 100:
     raise RuntimeError("3A 分类规则必须恰好十项且总权重为 100")
 
-# 命名档位：>=65 AAA；>=50 准 3A；>=35 AA；其余 INDIE
-_TIER_THRESHOLDS = ((65, "AAA"), (50, "AAA_EDGE"), (35, "AA"))
+# 命名档位：>=55 AAA；>=40 准 3A；>=25 AA；其余 INDIE
+_TIER_THRESHOLDS = ((55, "AAA"), (40, "AAA_EDGE"), (25, "AA"))
 
 _BOOLEAN_EVIDENCE = {
     "large_developer": "large_developer",
@@ -43,10 +43,10 @@ _BOOLEAN_EVIDENCE = {
 }
 
 _METRIC_EVIDENCE = {
-    "metacritic_85": ("metacritic", lambda value: value >= 85),
-    "metacritic_80": ("metacritic", lambda value: 80 <= value < 85),
-    "steam_reviews_100k": ("steam_review_total", lambda value: value >= 100_000),
-    "steam_reviews_20k": ("steam_review_total", lambda value: 20_000 <= value < 100_000),
+    "metacritic_high": ("metacritic", lambda value: value >= 80),
+    "metacritic_mid": ("metacritic", lambda value: 70 <= value < 80),
+    "steam_reviews_high": ("steam_review_total", lambda value: value >= 50_000),
+    "steam_reviews_mid": ("steam_review_total", lambda value: 10_000 <= value < 50_000),
     "game_size_50gb": ("game_size_gb", lambda value: value >= 50),
     "game_size_20gb": ("game_size_gb", lambda value: 20 <= value < 50),
 }

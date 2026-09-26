@@ -2,8 +2,32 @@
 流式布局 FlowLayout
 用于筛选按钮的自适应排列
 """
-from PyQt6.QtWidgets import QLayout, QLayoutItem, QWidget
+from PyQt6.QtWidgets import QLayout, QLayoutItem, QWidget, QSizePolicy
 from PyQt6.QtCore import Qt, QRect, QSize, QPoint
+
+
+class FlowWidget(QWidget):
+    """QWidget 包装器，将 hasHeightForWidth / heightForWidth 委托给内部的 FlowLayout。
+
+    普通的 QWidget 不会声明 height-for-width 支持，因此即使内部使用了
+    FlowLayout，Qt 布局系统也只会按单一最小高度来布局——导致按钮
+    无法自动换行。FlowWidget 修复了这一点。
+
+    用法：
+        fw = FlowWidget(parent, margin=0, spacing=4)
+        fw.flow_layout.addWidget(btn)
+    """
+
+    def __init__(self, parent=None, margin=0, spacing=4):
+        super().__init__(parent)
+        self.flow_layout = FlowLayout(self, margin=margin, spacing=spacing)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
+
+    def hasHeightForWidth(self) -> bool:
+        return True
+
+    def heightForWidth(self, width: int) -> int:
+        return self.flow_layout.heightForWidth(width)
 
 
 class FlowLayout(QLayout):

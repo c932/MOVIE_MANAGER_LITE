@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QScrollArea, QGridLayout, QLineEdit, QSlider,
     QProgressBar, QSplitter, QFrame, QSizePolicy, QMenu,
-    QApplication, QMessageBox, QFileDialog, QComboBox, QCompleter,
+    QApplication, QMessageBox, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QFont, QFontMetrics, QCursor, QPixmap
@@ -74,8 +74,8 @@ class GameMainWindow(QMainWindow):
         self.no_rating_only = False
         self.aaa_only = False
         self.installed_only = False
-        self.filter_year = ""
-        self.filter_developer = ""
+        self.filter_years = set()
+        self.filter_developers = set()
         self.sort_mode = "update"
         self.poster_scale = self.config.get_value("poster_scale", 100) / 100.0
 
@@ -172,7 +172,7 @@ class GameMainWindow(QMainWindow):
 
     def _create_filter_panel(self):
         """左侧筛选面板，筛选内容可滚动而重置操作始终可见。"""
-        from ui.flow_layout import FlowLayout
+        from ui.flow_layout import FlowLayout, FlowWidget
 
         sidebar = QWidget()
         sidebar.setObjectName("GameFilterSidebar")
@@ -204,52 +204,49 @@ class GameMainWindow(QMainWindow):
         genre_label = QLabel("类型")
         genre_label.setStyleSheet("color: #333333;")
         layout.addWidget(genre_label)
-        self.genre_filter_widget = QWidget()
-        self.genre_filter_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        self.genre_filter_layout = FlowLayout(self.genre_filter_widget, margin=0, spacing=4)
+        self.genre_filter_widget = FlowWidget(margin=0, spacing=4)
+        self.genre_filter_layout = self.genre_filter_widget.flow_layout
         layout.addWidget(self.genre_filter_widget)
 
         rating_label = QLabel("Steam 评分")
         rating_label.setStyleSheet("color: #333333;")
         layout.addWidget(rating_label)
-        self.rating_filter_layout = FlowLayout(margin=0, spacing=4)
+        rating_widget = FlowWidget(margin=0, spacing=4)
+        self.rating_filter_layout = rating_widget.flow_layout
         self._rating_buttons = []
         for text, value in [("全部", 0), ("> 50%", 50), ("> 75%", 75), ("> 90%", 90), ("无评分", -1)]:
             btn = self._create_filter_button(text, value == 0)
             btn.clicked.connect(lambda checked, v=value: self._on_rating_filter_changed(v, btn))
             self.rating_filter_layout.addWidget(btn)
             self._rating_buttons.append(btn)
-        rating_widget = QWidget()
-        rating_widget.setLayout(self.rating_filter_layout)
         layout.addWidget(rating_widget)
 
         feature_label = QLabel("特性")
         feature_label.setStyleSheet("color: #333333;")
         layout.addWidget(feature_label)
-        self.feature_filter_layout = FlowLayout(margin=0, spacing=4)
+        feature_widget = FlowWidget(margin=0, spacing=4)
+        self.feature_filter_layout = feature_widget.flow_layout
         self.aaa_btn = self._create_filter_button("3A大作", False)
         self.aaa_btn.clicked.connect(self._on_aaa_filter_toggled)
         self.feature_filter_layout.addWidget(self.aaa_btn)
         self.installed_btn = self._create_filter_button("已安装", False)
         self.installed_btn.clicked.connect(self._on_installed_filter_toggled)
         self.feature_filter_layout.addWidget(self.installed_btn)
-        feature_widget = QWidget()
-        feature_widget.setLayout(self.feature_filter_layout)
         layout.addWidget(feature_widget)
 
         year_label = QLabel("年份")
         year_label.setStyleSheet("color: #333333;")
         layout.addWidget(year_label)
-        self.year_combo = self._create_filter_combo("全部年份", False)
-        self.year_combo.currentIndexChanged.connect(self._on_year_filter_changed)
-        layout.addWidget(self.year_combo)
+        self.year_filter_widget = FlowWidget(margin=0, spacing=4)
+        self.year_filter_layout = self.year_filter_widget.flow_layout
+        layout.addWidget(self.year_filter_widget)
 
         developer_label = QLabel("制作公司")
         developer_label.setStyleSheet("color: #333333;")
         layout.addWidget(developer_label)
-        self.developer_combo = self._create_filter_combo("全部公司", True)
-        self.developer_combo.currentIndexChanged.connect(self._on_developer_filter_changed)
-        layout.addWidget(self.developer_combo)
+        self.developer_filter_widget = FlowWidget(margin=0, spacing=4)
+        self.developer_filter_layout = self.developer_filter_widget.flow_layout
+        layout.addWidget(self.developer_filter_widget)
 
         layout.addStretch()
 
@@ -284,69 +281,53 @@ class GameMainWindow(QMainWindow):
         QTimer.singleShot(0, self._reflow_filter_buttons)
         return sidebar
 
-    def _create_filter_combo(self, all_text: str, editable: bool = False):
-        """筛选下拉（与面板按钮同风格）；editable 时附带包含匹配的自动补全"""
-        combo = QComboBox()
-        combo.setFont(QFont("Microsoft YaHei", 10))
-        combo.setFixedHeight(30)
-        combo.addItem(all_text, "")
-        if editable:
-            combo.setEditable(True)
-            combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-            completer = QCompleter()
-            completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-            completer.setFilterMode(Qt.MatchFlag.MatchContains)
-            combo.setModel(combo.model())
-            combo.setCompleter(completer)
-        combo.setStyleSheet("""
-            QComboBox {
-                background-color: #FFFFFF; color: #333333;
-                border: 1px solid #E0E0E0; border-radius: 4px;
-                padding: 4px 8px; font-size: 12px;
-            }
-            QComboBox:hover { border-color: #007AFF; }
-            QComboBox::drop-down { border: none; width: 22px; }
-            QComboBox QAbstractItemView {
-                background-color: #FFFFFF; color: #333333;
-                border: 1px solid #E0E0E0; selection-background-color: #007AFF;
-            }
-        """)
-        return combo
+    @staticmethod
+    def _clear_filter_button_layout(flow_layout):
+        """清空筛选按钮布局（供年份/制作公司重建时复用）"""
+        while flow_layout.count():
+            item = flow_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
     def generate_year_options(self):
-        """从发售日期重建年份下拉（新→旧）"""
+        """从发售日期重建年份筛选按钮（新→旧，多选）"""
         years = sorted({
             g.release_date[:4] for g in self.all_games
             if g.release_date and len(g.release_date) >= 4
         }, reverse=True)
-        combo = self.year_combo
-        combo.blockSignals(True)
-        prev = self.filter_year
-        combo.clear()
-        combo.addItem("全部年份", "")
-        for y in years:
-            combo.addItem(y, y)
-        idx = combo.findText(prev)
-        combo.setCurrentIndex(max(0, idx))
-        combo.blockSignals(False)
+        self._clear_filter_button_layout(self.year_filter_layout)
+        if not years:
+            hint = QLabel("（无年份数据）")
+            hint.setStyleSheet("color: #999999; font-size: 11px;")
+            self.year_filter_layout.addWidget(hint)
+            return
+        for year in years[:30]:
+            btn = self._create_filter_button(year, False)
+            btn.setChecked(year in self.filter_years)
+            btn.clicked.connect(lambda checked, y=year: self._on_year_filter_toggled(y, checked))
+            self.year_filter_layout.addWidget(btn)
+        QTimer.singleShot(0, self._reflow_filter_buttons)
 
     def generate_developer_options(self):
-        """从补全数据重建制作公司下拉（按游戏数排序，可搜索）"""
+        """从补全数据重建制作公司筛选按钮（按游戏数排序，多选）"""
         from collections import Counter
         counter = Counter()
         for g in self.all_games:
             if g.developer:
                 counter[g.developer] += 1
         developers = [d for d, _ in counter.most_common()]
-        combo = self.developer_combo
-        combo.blockSignals(True)
-        prev = self.filter_developer
-        combo.clear()
-        combo.addItem("全部公司", "")
-        combo.addItems(developers)
-        idx = combo.findText(prev)
-        combo.setCurrentIndex(max(0, idx))
-        combo.blockSignals(False)
+        self._clear_filter_button_layout(self.developer_filter_layout)
+        if not developers:
+            hint = QLabel("（待评分数据补全后可用）")
+            hint.setStyleSheet("color: #999999; font-size: 11px;")
+            self.developer_filter_layout.addWidget(hint)
+            return
+        for developer in developers[:25]:
+            btn = self._create_filter_button(developer, False)
+            btn.setChecked(developer in self.filter_developers)
+            btn.clicked.connect(lambda checked, d=developer: self._on_developer_filter_toggled(d, checked))
+            self.developer_filter_layout.addWidget(btn)
+        QTimer.singleShot(0, self._reflow_filter_buttons)
 
     def _schedule_developer_options_refresh(self):
         if not self._developer_options_refresh_scheduled:
@@ -357,12 +338,18 @@ class GameMainWindow(QMainWindow):
         self._developer_options_refresh_scheduled = False
         self.generate_developer_options()
 
-    def _on_year_filter_changed(self, index):
-        self.filter_year = self.year_combo.itemData(index) or ""
+    def _on_year_filter_toggled(self, year, checked):
+        if checked:
+            self.filter_years.add(year)
+        else:
+            self.filter_years.discard(year)
         self.apply_filters()
 
-    def _on_developer_filter_changed(self, index):
-        self.filter_developer = self.developer_combo.itemText(index) if self.developer_combo.itemText(index) != "全部公司" else ""
+    def _on_developer_filter_toggled(self, developer, checked):
+        if checked:
+            self.filter_developers.add(developer)
+        else:
+            self.filter_developers.discard(developer)
         self.apply_filters()
 
     def _create_filter_button(self, text: str, is_all: bool = True):
@@ -429,10 +416,18 @@ class GameMainWindow(QMainWindow):
                 btn.updateGeometry()
 
         for flow_layout in (getattr(self, n, None) for n in
-                            ["genre_filter_layout", "rating_filter_layout", "feature_filter_layout"]):
+                            ["genre_filter_layout", "rating_filter_layout", "feature_filter_layout",
+                             "year_filter_layout", "developer_filter_layout"]):
             if flow_layout is not None:
                 flow_layout.invalidate()
                 flow_layout.activate()
+                parent_widget = flow_layout.parentWidget()
+                if parent_widget and isinstance(parent_widget, FlowWidget):
+                    h = flow_layout.heightForWidth(parent_widget.width())
+                    if h > 0:
+                        parent_widget.setMinimumHeight(h)
+                        parent_widget.updateGeometry()
+        self.filter_content.updateGeometry()
 
     def eventFilter(self, watched, event):
         if hasattr(self, "filter_scroll_area") and watched is self.filter_scroll_area.viewport():
@@ -742,11 +737,12 @@ class GameMainWindow(QMainWindow):
                 continue
             if self.installed_only and not game.installed:
                 continue
-            if self.filter_year:
-                if not (game.release_date or "").startswith(self.filter_year):
+            if self.filter_years:
+                year = (game.release_date or "")[:4]
+                if year not in self.filter_years:
                     continue
-            if self.filter_developer:
-                if game.developer != self.filter_developer:
+            if self.filter_developers:
+                if game.developer not in self.filter_developers:
                     continue
             filtered.append(game)
         self.filtered_games = filtered
@@ -763,28 +759,27 @@ class GameMainWindow(QMainWindow):
         self.installed_only = False
         self.search_keyword = ""
         self.search_input.clear()
-        self.filter_year = ""
-        self.filter_developer = ""
-        self.year_combo.blockSignals(True)
-        self.year_combo.setCurrentIndex(0)
-        self.year_combo.blockSignals(False)
-        self.developer_combo.blockSignals(True)
-        self.developer_combo.setCurrentIndex(0)
-        self.developer_combo.blockSignals(False)
+        self.filter_years.clear()
+        self.filter_developers.clear()
         for b in self._rating_buttons:
             b.setChecked(b.text() == "全部")
         self.aaa_btn.setChecked(False)
         self.installed_btn.setChecked(False)
         self.generate_genre_options()
+        self.generate_year_options()
+        self.generate_developer_options()
         self.apply_filters()
 
-    def _on_sort_changed(self, mode, btn):
-        for b in self.parentWidget().findChildren(QPushButton):
-            if b.objectName() == "SortButton":
-                b.setChecked(False)
-        if btn is not None:
-            btn.setChecked(True)
+    def _on_sort_changed(self, mode, clicked_btn=None):
+        """排序模式改变（参照电影墙实现：用按钮父控件定位 toolbar）"""
         self.sort_mode = mode
+        if clicked_btn:
+            toolbar = clicked_btn.parent()
+            if toolbar:
+                for b in toolbar.findChildren(QPushButton):
+                    if b.objectName() == "SortButton":
+                        b.setChecked(False)
+                clicked_btn.setChecked(True)
         self.refresh_poster_wall()
 
     def _on_scale_changed(self, value):
