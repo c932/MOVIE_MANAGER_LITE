@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
     QPushButton, QScrollArea, QGridLayout, QLineEdit, QSlider,
     QProgressBar, QSplitter, QFrame, QSizePolicy, QMenu,
-    QApplication, QMessageBox, QFileDialog,
+    QApplication, QMessageBox, QFileDialog, QDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QEvent
 from PyQt6.QtGui import QFont, QFontMetrics, QCursor, QPixmap
@@ -26,6 +26,8 @@ from gamewall.game_models import Game
 from gamewall.game_cache import GameCacheManager
 from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
 from gamewall.llm_classifier import classify_with_llm, TIER_VALUES, TIER_NORMAL
+from gamewall.llm_search import llm_match_and_fetch
+from gamewall.game_dialogs import SteamSearchDialog, GameInfoEditDialog
 from gamewall import steam_client
 from gamewall.game_card import GameCard
 from gamewall.game_detail_panel import GameDetailPanel
@@ -93,6 +95,55 @@ class LLMClassifyWorker(QThread):
         self.finished_with.emit(f"LLM 判定完成：{done} 款游戏")
 
 
+class SteamFetchWorker(QThread):
+    """后台拉取单个游戏的 Steam 详情与评价（手动匹配成功后使用）。"""
+    result = pyqtSignal(str, dict, str)   # (norm_key, fields, err)
+
+    def __init__(self, game, appid: int, parent=None):
+        super().__init__(parent)
+        self._game = game
+        self._appid = appid
+
+    def run(self):
+        try:
+            fields = {"steam_appid": self._appid}
+            details, err = steam_client.fetch_appdetails(self._appid)
+            if err:
+                self.result.emit(self._game.norm_key, fields, f"详情拉取失败：{err}")
+                return
+            fields.update(details or {})
+            reviews, err = steam_client.fetch_appreviews(self._appid)
+            if err:
+                self.result.emit(self._game.norm_key, fields, f"评价拉取失败：{err}")
+                return
+            fields.update(reviews or {})
+            self.result.emit(self._game.norm_key, fields, "")
+        except Exception as e:
+            logger.warning(f"Steam 拉取异常 {self._game.norm_key}: {e}")
+            self.result.emit(self._game.norm_key, {}, str(e))
+
+
+class LLMSearchWorker(QThread):
+    """后台 LLM 搜索匹配 + 拉取资料。"""
+    result = pyqtSignal(str, dict, str)   # (norm_key, fields, err)
+
+    def __init__(self, game, base_url: str, api_key: str, model: str, parent=None):
+        super().__init__(parent)
+        self._game = game
+        self._base_url = base_url
+        self._api_key = api_key
+        self._model = model
+
+    def run(self):
+        try:
+            fields, err = llm_match_and_fetch(
+                self._game, self._base_url, self._api_key, self._model)
+        except Exception as e:
+            logger.warning(f"LLM 搜索匹配异常 {self._game.norm_key}: {e}")
+            fields, err = {}, str(e)
+        self.result.emit(self._game.norm_key, fields, err)
+
+
 class GameMainWindow(QMainWindow):
     """游戏墙主窗口：左侧筛选栏 + 中间海报墙 + 右侧详情面板"""
 
@@ -127,6 +178,8 @@ class GameMainWindow(QMainWindow):
         self._local_scanner = None
         self._games_by_key = {}
         self._enriched_save_counter = 0
+        self._llm_search_worker = None
+        self._steam_fetch_worker = None
 
         self.init_ui()
         self._startup_load()
@@ -1307,6 +1360,12 @@ class GameMainWindow(QMainWindow):
                                 lambda checked=False, t=tier: self._set_manual_aaa_override(game, t))
         tier_menu.addAction("恢复自动判断", lambda: self._set_manual_aaa_override(game, None))
 
+        data_menu = menu.addMenu("🔧 游戏资料")
+        data_menu.addAction("🔍 手动搜索匹配 Steam…", lambda: self._manual_search_steam(game))
+        data_menu.addAction("✏️ 编辑简介与海报…", lambda: self._edit_game_info(game))
+        data_menu.addAction("🤖 LLM 搜索匹配并更新资料", lambda: self._llm_search_match(game))
+        data_menu.addAction("🖼️ 重新获取竖版海报（LLM）", lambda: self._llm_refetch_poster(game))
+
         if not game.installed:
             menu.addAction("⚙ 设置游戏主程序…", lambda: self._pick_game_exe(game))
         else:
@@ -1342,6 +1401,153 @@ class GameMainWindow(QMainWindow):
         if (self.detail_panel.current_game is not None
                 and self.detail_panel.current_game.norm_key == game.norm_key):
             self.detail_panel.show_game(game)
+
+        # ── 游戏资料：手动搜索匹配 / 编辑 / LLM 更新 ──
+
+    def _llm_config(self):
+        """读取 LLM 配置；未配置时提示并返回 None。"""
+        base_url = (self.config.get_value("llm_base_url", "") or "").strip()
+        api_key = (self.config.get_value("llm_api_key", "") or "").strip()
+        model = (self.config.get_value("llm_model", "") or "gpt-4o-mini").strip()
+        if not base_url or not api_key:
+            QMessageBox.information(
+                self, "未配置 LLM",
+                "请先在「设置」中启用 LLM 判定，并填写 API Base URL 与 API Key。")
+            return None
+        return base_url, api_key, model
+
+    @staticmethod
+    def _poster_cache_keys(url):
+        """海报加载器用 url + '#cv1' 作为缓存键，两者都要失效。"""
+        return [url, url + "#cv1"]
+
+    def _invalidate_poster_cache(self, urls):
+        """失效指定 URL 的内存与磁盘海报缓存。"""
+        image_cache = ImageCache()
+        cache_mgr = get_poster_cache_manager()
+        for url in urls:
+            if not url:
+                continue
+            for key in self._poster_cache_keys(url):
+                image_cache.remove(key)
+                cache_mgr.invalidate_cache_for_path(key)
+
+    def _reset_card_poster(self, game):
+        """重置卡片海报加载状态，触发重新下载。"""
+        card = self._card_pool.get(game.norm_key)
+        if card is None:
+            return
+        card._poster_loaded = False
+        card._poster_loading = False
+        card._poster_fail_count = 0
+        card._poster_next_retry_at = 0.0
+        card.update_game_info(game)
+
+    def _apply_steam_update(self, game, fields, label):
+        """应用 Steam 资料更新到游戏对象、缓存、UI。"""
+        old_urls = game.get_cover_urls()
+        self.cache.merge_fields(game.norm_key, fields, force=True)
+        self.cache.apply_to_game(game, force=True)
+        self.cache.save()
+        self._refresh_auto_aaa_classifications([game])
+        self._invalidate_poster_cache(old_urls)
+        self._reset_card_poster(game)
+        QTimer.singleShot(0, self._load_visible_posters)
+        if (self.detail_panel.current_game is not None
+                and self.detail_panel.current_game.norm_key == game.norm_key):
+            self.detail_panel.show_game(game)
+        self.status_label.setText(label)
+
+    def _manual_search_steam(self, game):
+        """手动搜索匹配 Steam。"""
+        dlg = SteamSearchDialog(self, game)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_appid:
+            return
+        self.status_label.setText(f"正在拉取 Steam 资料（appid: {dlg.selected_appid}）…")
+        self.progress_bar.show()
+        worker = SteamFetchWorker(game, dlg.selected_appid, parent=self)
+        self._steam_fetch_worker = worker
+        def _on_result(norm_key, fields, err):
+            self.progress_bar.hide()
+            if err:
+                self.status_label.setText(f"拉取失败：{err}")
+                return
+            self._apply_steam_update(game, fields, f"已匹配 Steam：{fields.get('steam_name', '')}")
+        worker.result.connect(_on_result)
+        worker.start()
+
+    def _edit_game_info(self, game):
+        """手动编辑简介与海报。"""
+        dlg = GameInfoEditDialog(self, game)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        desc, header = dlg.result_values()
+        fields = {}
+        if desc:
+            fields["description"] = desc
+        if header:
+            fields["header_image"] = header
+        if dlg.steam_fields:
+            fields.update(dlg.steam_fields)
+        if fields:
+            self._apply_steam_update(game, fields, "已更新游戏资料")
+        else:
+            self.status_label.setText("未修改任何内容")
+
+    def _llm_search_match(self, game):
+        """LLM 搜索匹配并更新资料。"""
+        cfg = self._llm_config()
+        if cfg is None:
+            return
+        base_url, api_key, model = cfg
+        if self._llm_search_worker is not None and self._llm_search_worker.isRunning():
+            self.status_label.setText("已有 LLM 搜索任务进行中")
+            return
+        self.status_label.setText(f"正在用 LLM 匹配《{game.display_title()}》…")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.show()
+        worker = LLMSearchWorker(game, base_url, api_key, model, parent=self)
+        self._llm_search_worker = worker
+        def _on_result(norm_key, fields, err):
+            self.progress_bar.hide()
+            self.progress_bar.setRange(0, 1)
+            if err:
+                self.status_label.setText(f"LLM 匹配失败：{err}")
+                return
+            if not fields.get("steam_appid"):
+                self.status_label.setText("LLM 未找到匹配")
+                return
+            self._apply_steam_update(game, fields, f"LLM 匹配成功：{fields.get('steam_name', '')}")
+        worker.result.connect(_on_result)
+        worker.start()
+
+    def _llm_refetch_poster(self, game):
+        """LLM 重新获取竖版海报。"""
+        cfg = self._llm_config()
+        if cfg is None:
+            return
+        base_url, api_key, model = cfg
+        if self._llm_search_worker is not None and self._llm_search_worker.isRunning():
+            self.status_label.setText("已有 LLM 搜索任务进行中")
+            return
+        self.status_label.setText(f"正在用 LLM 重新获取《{game.display_title()}》海报…")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.show()
+        worker = LLMSearchWorker(game, base_url, api_key, model, parent=self)
+        self._llm_search_worker = worker
+        def _on_result(norm_key, fields, err):
+            self.progress_bar.hide()
+            self.progress_bar.setRange(0, 1)
+            if err:
+                self.status_label.setText(f"LLM 海报匹配失败：{err}")
+                return
+            if not fields.get("steam_appid"):
+                self.status_label.setText("LLM 未找到匹配")
+                return
+            poster_fields = {k: v for k, v in fields.items() if k in ("steam_appid", "steam_name", "header_image")}
+            self._apply_steam_update(game, poster_fields, "已重新获取竖版海报")
+        worker.result.connect(_on_result)
+        worker.start()
 
     def _start_llm_classify(self, game):
         """对单款游戏启动 LLM 判定。"""

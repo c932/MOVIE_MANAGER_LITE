@@ -91,18 +91,18 @@ class Game:
     def tier(self) -> str:
         """最终展示的五档分类（3A/2A/精品小众/普通游戏/避坑）。
 
-        优先级：人工标记 > Excel 3A 标记 > LLM 判定 > 规则计算。
+        优先级：人工标记 > LLM 判定 > Excel 3A 标记 > 规则计算。
         """
         if isinstance(self.aaa_manual_override, str) and self.aaa_manual_override in TIER_VALUES:
             return self.aaa_manual_override
-        if self.aaa_excel_marked:
-            return TIER_3A
         verdict = self.aaa_llm_verdict
         if isinstance(verdict, dict):
-            v_tier = _normalize_tier(verdict.get("tier", ""))
-            # LLM 判定只做「提升」（规则漏判时补上），不做「降级」。
-            if v_tier in (TIER_3A, TIER_2A):
-                return v_tier
+            raw_tier = verdict.get("tier")
+            # 仅当 LLM 给出了合法档位时才采信，避免空判定覆盖规则结果
+            if isinstance(raw_tier, str) and raw_tier in TIER_VALUES:
+                return raw_tier
+        if self.aaa_excel_marked:
+            return TIER_3A
         return _normalize_tier(self.aaa_tier)
 
     @property

@@ -183,6 +183,36 @@ def _search_community(term: str) -> tuple:
     return (data if isinstance(data, list) else []), err
 
 
+def search_steam(term: str) -> tuple:
+    """公开搜索接口：合并 storesearch 与 SearchApps 候选，供手动搜索弹窗。
+
+    返回 (items, err)：items 为 [{appid, name}, ...]（按 appid 去重，最多 20 条）；
+    网络层失败时 items 为空且 err 非空。
+    """
+    term = (term or "").strip()
+    if not term:
+        return [], "搜索词为空"
+    _raise_if_cancelled()
+    merged = {}
+    errs = []
+    for fn in (_search_store, _search_community):
+        items, err = fn(term)
+        if err:
+            errs.append(err)
+            continue
+        for it in items:
+            try:
+                appid = int(it.get("id") or it.get("appid") or 0)
+            except (TypeError, ValueError):
+                continue
+            name = (it.get("name") or "").strip()
+            if appid and name and appid not in merged:
+                merged[appid] = {"appid": appid, "name": name}
+    if not merged and errs:
+        return [], errs[0]
+    return list(merged.values())[:20], ""
+
+
 def match_appid(queries) -> tuple:
     """
     逐条搜索匹配 appid，返回 (appid, steam_name, definitive)。

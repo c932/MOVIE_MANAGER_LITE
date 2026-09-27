@@ -203,7 +203,7 @@ class GameSettingsDialog(QDialog):
             """)
             row.addWidget(widget, 1)
             llm_layout.addLayout(row)
-        desc = QLabel("LLM 将游戏归入五档（3A/2A/精品小众/普通游戏/避坑）；仅做判定兜底：规则漏判时可补上 3A/2A，不会将规则已判定的游戏降级。"
+        desc = QLabel("LLM 将游戏归入五档（3A/2A/精品小众/普通游戏/避坑）；LLM 判定优先于规则计算（人工标记最高优先）。"
                       "需 OpenAI 兼容 API。")
         desc.setWordWrap(True)
         desc.setStyleSheet("color: #999999; font-size: 11px; padding-top: 4px;")
