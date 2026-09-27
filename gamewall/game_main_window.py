@@ -1431,8 +1431,8 @@ class GameMainWindow(QMainWindow):
 
     @staticmethod
     def _poster_cache_keys(url):
-        """海报加载器用 url + '#cv1' 作为缓存键，两者都要失效。"""
-        return [url, url + "#cv1"]
+        """海报加载器用 url + '#cv2' 作为缓存键，两者都要失效（v2 是 contain 模式改进版）。"""
+        return [url, url + "#cv2"]
 
     def _invalidate_poster_cache(self, urls):
         """失效指定 URL 的内存与磁盘海报缓存。"""

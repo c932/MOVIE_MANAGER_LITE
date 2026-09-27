@@ -155,10 +155,20 @@ class Game:
         return bool(self.steam_appid or self.header_image)
 
     def get_cover_urls(self) -> list:
-        """候选封面 URL 列表（竖版优先，头图兜底）"""
+        """候选封面 URL 列表（竖版优先，头图兜底）
+
+        尝试顺序：
+        1. library_600x900.jpg（标准竖版）
+        2. library_600x900_2x.jpg（高清竖版，部分游戏仅提供 2x）
+        3. portrait.png（另一种竖版格式）
+        4. header_image（横版头图兜底）
+        """
         urls = []
         if self.steam_appid:
-            urls.append(f"https://cdn.cloudflare.steamstatic.com/steam/apps/{self.steam_appid}/library_600x900.jpg")
+            base = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{self.steam_appid}"
+            urls.append(f"{base}/library_600x900.jpg")
+            urls.append(f"{base}/library_600x900_2x.jpg")
+            urls.append(f"{base}/portrait.png")
         if self.header_image:
             urls.append(self.header_image)
         return urls

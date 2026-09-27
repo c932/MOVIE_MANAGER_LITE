@@ -741,11 +741,13 @@ def test_llm_search_match_flow_merges_fields_and_invalidates_cache(monkeypatch):
         assert game.description == "新简介"
         assert window.status_label.text().startswith("LLM 匹配成功")
         assert window.progress_bar.isHidden()
-        # 匹配前没有封面，新封面 URL（含 #cv1 键）需失效以便重下
+        # 匹配前没有封面，新封面 URL（含 #cv2 键）需失效以便重下
+        # get_cover_urls() 新增了 _2x.jpg 和 portrait.png 候选
         expected = set()
-        for url in ("https://cover.test/new.jpg",
-                    "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900.jpg"):
-            expected.update({url, url + "#cv1"})
+        base = "https://cdn.cloudflare.steamstatic.com/steam/apps/730"
+        for url in (f"{base}/library_600x900.jpg", f"{base}/library_600x900_2x.jpg",
+                    f"{base}/portrait.png", "https://cover.test/new.jpg"):
+            expected.update({url, url + "#cv2"})
         assert set(removed) == expected
         assert set(invalidated) == expected
     finally:
@@ -788,13 +790,14 @@ def test_apply_steam_update_merges_fields_and_invalidates_poster_cache(monkeypat
         assert game.header_image == "https://cover.test/new.jpg"
         assert window.status_label.text() == "已更新游戏资料"
 
-        urls = {
-            "https://cover.test/old.jpg",
-            "https://cdn.cloudflare.steamstatic.com/steam/apps/100/library_600x900.jpg",
-            "https://cover.test/new.jpg",
-            "https://cdn.cloudflare.steamstatic.com/steam/apps/200/library_600x900.jpg",
-        }
-        expected = {url for u in urls for url in (u, u + "#cv1")}
+        # get_cover_urls() 新增了 _2x.jpg 和 portrait.png 候选
+        def make_urls(appid):
+            base = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{appid}"
+            return [f"{base}/library_600x900.jpg", f"{base}/library_600x900_2x.jpg",
+                    f"{base}/portrait.png"]
+        old_urls = make_urls(100) + ["https://cover.test/old.jpg"]
+        new_urls = make_urls(200) + ["https://cover.test/new.jpg"]
+        expected = {url for u in old_urls + new_urls for url in (u, u + "#cv2")}
         assert set(removed) == expected
         assert set(invalidated) == expected
     finally:

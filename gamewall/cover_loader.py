@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 
-# 裁切填满模式的缓存键后缀：区别于旧版 KeepAspectRatio 产物的同尺寸缓存
-_COVER_CACHE_SUFFIX = "#cv1"
+# 裁切填满模式的缓存键后缀：v2 表示 contain 模式改进版（横版图居中显示）
+_COVER_CACHE_SUFFIX = "#cv2"
 
 # 并发下载数：串行下载时一张慢图（超时 8s）会拖住整面墙
 _MAX_WORKERS = 8
@@ -26,17 +26,39 @@ _MAX_WORKERS = 8
 
 def fit_cover(image: QImage, target_width: int, target_height: int) -> QImage:
     """
-    裁切填满（cover 模式）：源图宽高比与目标不符时中心裁切再缩放，
-    保证输出恰好铺满 target——竖版海报位不允许横版图留边
+    智能裁切填满：
+    - 竖版图片（宽高比接近目标）：直接缩放
+    - 横版图片（明显宽于目标）：contain 模式居中显示，上下留深色边
+    - 竖版图片（明显窄于目标）：center-crop 裁切后缩放
     """
     if image.isNull() or target_width <= 0 or target_height <= 0:
         return image
     target_ratio = target_width / target_height
     src_ratio = image.width() / image.height()
+
+    # 横版图片（宽高比 > 1.5）：contain 模式居中显示，不裁切
+    # 这样可以显示完整图片，虽然上下有边但比被裁切丢失内容好
+    if src_ratio > 1.5:
+        result = QImage(target_width, target_height, QImage.Format.Format_ARGB32)
+        result.fill(QColor(30, 30, 30))  # 深灰背景
+        scaled = image.scaled(target_width, target_height,
+                             Qt.AspectRatioMode.KeepAspectRatio,
+                             Qt.TransformationMode.SmoothTransformation)
+        x = (target_width - scaled.width()) // 2
+        y = (target_height - scaled.height()) // 2
+        from PyQt6.QtGui import QPainter
+        painter = QPainter(result)
+        painter.drawImage(x, y, scaled)
+        painter.end()
+        return result
+
+    # 接近目标比例：直接缩放
     if abs(src_ratio - target_ratio) <= 0.01:
         return image.scaled(target_width, target_height,
                             Qt.AspectRatioMode.IgnoreAspectRatio,
                             Qt.TransformationMode.SmoothTransformation)
+
+    # 竖版但比例不匹配：center-crop 裁切后缩放
     if src_ratio > target_ratio:   # 过宽 → 裁两侧
         new_w = max(1, round(image.height() * target_ratio))
         x = (image.width() - new_w) // 2
@@ -46,8 +68,8 @@ def fit_cover(image: QImage, target_width: int, target_height: int) -> QImage:
         y = (image.height() - new_h) // 2
         cropped = image.copy(0, y, image.width(), new_h)
     return cropped.scaled(target_width, target_height,
-                          Qt.AspectRatioMode.IgnoreAspectRatio,
-                          Qt.TransformationMode.SmoothTransformation)
+                         Qt.AspectRatioMode.IgnoreAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation)
 
 
 def download_image_bytes(url: str, timeout: float = 6.0) -> bytes:
