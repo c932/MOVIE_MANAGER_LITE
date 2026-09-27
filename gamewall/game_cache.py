@@ -256,22 +256,35 @@ class GameCacheManager:
                 if field in entry}
 
     def snapshot_games(self, games):
-        """以当前 Excel 库为准同步原始字段，同时保留分类、人工覆盖与联网数据。"""
+        """以当前 Excel 库为准同步原始字段，同时保留分类、人工覆盖与联网数据。
+
+        缓存字典按 Excel 行序重建：启动时 load_games_from_cache 依赖字典
+        插入顺序还原"Excel 原序"展示。若不重排，setdefault 只会把新增
+        游戏追加到末尾，重启后新增游戏被排到数千项之后（看起来"不见了"，
+        但总数正确）。旧条目（含联网数据、分类、人工覆盖）原样携带。
+        """
         valid_keys = {game.norm_key for game in games}
         removed = set(self._data["games"]) - valid_keys
-        for key in removed:
-            del self._data["games"][key]
         if removed:
             self._dirty = True
             logger.info("缓存修剪: 移除 %d 条不再存在的游戏", len(removed))
 
+        ordered = {}
         for game in games:
-            entry = self._data["games"].setdefault(game.norm_key, {})
+            key = game.norm_key
+            entry = self._data["games"].get(key)
+            if entry is None:
+                entry = {}
+                self._dirty = True
             for field in _EXCEL_FIELDS + ("excel_row",):
                 value = copy.deepcopy(getattr(game, field, None))
                 if entry.get(field) != value:
                     entry[field] = value
                     self._dirty = True
+            ordered.setdefault(key, entry)
+        if list(self._data["games"].keys()) != list(ordered.keys()):
+            self._dirty = True
+        self._data["games"] = ordered
 
     @staticmethod
     def game_to_fields(game) -> dict:

@@ -55,8 +55,8 @@ def _has_value(value) -> bool:
 
 class ExcelImportWorker(QThread):
     """后台 Excel 导入线程。当文件消失或读取失败时回退缓存。"""
-    import_finished = pyqtSignal(list, object)
-    import_error = pyqtSignal(str)
+    # 注意：只有 diff_checked/diff_error 会被发出。历史版本曾定义 import_finished/
+    # import_error 却从未 emit，导致启动时连接错误信号、Excel 后台同步静默失效。
     diff_checked = pyqtSignal(list, object)
     diff_error = pyqtSignal(str)
 
@@ -683,8 +683,10 @@ class GameMainWindow(QMainWindow):
             return
 
         self._excel_worker = ExcelImportWorker(excel_path, self.cache)
-        self._excel_worker.import_finished.connect(self._on_excel_import_finished)
-        self._excel_worker.import_error.connect(self._on_excel_import_error)
+        # 注意：ExcelImportWorker.run() 只发 diff_checked/diff_error。
+        # 启动时静默校准（区别于设置里的差分确认弹窗），直接套用导入结果。
+        self._excel_worker.diff_checked.connect(self._on_excel_import_finished)
+        self._excel_worker.diff_error.connect(self._on_excel_import_error)
         self._excel_worker.start()
 
     def _refresh_auto_aaa_classifications(self, games=None):
@@ -703,6 +705,12 @@ class GameMainWindow(QMainWindow):
     def _on_excel_import_finished(self, games, meta):
         previous_games = self.all_games
         try:
+            if not games and previous_games:
+                # 空解析保护：表头异常/空表会触发 snapshot 全量修剪，禁止清库
+                logger.warning("Excel 解析结果为空，保留缓存游戏库")
+                self.status_label.setText(
+                    f"Excel 无数据，已保留缓存 {len(previous_games)} 款游戏")
+                return
             self.all_games = games
             for game in self.all_games:
                 self.cache.apply_to_game(game)
@@ -711,6 +719,8 @@ class GameMainWindow(QMainWindow):
             self.cache.save()
             setattr(self, "_loaded_excel_path", meta.get("path", ""))
             setattr(self, "_excel_mtime", meta.get("mtime"))
+            self.config.set_value("_excel_mtime", meta.get("mtime", 0))
+            self.config.save_config()
             self.generate_genre_options()
             self.generate_year_options()
             self.generate_developer_options()
@@ -1741,8 +1751,8 @@ class GameMainWindow(QMainWindow):
         worker = getattr(self, "_excel_worker", None)
         if worker is not None and worker.isRunning():
             try:
-                worker.import_finished.disconnect()
-                worker.import_error.disconnect()
+                worker.diff_checked.disconnect()
+                worker.diff_error.disconnect()
             except TypeError:
                 pass
             worker.wait()
@@ -1763,6 +1773,8 @@ class GameMainWindow(QMainWindow):
             if not (added or updated or removed):
                 self._loaded_excel_path = meta.get("path", "")
                 self._excel_mtime = meta.get("mtime")
+                self.config.set_value("_excel_mtime", meta.get("mtime", 0))
+                self.config.save_config()
                 self.status_label.setText(f"Excel 无差异（{len(self.all_games)} 款游戏）")
                 return
             lines = [f"新文件: {meta.get('path', '')}",
@@ -1792,6 +1804,8 @@ class GameMainWindow(QMainWindow):
             self.cache.save()
             self._loaded_excel_path = meta.get("path", "")
             self._excel_mtime = meta.get("mtime")
+            self.config.set_value("_excel_mtime", meta.get("mtime", 0))
+            self.config.save_config()
             self.generate_genre_options()
             self.generate_year_options()
             self.generate_developer_options()

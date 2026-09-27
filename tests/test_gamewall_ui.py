@@ -23,6 +23,9 @@ class _Config:
     def get_value(self, key, default=None):
         return self.values.get(key, default)
 
+    def set_value(self, key, value):
+        self.values[key] = value
+
     def get_splitter_sizes(self):
         return self.splitter_sizes
 

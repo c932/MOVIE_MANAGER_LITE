@@ -300,6 +300,39 @@ def test_aaa_override_persists_across_snapshot_and_restart():
         assert restored.tier == '精品小众'
 
 
+def test_snapshot_reorders_cache_to_excel_order():
+    """缓存字典顺序必须跟随 Excel 行序：否则重启后新增游戏被追加到末尾，
+    页面上翻不到（表现为“新增游戏不见了”但总数正确）。"""
+    with tempfile.TemporaryDirectory() as td:
+        cache = _cache(td)
+        a = Game(raw_name='甲游戏/Game A')
+        b = Game(raw_name='乙游戏/Game B')
+        cache.snapshot_games([a, b])
+        cache.merge_fields(b.norm_key, {'steam_appid': 42})
+        cache.save()
+
+        # Excel 更新：新游戏插到最前，行序变为 新、甲、乙
+        x = Game(raw_name='新游戏/New Game')
+        a2 = Game(raw_name='甲游戏/Game A')
+        b2 = Game(raw_name='乙游戏/Game B')
+        cache.snapshot_games([x, a2, b2])
+        cache.save()
+
+        cache2 = GameCacheManager()
+        loaded = cache2.load_games_from_cache()
+        assert [g.norm_key for g in loaded] == [x.norm_key, a.norm_key, b.norm_key]
+        # 旧条目的联网数据随条目迁移保留
+        restored = Game(raw_name='乙游戏/Game B')
+        cache2.apply_to_game(restored)
+        assert restored.steam_appid == 42
+
+        # 不再存在于 Excel 的旧条目仍会被修剪
+        gone = Game(raw_name='下架游戏/Gone Game')
+        cache2.snapshot_games([gone])
+        assert gone.norm_key in cache2.games_data
+        assert b.norm_key not in cache2.games_data
+
+
 def test_v1_cache_does_not_promote_legacy_aaa_flag():
     with tempfile.TemporaryDirectory() as td:
         _cache(td)
