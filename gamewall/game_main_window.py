@@ -40,6 +40,19 @@ from gamewall.settings_dialog import GameSettingsDialog
 logger = logging.getLogger(__name__)
 
 
+def _has_value(value) -> bool:
+    """字段值是否非空；与 GameCacheManager.merge_fields(force=True) 的空值判断一致。"""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, tuple, dict)):
+        return len(value) > 0
+    if isinstance(value, (int, float)):
+        return value != 0
+    return True
+
+
 class ExcelImportWorker(QThread):
     """后台 Excel 导入线程。当文件消失或读取失败时回退缓存。"""
     import_finished = pyqtSignal(list, object)
@@ -1443,14 +1456,27 @@ class GameMainWindow(QMainWindow):
         card._poster_next_retry_at = 0.0
         card.update_game_info(game)
 
+    @staticmethod
+    def _sync_game_fields(game, fields):
+        """把刚合并进缓存的字段直接同步到 Game 对象。
+
+        空值不覆盖，语义与 GameCacheManager.merge_fields(force=True) 保持一致。
+        """
+        for key, value in fields.items():
+            if not hasattr(game, key) or not _has_value(value):
+                continue
+            setattr(game, key, value)
+
     def _apply_steam_update(self, game, fields, label):
         """应用 Steam 资料更新到游戏对象、缓存、UI。"""
-        old_urls = game.get_cover_urls()
+        old_urls = set(game.get_cover_urls())
         self.cache.merge_fields(game.norm_key, fields, force=True)
-        self.cache.apply_to_game(game, force=True)
         self.cache.save()
+        self._sync_game_fields(game, fields)
         self._refresh_auto_aaa_classifications([game])
-        self._invalidate_poster_cache(old_urls)
+        # 新旧 URL 都可能命中缓存：appid 变更后旧竖版仍在缓存，appid 未变时
+        # header_image 变更前的图也可能还在缓存，两边都要失效。
+        self._invalidate_poster_cache(old_urls | set(game.get_cover_urls()))
         self._reset_card_poster(game)
         QTimer.singleShot(0, self._load_visible_posters)
         if (self.detail_panel.current_game is not None
@@ -1482,13 +1508,12 @@ class GameMainWindow(QMainWindow):
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         desc, header = dlg.result_values()
-        fields = {}
+        # 以输入框当前内容为准：用户在「从 Steam 重新拉取」之后的修改优先
+        fields = dict(dlg.steam_fields or {})
         if desc:
             fields["description"] = desc
         if header:
             fields["header_image"] = header
-        if dlg.steam_fields:
-            fields.update(dlg.steam_fields)
         if fields:
             self._apply_steam_update(game, fields, "已更新游戏资料")
         else:

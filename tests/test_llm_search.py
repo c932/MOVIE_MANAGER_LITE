@@ -47,6 +47,34 @@ def test_suggest_steam_match_returns_none_on_invalid_json():
         assert result is None
 
 
+def test_suggest_steam_match_strips_markdown_json_fence():
+    game = _FakeGame()
+    raw = '```json\n{"english_title": "Test Game", "appid": 730}\n```'
+    class FakeResp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return json.dumps({"choices": [{"message": {"content": raw}}]}).encode("utf-8")
+    with patch("urllib.request.urlopen", lambda req, timeout=30: FakeResp()):
+        result = suggest_steam_match(game, "https://api.test/v1", "key", "model")
+        assert result == {"english_title": "Test Game", "appid": 730}
+
+
+def test_suggest_steam_match_coerces_string_appid():
+    game = _FakeGame()
+    with patch("urllib.request.urlopen",
+               _mock_urlopen_factory({"english_title": "Test Game", "appid": "730"})):
+        result = suggest_steam_match(game, "https://api.test/v1", "key", "model")
+        assert result == {"english_title": "Test Game", "appid": 730}
+
+
+def test_suggest_steam_match_garbage_appid_falls_back_to_zero():
+    game = _FakeGame()
+    with patch("urllib.request.urlopen",
+               _mock_urlopen_factory({"english_title": "Test Game", "appid": "abc"})):
+        result = suggest_steam_match(game, "https://api.test/v1", "key", "model")
+        assert result == {"english_title": "Test Game", "appid": 0}
+
+
 def test_llm_match_and_fetch_verifies_appid_via_appdetails():
     game = _FakeGame()
     with patch("gamewall.llm_search.suggest_steam_match", return_value={"english_title": "Test Game", "appid": 12345}):

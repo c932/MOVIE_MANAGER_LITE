@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt6.QtGui import QImage
 from PyQt6.QtTest import QTest
-from PyQt6.QtWidgets import QApplication, QPushButton
+from PyQt6.QtWidgets import QApplication, QPushButton, QMenu
 
 from gamewall.game_models import Game
 
@@ -48,11 +48,11 @@ class _Cache:
     def __len__(self):
         return 0
 
-    def apply_to_game(self, _game):
+    def apply_to_game(self, _game, force=False):
         if self.raise_on_apply:
             raise RuntimeError("cache apply failed")
 
-    def merge_fields(self, norm_key, fields):
+    def merge_fields(self, norm_key, fields, force=False):
         self.merged_fields.setdefault(norm_key, {}).update(fields)
 
     def get_scraper_neg(self, norm_key, source):
@@ -638,6 +638,165 @@ def test_permanent_cover_failure_stops_retrying(monkeypatch):
         # 即便已失败 3 次，刷新仍可生成新 loader 尝试再次加载（不再永久封禁）
         window._load_visible_posters()
         assert len(loader_type.instances) == 4
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_game_info_context_menu_lists_four_actions(monkeypatch):
+    from PyQt6.QtCore import QPoint
+
+    from gamewall import game_main_window as main_window
+
+    app = QApplication.instance() or QApplication([])
+    window, _cache = _create_window()
+    game = Game(raw_name="右键菜单游戏")
+    captured = {}
+
+    class _RecordingMenu(QMenu):
+        def exec(self, *args, **kwargs):
+            captured["menu"] = self
+            return None
+
+    monkeypatch.setattr(main_window, "QMenu", _RecordingMenu)
+    try:
+        window.on_game_card_right_clicked(game, QPoint(20, 20))
+    finally:
+        monkeypatch.undo()
+
+    menu = captured["menu"]
+    data_action = next(a for a in menu.actions() if a.text() == "🔧 游戏资料")
+    data_menu = data_action.menu()
+    assert data_menu is not None
+    assert [a.text() for a in data_menu.actions()] == [
+        "🔍 手动搜索匹配 Steam…",
+        "✏️ 编辑简介与海报…",
+        "🤖 LLM 搜索匹配并更新资料",
+        "🖼️ 重新获取竖版海报（LLM）",
+    ]
+
+
+def test_llm_search_match_flow_merges_fields_and_invalidates_cache(monkeypatch):
+    from gamewall import game_main_window as main_window
+
+    app = QApplication.instance() or QApplication([])
+    window, cache = _create_window()
+    game = Game(raw_name="LLM 匹配游戏")
+    removed, invalidated = [], []
+    created = {}
+
+    class _Signal:
+        def __init__(self):
+            self._callback = None
+
+        def connect(self, callback):
+            self._callback = callback
+
+        def emit(self, *args):
+            if self._callback:
+                self._callback(*args)
+
+    class _FakeWorker:
+        def __init__(self, target, base_url, api_key, model, parent=None):
+            self.result = _Signal()
+            self.base_url = base_url
+            self.model = model
+            created["game"] = target
+
+        def isRunning(self):
+            return False
+
+        def start(self):
+            self.result.emit(created["game"].norm_key, {
+                "steam_appid": 730, "steam_name": "Test Game",
+                "description": "新简介",
+                "header_image": "https://cover.test/new.jpg",
+            }, "")
+
+    class _FakeImageCache:
+        def remove(self, path):
+            removed.append(path)
+
+    class _FakePosterManager:
+        def invalidate_cache_for_path(self, path):
+            invalidated.append(path)
+            return 0
+
+    monkeypatch.setattr(main_window, "LLMSearchWorker", _FakeWorker)
+    monkeypatch.setattr(main_window, "ImageCache", _FakeImageCache)
+    monkeypatch.setattr(main_window, "get_poster_cache_manager", lambda: _FakePosterManager())
+    window.config.values.update({
+        "llm_base_url": "https://api.test/v1",
+        "llm_api_key": "key",
+        "llm_model": "model",
+    })
+    try:
+        window.all_games = [game]
+        window._llm_search_match(game)
+
+        assert created["game"] is game
+        assert cache.merged_fields[game.norm_key]["steam_appid"] == 730
+        assert game.steam_appid == 730
+        assert game.description == "新简介"
+        assert window.status_label.text().startswith("LLM 匹配成功")
+        assert window.progress_bar.isHidden()
+        # 匹配前没有封面，新封面 URL（含 #cv1 键）需失效以便重下
+        expected = set()
+        for url in ("https://cover.test/new.jpg",
+                    "https://cdn.cloudflare.steamstatic.com/steam/apps/730/library_600x900.jpg"):
+            expected.update({url, url + "#cv1"})
+        assert set(removed) == expected
+        assert set(invalidated) == expected
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_apply_steam_update_merges_fields_and_invalidates_poster_cache(monkeypatch):
+    from gamewall import game_main_window as main_window
+
+    app = QApplication.instance() or QApplication([])
+    window, cache = _create_window()
+    game = Game(raw_name="资料更新游戏",
+                steam_appid=100, header_image="https://cover.test/old.jpg")
+    removed, invalidated = [], []
+
+    class _FakeImageCache:
+        def remove(self, path):
+            removed.append(path)
+
+    class _FakePosterManager:
+        def invalidate_cache_for_path(self, path):
+            invalidated.append(path)
+            return 0
+
+    monkeypatch.setattr(main_window, "ImageCache", _FakeImageCache)
+    monkeypatch.setattr(main_window, "get_poster_cache_manager", lambda: _FakePosterManager())
+    try:
+        window.all_games = [game]
+        window._apply_steam_update(
+            game,
+            {"steam_appid": 200, "description": "新简介",
+             "header_image": "https://cover.test/new.jpg"},
+            "已更新游戏资料")
+
+        assert cache.merged_fields[game.norm_key]["steam_appid"] == 200
+        assert game.steam_appid == 200
+        assert game.description == "新简介"
+        assert game.header_image == "https://cover.test/new.jpg"
+        assert window.status_label.text() == "已更新游戏资料"
+
+        urls = {
+            "https://cover.test/old.jpg",
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/100/library_600x900.jpg",
+            "https://cover.test/new.jpg",
+            "https://cdn.cloudflare.steamstatic.com/steam/apps/200/library_600x900.jpg",
+        }
+        expected = {url for u in urls for url in (u, u + "#cv1")}
+        assert set(removed) == expected
+        assert set(invalidated) == expected
     finally:
         window.hide()
         window.deleteLater()

@@ -80,6 +80,31 @@ def test_match_appid_counts_partial_success_as_definitive(monkeypatch):
     assert steam_client.match_appid(["某游戏", "Some Game"]) == (0, "", True)
 
 
+def test_search_steam_merges_and_dedupes_sources(monkeypatch):
+    monkeypatch.setattr(steam_client, "_search_store",
+                        lambda term: ([{"id": 10, "name": "Game A"},
+                                       {"id": 20, "name": "Game B"}], ""))
+    monkeypatch.setattr(steam_client, "_search_community",
+                        lambda term: ([{"appid": 20, "name": "Game B dup"},
+                                       {"appid": 30, "name": "Game C"}], ""))
+    items, err = steam_client.search_steam("abc")
+    assert err == ""
+    assert [(i["appid"], i["name"]) for i in items] == [
+        (10, "Game A"), (20, "Game B"), (30, "Game C")]
+
+
+def test_search_steam_rejects_empty_term():
+    assert steam_client.search_steam("   ") == ([], "搜索词为空")
+
+
+def test_search_steam_reports_network_error(monkeypatch):
+    monkeypatch.setattr(steam_client, "_search_store", lambda term: ([], "URLError"))
+    monkeypatch.setattr(steam_client, "_search_community", lambda term: ([], "timeout"))
+    items, err = steam_client.search_steam("abc")
+    assert items == []
+    assert err == "URLError"
+
+
 if __name__ == "__main__":
     test_fetch_appdetails_keeps_auditable_store_metadata()
     test_lookup_steam_alias_matches_renamed_games()
