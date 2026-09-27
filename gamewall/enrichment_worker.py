@@ -56,11 +56,13 @@ class EnrichmentWorker(QThread):
 
     def __init__(self, games, parent=None, enable_steam: bool = True,
                  enable_gamersky: bool = True, enable_ign: bool = False,
-                 steam_candidates=None, gamersky_candidates=None, ign_candidates=None):
+                 steam_candidates=None, gamersky_candidates=None, ign_candidates=None,
+                 force: bool = False):
         super().__init__(parent)
         self._enable_steam = enable_steam
         self._enable_gamersky = enable_gamersky
         self._enable_ign = enable_ign
+        self._force = force
         self._gamersky = rating_scrapers.GamerskyScraper() if enable_gamersky else None
         self._ign = rating_scrapers.IgnScraper() if enable_ign else None
         steam_keys = set(steam_candidates) if steam_candidates is not None else None
@@ -87,18 +89,29 @@ class EnrichmentWorker(QThread):
                 "attempted_gamersky": False,
                 "attempted_ign": False,
             }
+            # force 模式：所有字段都标记为缺失，强制重新拉取
+            if force:
+                for key in item["have"]:
+                    item["have"][key] = False
             item["missing_details"] = any(not item["have"][f] for f in _DETAIL_FIELDS)
             item["missing_reviews"] = not item["have"]["reviews"]
             item["missing_gamersky"] = not item["have"]["gamersky"]
             item["missing_ign"] = not item["have"]["ign"]
-            item["steam_eligible"] = self._enable_steam and (
-                g.norm_key in steam_keys if steam_keys is not None
-                else (not item["appid"] or item["missing_details"] or item["missing_reviews"]))
-            item["gamersky_eligible"] = self._enable_gamersky and (
-                g.norm_key in gamersky_keys if gamersky_keys is not None
-                else item["missing_gamersky"])
-            item["ign_eligible"] = self._enable_ign and (
-                g.norm_key in ign_keys if ign_keys is not None else item["missing_ign"])
+            # force 模式：所有游戏都 eligible
+            if force:
+                item["steam_eligible"] = self._enable_steam and (
+                    g.steam_appid or True)  # 强制有 appid 或尝试匹配
+                item["gamersky_eligible"] = self._enable_gamersky
+                item["ign_eligible"] = self._enable_ign
+            else:
+                item["steam_eligible"] = self._enable_steam and (
+                    g.norm_key in steam_keys if steam_keys is not None
+                    else (not item["appid"] or item["missing_details"] or item["missing_reviews"]))
+                item["gamersky_eligible"] = self._enable_gamersky and (
+                    g.norm_key in gamersky_keys if gamersky_keys is not None
+                    else item["missing_gamersky"])
+                item["ign_eligible"] = self._enable_ign and (
+                    g.norm_key in ign_keys if ign_keys is not None else item["missing_ign"])
             self._todo.append(item)
         self._cancelled = False
         self._abort = False
@@ -239,7 +252,8 @@ class EnrichmentWorker(QThread):
         返回 (fields, err, negs)；negs 为确定性负结果来源（err 非空时恒为空）"""
         fields = {}
         negs = []
-        if not item["appid"]:
+        # force 模式下即使已有 appid 也重新匹配（可能被错误匹配过）
+        if not item["appid"] or self._force:
             item["attempted_match"] = True
             appid, name, definitive = steam_client.match_appid([item["cn"], item["en"]])
             if not appid:
@@ -247,10 +261,12 @@ class EnrichmentWorker(QThread):
                     negs.append("steam_match")
                     return fields, "", negs
                 return fields, "Steam 搜索无响应", negs
-            fields["steam_appid"] = appid
+            # force 模式且 appid 没变：不重复写入 steam_appid
+            if appid != item["appid"]:
+                fields["steam_appid"] = appid
+                item["appid"] = appid
             if name:
                 fields["steam_name"] = name
-            item["appid"] = appid
         if item["missing_details"]:
             item["attempted_details"] = True
             d, err = steam_client.fetch_appdetails(item["appid"])

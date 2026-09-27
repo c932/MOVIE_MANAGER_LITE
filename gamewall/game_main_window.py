@@ -1373,6 +1373,11 @@ class GameMainWindow(QMainWindow):
                                 lambda checked=False, t=tier: self._set_manual_aaa_override(game, t))
         tier_menu.addAction("恢复自动判断", lambda: self._set_manual_aaa_override(game, None))
 
+        update_menu = menu.addMenu("🔄 更新游戏信息")
+        update_menu.addAction("📥 更新新增游戏信息和海报", lambda: self._start_enrich_new_games())
+        update_menu.addAction("📥 更新所有游戏信息和海报", lambda: self._start_enrich_all_games())
+        update_menu.addAction("📥 更新当前游戏信息和海报", lambda: self._start_enrich_single(game))
+
         data_menu = menu.addMenu("🔧 游戏资料")
         data_menu.addAction("🔍 手动搜索匹配 Steam…", lambda: self._manual_search_steam(game))
         data_menu.addAction("✏️ 编辑简介与海报…", lambda: self._edit_game_info(game))
@@ -1895,6 +1900,78 @@ class GameMainWindow(QMainWindow):
         self.progress_bar.show()
         worker.start()
 
+    def _start_enrich_new_games(self):
+        """手动触发：仅更新新增（缺失字段）游戏的信息和海报。"""
+        if not self.all_games:
+            self.status_label.setText("游戏库为空")
+            return
+        if not self.config.get_value("network_enabled", True):
+            QMessageBox.information(self, "联网已关闭", "请在「设置」中开启联网功能。")
+            return
+        self._start_background_tasks()
+
+    def _start_enrich_all_games(self):
+        """手动触发：强制更新所有游戏的信息和海报（覆盖已有数据）。"""
+        if not self.all_games:
+            self.status_label.setText("游戏库为空")
+            return
+        if not self.config.get_value("network_enabled", True):
+            QMessageBox.information(self, "联网已关闭", "请在「设置」中开启联网功能。")
+            return
+        reply = QMessageBox.question(
+            self, "确认更新",
+            f"即将强制重新拉取全部 {len(self.all_games)} 款游戏的 Steam 资料与海报，\n"
+            "这会覆盖本地已有的简介、评分、海报等数据。\n\n"
+            "是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._run_enrichment_worker(self.all_games, force=True, label="强制更新所有游戏")
+
+    def _start_enrich_single(self, game):
+        """手动触发：强制更新当前游戏的信息和海报（覆盖已有数据）。"""
+        if not self.config.get_value("network_enabled", True):
+            QMessageBox.information(self, "联网已关闭", "请在「设置」中开启联网功能。")
+            return
+        self._run_enrichment_worker([game], force=True, label=f"更新《{game.display_title()}》")
+
+    def _run_enrichment_worker(self, games, force: bool = False, label: str = ""):
+        """启动 EnrichmentWorker 的公共逻辑。"""
+        if not games:
+            return
+        worker = getattr(self, "_enrichment_worker", None)
+        if worker is not None and worker.isRunning():
+            worker.cancel()
+            worker.wait()
+
+        enable_gamersky = bool(self.config.get_value("enable_gamersky_scraper", True))
+        enable_ign = bool(self.config.get_value("enable_ign_scraper", False))
+
+        self._games_by_key = {g.norm_key: g for g in self.all_games}
+        self._enriched_save_counter = 0
+        worker = EnrichmentWorker(
+            games,
+            parent=self,
+            enable_steam=True,
+            enable_gamersky=enable_gamersky,
+            enable_ign=enable_ign,
+            force=force,
+        )
+        self._enrichment_worker = worker
+        worker.stage_changed.connect(self._on_enrichment_stage)
+        worker.progress_updated.connect(self._on_enrichment_progress)
+        worker.game_enriched.connect(self._on_game_enriched)
+        worker.negative_recorded.connect(self._on_negative_recorded)
+        worker.finished_with.connect(self._on_enrichment_finished)
+        worker.failed.connect(self._on_enrichment_failed)
+
+        self.progress_bar.setRange(0, len(games))
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat(f"{label} 0/{len(games)}")
+        self.progress_bar.show()
+        self.status_label.setText(f"正在{label}…")
+        worker.start()
+
     def _start_local_scan(self):
         game_dirs = self.config.get_value("game_dirs", []) or []
         old = getattr(self, "_scan_worker", None)
@@ -1974,16 +2051,23 @@ class GameMainWindow(QMainWindow):
         self.progress_bar.setValue(done)
 
     def _on_game_enriched(self, norm_key, fields):
-        """主线程合并补全结果：仅填充空字段，再同步卡片与详情面板"""
+        """主线程合并补全结果：增量模式仅填充空字段，force 模式覆盖已有字段"""
+        force = getattr(self._enrichment_worker, "_force", False)
         game = self._games_by_key.get(norm_key)
         developer_applied = False
         if game:
             for field, value in fields.items():
-                if (GameCacheManager._is_empty(getattr(game, field, None))
-                        and not GameCacheManager._is_empty(value)):
-                    setattr(game, field, value)
-                    developer_applied = developer_applied or field == "developer"
-        self.cache.merge_fields(norm_key, fields)
+                if force:
+                    # force 模式：非空新值直接覆盖
+                    if not GameCacheManager._is_empty(value):
+                        setattr(game, field, value)
+                        developer_applied = developer_applied or field == "developer"
+                else:
+                    if (GameCacheManager._is_empty(getattr(game, field, None))
+                            and not GameCacheManager._is_empty(value)):
+                        setattr(game, field, value)
+                        developer_applied = developer_applied or field == "developer"
+        self.cache.merge_fields(norm_key, fields, force=force)
         if game:
             self._refresh_auto_aaa_classifications([game])
         if developer_applied:
