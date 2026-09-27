@@ -156,20 +156,22 @@ class EnrichmentWorker(QThread):
                         score, err = self._gamersky.fetch_score(item["cn"])
                         if score:
                             fields["gamersky_score"] = score
-                        else:
-                            # 尽力而为数据源：未得分即记负（与原整轮补记语义一致）
+                        elif not err:
+                            # 仅确定性无数据（HTTP 层成功但无评分）记负；
+                            # 网络层失败不记负，避免把断网误判为无数据
+                            # （与 Steam 管线语义一致），下次启动重试。
                             self.negative_recorded.emit(item["norm_key"], "gamersky")
-                            if err:
-                                logger.debug(f"游民星空评分失败 {item['norm_key']}: {err}")
+                        if err:
+                            logger.debug(f"游民星空评分失败 {item['norm_key']}: {err}")
                     if item["ign_eligible"] and item["missing_ign"]:
                         item["attempted_ign"] = True
                         score, err = self._ign.fetch_score(item["en"] or item["cn"])
                         if score:
                             fields["ign_score"] = score
-                        else:
+                        elif not err:
                             self.negative_recorded.emit(item["norm_key"], "ign")
-                            if err:
-                                logger.debug(f"IGN 评分失败 {item['norm_key']}: {err}")
+                        if err:
+                            logger.debug(f"IGN 评分失败 {item['norm_key']}: {err}")
                     return fields, ""
 
                 def on_ratings(item, fields):

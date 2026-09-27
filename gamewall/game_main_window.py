@@ -1862,8 +1862,14 @@ class GameMainWindow(QMainWindow):
         ign_candidates = set()
         todo = []
         for g in self.all_games:
-            missing_gamersky = enable_gamersky and g.gamersky_score <= 0
-            missing_ign = enable_ign and g.ign_score <= 0
+            # 第三方缺分且未命中负缓存才进入候选：负缓存 7 天内有效，
+            # 否则每次启动都会把全部缺分游戏重新爬一遍（与 steam_match 同理）。
+            missing_gamersky = (
+                enable_gamersky and g.gamersky_score <= 0
+                and not self.cache.get_scraper_neg(g.norm_key, "gamersky"))
+            missing_ign = (
+                enable_ign and g.ign_score <= 0
+                and not self.cache.get_scraper_neg(g.norm_key, "ign"))
             if missing_gamersky:
                 gamersky_candidates.add(g.norm_key)
             if missing_ign:

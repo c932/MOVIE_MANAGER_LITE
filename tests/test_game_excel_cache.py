@@ -262,6 +262,28 @@ def test_worker_records_third_party_negative_immediately():
     assert negs == [(game.norm_key, 'gamersky')]
 
 
+def test_worker_skips_third_party_negative_on_network_error():
+    """第三方爬取网络失败时不记负缓存：否则一次断网就会让游戏 7 天内
+    不再重试（与 Steam 管线“仅确定性无数据记负”语义一致）。"""
+    from gamewall.enrichment_worker import EnrichmentWorker
+
+    game = Game(raw_name='断网第三方/Offline Third Party')
+    worker = EnrichmentWorker(
+        [game], steam_candidates=set(),
+        gamersky_candidates={game.norm_key}, enable_ign=False)
+
+    class _Offline:
+        def fetch_score(self, title):
+            return None, 'Timeout'
+
+    worker._gamersky = _Offline()
+    negs = []
+    worker.negative_recorded.connect(lambda key, source: negs.append((key, source)))
+    worker.run()
+
+    assert negs == []
+
+
 def test_aaa_override_persists_across_snapshot_and_restart():
     from gamewall.aaa_classifier import classify_aaa
 

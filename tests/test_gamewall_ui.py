@@ -611,6 +611,67 @@ def test_steam_alias_hit_bypasses_match_negative_cache(monkeypatch):
         app.processEvents()
 
 
+def test_third_party_negative_cache_skips_rescrape(monkeypatch):
+    """游民/IGN 负缓存命中（7 天内已确认无分）的游戏不再进入第三方候选，
+    否则每次启动都会把全部缺分游戏重新爬一遍。"""
+    from gamewall import game_main_window as main_window
+
+    class _Signal:
+        def connect(self, _callback):
+            pass
+
+    class _RecordingWorker:
+        instances = []
+
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+            self.stage_changed = _Signal()
+            self.progress_updated = _Signal()
+            self.game_enriched = _Signal()
+            self.negative_recorded = _Signal()
+            self.finished_with = _Signal()
+            self.failed = _Signal()
+            self.started = False
+            self.__class__.instances.append(self)
+
+        def isRunning(self):
+            return False
+
+        def start(self):
+            self.started = True
+
+    def _complete_game(raw_name):
+        return Game(raw_name=raw_name, steam_appid=123, description="简介",
+                    release_date="2024-01-01", steam_positive_pct=90)
+
+    app = QApplication.instance() or QApplication([])
+    monkeypatch.setattr(main_window, "EnrichmentWorker", _RecordingWorker)
+    window, cache = _create_window()
+    neg_hit = _complete_game("游民无分已记负")
+    fresh = _complete_game("游民缺分未记负")
+    try:
+        window.config.values.update({
+            "network_enabled": True,
+            "enable_enrichment": True,
+            "enable_gamersky_scraper": True,
+            "enable_ign_scraper": False,
+        })
+        window.all_games = [neg_hit, fresh]
+        cache.negative_results[(neg_hit.norm_key, "gamersky")] = 1
+        window._start_local_scan = lambda: None
+
+        window._start_background_tasks()
+
+        worker = _RecordingWorker.instances[-1]
+        assert worker.kwargs["steam_candidates"] == set()
+        assert worker.kwargs["gamersky_candidates"] == {fresh.norm_key}
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
 def test_permanent_cover_failure_stops_retrying(monkeypatch):
     from utils.image_loader import ImageCache
 
