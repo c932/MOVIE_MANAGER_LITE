@@ -4,11 +4,12 @@ URL 封面加载：磁盘缓存优先，未命中时在线下载并回填缓存
 """
 import gzip
 import logging
+import os
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
-from PyQt6.QtGui import QImage, QPixmap
+from PyQt6.QtGui import QImage, QPixmap, QColor
 
 from utils.image_loader import get_poster_cache_manager
 
@@ -121,8 +122,11 @@ class BatchCoverLoader(QThread):
                     self.image_loaded.emit(url, cached)
                     return url, cached
 
-                data = download_image_bytes(url)
-                image = QImage.fromData(data)
+                if os.path.exists(url):
+                    image = QImage(url)
+                else:
+                    data = download_image_bytes(url)
+                    image = QImage.fromData(data)
                 if image.isNull():
                     logger.warning(f"封面数据无效: {url}")
                     continue

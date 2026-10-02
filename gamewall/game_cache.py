@@ -24,7 +24,7 @@ _WEB_FIELDS = (
     "steam_appid", "steam_name", "developer", "publishers", "platforms",
     "steam_categories", "genres", "description", "header_image",
     "steam_positive_pct", "steam_review_total", "metacritic", "release_date",
-    "ign_score", "gamersky_score",
+    "ign_score", "gamersky_score", "custom_poster",
 )
 _LOCAL_FIELDS = ("installed", "installed_exe", "installed_source")
 _EXCEL_FIELDS = (

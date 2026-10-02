@@ -77,6 +77,9 @@ class Game:
     ign_score: float = 0.0
     gamersky_score: float = 0.0
 
+    # 自定义海报
+    custom_poster: str = ""  # 本地竖版海报文件路径（SteamGridDB 下载后设置）
+
     # 本地安装状态
     installed: bool = False
     installed_exe: str = ""  # 本地 exe 绝对路径
@@ -152,18 +155,21 @@ class Game:
 
     def has_cover(self) -> bool:
         """是否有可加载的封面"""
-        return bool(self.steam_appid or self.header_image)
+        return bool(self.custom_poster or self.steam_appid or self.header_image)
 
     def get_cover_urls(self) -> list:
-        """候选封面 URL 列表（竖版优先，头图兜底）
+        """候选封面列表（自定义竖版海报优先，Steam 竖版其次，头图兜底）
 
         尝试顺序：
-        1. library_600x900.jpg（标准竖版）
-        2. library_600x900_2x.jpg（高清竖版，部分游戏仅提供 2x）
-        3. portrait.png（另一种竖版格式）
-        4. header_image（横版头图兜底）
+        1. custom_poster（本地自定义竖版海报，SteamGridDB 下载）
+        2. library_600x900.jpg（标准竖版）
+        3. library_600x900_2x.jpg（高清竖版，部分游戏仅提供 2x）
+        4. portrait.png（另一种竖版格式）
+        5. header_image（横版头图兜底）
         """
         urls = []
+        if self.custom_poster:
+            urls.append(self.custom_poster)
         if self.steam_appid:
             base = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{self.steam_appid}"
             urls.append(f"{base}/library_600x900.jpg")

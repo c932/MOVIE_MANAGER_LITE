@@ -27,7 +27,11 @@ from gamewall.game_cache import GameCacheManager
 from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
 from gamewall.llm_classifier import classify_with_llm, TIER_VALUES, TIER_NORMAL
 from gamewall.llm_search import llm_match_and_fetch
-from gamewall.game_dialogs import SteamSearchDialog, GameInfoEditDialog
+from gamewall.game_dialogs import (
+    SteamSearchDialog, GameInfoEditDialog,
+    GridSearchWorker, GridDownloadWorker, GridSelectDialog,
+)
+from gamewall.steamgrid_search import get_custom_poster_path
 from gamewall import steam_client
 from gamewall.game_card import GameCard
 from gamewall.game_detail_panel import GameDetailPanel
@@ -1392,7 +1396,7 @@ class GameMainWindow(QMainWindow):
         data_menu.addAction("🔍 手动搜索匹配 Steam…", lambda: self._manual_search_steam(game))
         data_menu.addAction("✏️ 编辑简介与海报…", lambda: self._edit_game_info(game))
         data_menu.addAction("🤖 LLM 搜索匹配并更新资料", lambda: self._llm_search_match(game))
-        data_menu.addAction("🖼️ 重新获取竖版海报（LLM）", lambda: self._llm_refetch_poster(game))
+        data_menu.addAction("🖼️ 重新获取竖版海报（SteamGridDB）", lambda: self._llm_refetch_poster(game))
 
         if not game.installed:
             menu.addAction("⚙ 设置游戏主程序…", lambda: self._pick_game_exe(game))
@@ -1562,31 +1566,48 @@ class GameMainWindow(QMainWindow):
         worker.start()
 
     def _llm_refetch_poster(self, game):
-        """LLM 重新获取竖版海报。"""
-        cfg = self._llm_config()
-        if cfg is None:
+        """通过 SteamGridDB 搜索竖版海报并下载到本地。"""
+        sgdb_key = (self.config.get_value("steamgrid_api_key", "") or "").strip()
+        if not sgdb_key:
+            QMessageBox.information(
+                self, "未配置 SteamGridDB",
+                "请先在「设置」中填写 SteamGridDB API Key（steamgriddb.com 免费注册）。")
             return
-        base_url, api_key, model = cfg
-        if self._llm_search_worker is not None and self._llm_search_worker.isRunning():
-            self.status_label.setText("已有 LLM 搜索任务进行中")
-            return
-        self.status_label.setText(f"正在用 LLM 重新获取《{game.display_title()}》海报…")
+        names = [n for n in (game.title_en, game.steam_name,
+                             game.title_cn, game.raw_name) if n]
+        self.status_label.setText(f"正在搜索《{game.display_title()}》竖版海报…")
         self.progress_bar.setRange(0, 0)
         self.progress_bar.show()
-        worker = LLMSearchWorker(game, base_url, api_key, model, parent=self)
-        self._llm_search_worker = worker
-        def _on_result(norm_key, fields, err):
+        worker = GridSearchWorker(names, sgdb_key, parent=self)
+
+        def _on_searched(grids, err):
             self.progress_bar.hide()
             self.progress_bar.setRange(0, 1)
-            if err:
-                self.status_label.setText(f"LLM 海报匹配失败：{err}")
+            if not grids:
+                self.status_label.setText(f"未找到竖版海报{f'：{err}' if err else ''}")
                 return
-            if not fields.get("steam_appid"):
-                self.status_label.setText("LLM 未找到匹配")
+            dlg = GridSelectDialog(self, grids)
+            if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.selected_url:
+                self.status_label.setText("已取消")
                 return
-            poster_fields = {k: v for k, v in fields.items() if k in ("steam_appid", "steam_name", "header_image")}
-            self._apply_steam_update(game, poster_fields, "已重新获取竖版海报")
-        worker.result.connect(_on_result)
+            save_path = get_custom_poster_path(game.norm_key)
+            self.status_label.setText("正在下载竖版海报…")
+            self.progress_bar.setRange(0, 0)
+            self.progress_bar.show()
+            dl_worker = GridDownloadWorker(dlg.selected_url, save_path, sgdb_key, parent=self)
+
+            def _on_downloaded(err):
+                self.progress_bar.hide()
+                self.progress_bar.setRange(0, 1)
+                if err:
+                    self.status_label.setText(f"海报下载失败：{err}")
+                    return
+                self._apply_steam_update(game, {"custom_poster": save_path}, "已更新竖版海报")
+
+            dl_worker.result.connect(_on_downloaded)
+            dl_worker.start()
+
+        worker.result.connect(_on_searched)
         worker.start()
 
     def _start_llm_classify(self, game):

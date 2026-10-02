@@ -290,3 +290,90 @@ class GameInfoEditDialog(QDialog):
 
     def _on_save(self):
         self.accept()
+
+
+class GridSearchWorker(QThread):
+    """后台 SteamGridDB 搜索竖版海报线程。"""
+    result = pyqtSignal(list, str)   # (grids, err)
+
+    def __init__(self, names, api_key, parent=None):
+        super().__init__(parent)
+        self._names = names
+        self._api_key = api_key
+
+    def run(self):
+        try:
+            from gamewall.steamgrid_search import search_grids_best
+            grids, err = search_grids_best(self._names, self._api_key)
+        except Exception as e:
+            logger.warning(f"SteamGridDB 搜索异常: {e}")
+            grids, err = [], str(e)
+        self.result.emit(grids, err)
+
+
+class GridDownloadWorker(QThread):
+    """后台下载选中的竖版海报到本地。"""
+    result = pyqtSignal(str)   # err（成功时为空串）
+
+    def __init__(self, grid_url, save_path, api_key, parent=None):
+        super().__init__(parent)
+        self._url = grid_url
+        self._path = save_path
+        self._api_key = api_key
+
+    def run(self):
+        from gamewall.steamgrid_search import download_poster
+        err = download_poster(self._url, self._path, self._api_key)
+        self.result.emit(err)
+
+
+class GridSelectDialog(QDialog):
+    """展示 SteamGridDB 竖版封面候选，供用户挑选。"""
+
+    def __init__(self, parent=None, grids=None):
+        super().__init__(parent)
+        self.selected_url = ""
+
+        self.setWindowTitle("选择竖版海报")
+        self.setMinimumSize(520, 460)
+        self.setStyleSheet("QDialog { background-color: #FFFFFF; }")
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        title = QLabel("从 SteamGridDB 候选中选择一张竖版海报（按评分降序）：")
+        title.setWordWrap(True)
+        title.setStyleSheet("color: #333333;")
+        layout.addWidget(title)
+
+        self.list = QListWidget()
+        self.list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #CED4DA; border-radius: 6px; font-size: 12px;
+            }
+            QListWidget::item { padding: 8px; }
+            QListWidget::item:selected { background-color: #E3F0FF; color: #007AFF; }
+        """)
+        self.list.itemDoubleClicked.connect(self._accept_current)
+        layout.addWidget(self.list, 1)
+
+        for g in grids or []:
+            label = f"{g.get('title', '无标题')}  ·  评分 {g.get('score', 0)}"
+            entry = QListWidgetItem(label)
+            entry.setData(Qt.ItemDataRole.UserRole, g.get("url", ""))
+            self.list.addItem(entry)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self._accept_current)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def _accept_current(self):
+        item = self.list.currentItem()
+        if item is not None:
+            self.selected_url = item.data(Qt.ItemDataRole.UserRole) or ""
+        self.accept()

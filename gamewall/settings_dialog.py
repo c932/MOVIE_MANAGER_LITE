@@ -174,6 +174,9 @@ class GameSettingsDialog(QDialog):
         self.llm_url_edit.setPlaceholderText("https://api.openai.com/v1")
         self.llm_model_edit = QLineEdit()
         self.llm_model_edit.setPlaceholderText("gpt-4o-mini")
+        self.sgdb_key_edit = QLineEdit()
+        self.sgdb_key_edit.setPlaceholderText("sgdb-key...")
+        self.sgdb_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
         for i, check in enumerate((self.network_check, self.enrich_check,
                                    self.gamersky_check, self.ign_check,
                                    self.llm_check)):
@@ -181,6 +184,24 @@ class GameSettingsDialog(QDialog):
             main.addWidget(check)
             if i == 0:
                 check.toggled.connect(self._on_network_toggled)
+
+        sgdb_row = QHBoxLayout()
+        sgdb_lbl = QLabel("SteamGridDB Key")
+        sgdb_lbl.setFixedWidth(100)
+        sgdb_lbl.setStyleSheet("color: #666666; font-size: 12px;")
+        sgdb_row.addWidget(sgdb_lbl)
+        self.sgdb_key_edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #E0E0E0; border-radius: 4px;
+                padding: 4px 8px; font-size: 12px;
+            }
+        """)
+        sgdb_row.addWidget(self.sgdb_key_edit, 1)
+        main.addLayout(sgdb_row)
+        sgdb_desc = QLabel("SteamGridDB API Key：用于搜索/下载竖版海报（steamgriddb.com 免费注册，可选）。")
+        sgdb_desc.setWordWrap(True)
+        sgdb_desc.setStyleSheet("color: #999999; font-size: 11px; padding-top: 2px;")
+        main.addWidget(sgdb_desc)
 
         # LLM 配置区：仅在启用 LLM 时显示
         self.llm_config_widget = QWidget()
@@ -297,6 +318,7 @@ class GameSettingsDialog(QDialog):
         self.llm_url_edit.setText(self.config.get_value("llm_base_url", "") or "")
         self.llm_key_edit.setText(self.config.get_value("llm_api_key", "") or "")
         self.llm_model_edit.setText(self.config.get_value("llm_model", "gpt-4o-mini") or "")
+        self.sgdb_key_edit.setText(self.config.get_value("steamgrid_api_key", "") or "")
         self.scale_spin.setValue(int(self.config.get_value("poster_scale", 100)))
         self._on_network_toggled(self.network_check.isChecked())
         self.llm_config_widget.setVisible(self.llm_check.isChecked())
@@ -312,6 +334,7 @@ class GameSettingsDialog(QDialog):
         self.config.set_value("llm_base_url", self.llm_url_edit.text().strip())
         self.config.set_value("llm_api_key", self.llm_key_edit.text().strip())
         self.config.set_value("llm_model", self.llm_model_edit.text().strip() or "gpt-4o-mini")
+        self.config.set_value("steamgrid_api_key", self.sgdb_key_edit.text().strip())
         self.config.set_value("poster_scale", self.scale_spin.value())
         self.config.save_config()
         logger.info("游戏库设置已保存")

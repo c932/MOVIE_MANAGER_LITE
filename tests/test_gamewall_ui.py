@@ -737,7 +737,7 @@ def test_game_info_context_menu_lists_four_actions(monkeypatch):
         "🔍 手动搜索匹配 Steam…",
         "✏️ 编辑简介与海报…",
         "🤖 LLM 搜索匹配并更新资料",
-        "🖼️ 重新获取竖版海报（LLM）",
+        "🖼️ 重新获取竖版海报（SteamGridDB）",
     ]
 
 
