@@ -440,8 +440,12 @@ def verify_built_msi(path: Path, config: ProductConfig) -> None:
             db,
             "SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action` = 'InstallFiles'",
         )
-        if remove_row is None or install_row is None or remove_row.GetInteger(1) >= install_row.GetInteger(1):
-            raise RuntimeError("RemoveExistingProducts must execute before InstallFiles.")
+        if remove_row is None or install_row is None:
+            raise RuntimeError("RemoveExistingProducts or InstallFiles missing from InstallExecuteSequence.")
+        # 修复升级安装弹「网络资源」对话框：RemoveExistingProducts 必须排在
+        # InstallFiles(4000) 之后，卸载旧版时用新安装的缓存副本而非原始 MSI 源文件。
+        if remove_row.GetInteger(1) <= install_row.GetInteger(1):
+            raise RuntimeError("RemoveExistingProducts must execute after InstallFiles.")
 
         for table_name, column_name, expected in [
             ("AppSearch", "Property", "PREVIOUSINSTALLDIR"),
