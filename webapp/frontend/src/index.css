@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    @apply bg-ink-900 text-ink-50 font-sans antialiased;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* 滚动条 — 暗色细线 */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-ink-700 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-ink-600;
+  }
+
+  /* 焦点可见性 */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-arcade-400/60;
+  }
+
+  /* 海报墙卡片 hover 光斑 */
+  .poster-card {
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .poster-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px -8px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.06);
+  }
+}
+
+@layer components {
+  /* 工具栏按钮 */
+  .btn {
+    @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm
+           text-ink-200 transition-colors hover:bg-ink-700 hover:text-ink-50
+           active:bg-ink-750;
+  }
+  .btn-active {
+    @apply bg-ink-700 text-ink-50;
+  }
+  .btn-primary {
+    @apply bg-cinema-600 text-white hover:bg-cinema-500;
+  }
+  .btn-arcade {
+    @apply bg-arcade-600 text-ink-950 hover:bg-arcade-500;
+  }
+
+  /* 筛选侧栏标签 */
+  .tag {
+    @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs
+           bg-ink-800 text-ink-200 cursor-pointer transition-colors
+           hover:bg-ink-700;
+  }
+  .tag-active {
+    @apply bg-cinema-600 text-white hover:bg-cinema-600;
+  }
+  .tag-active-arcade {
+    @apply bg-arcade-600 text-ink-950 hover:bg-arcade-600;
+  }
+
+  /* 评分徽章 */
+  .rating-badge {
+    @apply font-mono font-semibold;
+  }
+
+  /* 分隔线 */
+  .divider {
+    @apply border-ink-700;
+  }
+
+  /* 输入框 */
+  .input {
+    @apply bg-ink-800 border border-ink-700 rounded-md px-3 py-1.5 text-sm
+           text-ink-50 placeholder-ink-400
+           focus:border-ink-500 focus:ring-1 focus:ring-ink-500;
+  }
+}

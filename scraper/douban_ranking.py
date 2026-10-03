@@ -14,9 +14,9 @@ import logging
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
+from pathlib import Path
 from typing import List, Optional, Tuple
 
-from PyQt6.QtCore import QThread, pyqtSignal
 
 logger = logging.getLogger(__name__)
 
@@ -324,8 +324,10 @@ def _clean_html(text: str) -> str:
 _CACHE_PATH = None  # 延迟初始化
 
 
-def _get_cache_path():
-    """获取榜单缓存文件路径"""
+def _get_cache_path(cache_path=None):
+    """获取榜单缓存文件路径（cache_path 显式指定时优先，供多数据目录的网页版使用）"""
+    if cache_path is not None:
+        return Path(cache_path)
     global _CACHE_PATH
     if _CACHE_PATH is None:
         from utils.app_paths import resolve_data_file
@@ -334,11 +336,12 @@ def _get_cache_path():
 
 
 def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
-                       imdb_top250: List[RankedMovie] = None) -> bool:
+                       imdb_top250: List[RankedMovie] = None, *,
+                       cache_path=None) -> bool:
     """将抓取的榜单数据保存到本地缓存（合并模式，不会覆盖其他来源的已有数据）"""
     try:
         from datetime import datetime
-        path = _get_cache_path()
+        path = _get_cache_path(cache_path)
 
         # 加载现有缓存用于合并
         existing = {}
@@ -382,10 +385,10 @@ def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
         return False
 
 
-def load_ranking_cache() -> Tuple[List[RankedMovie], List[RankedMovie]]:
+def load_ranking_cache(cache_path=None) -> Tuple[List[RankedMovie], List[RankedMovie]]:
     """从本地缓存加载豆瓣榜单数据，失败返回空列表"""
     try:
-        path = _get_cache_path()
+        path = _get_cache_path(cache_path)
         if not path.exists():
             return [], []
         with open(path, 'r', encoding='utf-8') as f:
@@ -399,10 +402,10 @@ def load_ranking_cache() -> Tuple[List[RankedMovie], List[RankedMovie]]:
         return [], []
 
 
-def load_imdb_cache() -> List[RankedMovie]:
+def load_imdb_cache(cache_path=None) -> List[RankedMovie]:
     """从本地缓存加载 IMDB Top250 数据，失败返回空列表"""
     try:
-        path = _get_cache_path()
+        path = _get_cache_path(cache_path)
         if not path.exists():
             return []
         with open(path, 'r', encoding='utf-8') as f:
@@ -415,14 +418,14 @@ def load_imdb_cache() -> List[RankedMovie]:
         return []
 
 
-def get_top250_rank_lookup() -> dict:
+def get_top250_rank_lookup(cache_path=None) -> dict:
     """
     构建豆瓣 Top250 排名查询表，供卡片/详情展示角标用。
 
     Returns:
         dict: { normalized_title: {"rank": int, "total": 250, "source": "douban", "douban_id": str}, ... }
     """
-    top250, _ = load_ranking_cache()
+    top250, _ = load_ranking_cache(cache_path)
     lookup = {}
     for m in top250:
         key = _normalize_title(m.title)
@@ -433,14 +436,14 @@ def get_top250_rank_lookup() -> dict:
     return lookup
 
 
-def get_imdb_top250_rank_lookup() -> dict:
+def get_imdb_top250_rank_lookup(cache_path=None) -> dict:
     """
     构建 IMDB Top250 排名查询表，供卡片/详情展示角标用。
 
     Returns:
         dict: { normalized_title: {"rank": int, "total": 250, "source": "imdb", "imdb_id": str}, ... }
     """
-    imdb_movies = load_imdb_cache()
+    imdb_movies = load_imdb_cache(cache_path)
     lookup = {}
     for m in imdb_movies:
         key = _normalize_title(m.title)
@@ -871,115 +874,10 @@ def compare_with_local(ranked_movies: List[RankedMovie],
     return owned, missing
 
 
-# ─────────────────── 后台工作线程 ───────────────────
-
-class RankingFetcher(QThread):
-    """
-    后台抓取排行榜并对比本地库
-
-    信号:
-        progress(str)          - 进度日志
-        finished(list, list)   - 完成: (owned, missing)
-        error(str)             - 错误信息
-    """
-    progress = pyqtSignal(str)
-    finished = pyqtSignal(list, list)
-    error = pyqtSignal(str)
-
-    def __init__(self, local_movies: list, sources: list = None,
-                 use_cache: bool = True, parent=None):
-        super().__init__(parent)
-        self._local_movies = local_movies
-        self._sources = sources or ['top250', 'chart']
-        self._use_cache = use_cache
-        self._cancelled = False
-
-    def cancel(self):
-        self._cancelled = True
-
-    def run(self):
-        all_ranked: List[RankedMovie] = []
-        top250: List[RankedMovie] = []
-        chart: List[RankedMovie] = []
-        imdb_top250: List[RankedMovie] = []
-
-        try:
-            # 优先从缓存加载（仅在 use_cache=True 且缓存存在时）
-            if self._use_cache:
-                cached_top250, cached_chart = load_ranking_cache()
-                cached_imdb = load_imdb_cache() if 'imdb_top250' in self._sources else []
-                if cached_top250 or cached_chart or cached_imdb:
-                    self.progress.emit("从本地缓存加载榜单数据...")
-                    if 'top250' in self._sources and cached_top250:
-                        top250 = cached_top250
-                        self.progress.emit(f"  豆瓣Top250: {len(top250)} 部电影（缓存）")
-                        all_ranked.extend(top250)
-                    if 'chart' in self._sources and cached_chart:
-                        chart = cached_chart
-                        self.progress.emit(f"  豆瓣热门: {len(chart)} 部电影（缓存）")
-                        all_ranked.extend(chart)
-                    if 'imdb_top250' in self._sources and cached_imdb:
-                        imdb_top250 = cached_imdb
-                        self.progress.emit(f"  IMDB Top250: {len(imdb_top250)} 部电影（缓存）")
-                        all_ranked.extend(imdb_top250)
-                    if all_ranked:
-                        self.progress.emit(f"榜单合计: {len(all_ranked)} 部电影")
-                        self.progress.emit("正在与本地电影库对比...")
-                        owned, missing = compare_with_local(all_ranked, self._local_movies)
-                        self.progress.emit(f"对比完成: 本地已有 {len(owned)} 部, 缺失 {len(missing)} 部")
-                        self.finished.emit(owned, missing)
-                        return
-
-            # 缓存不可用或强制刷新：从网络抓取（增量模式）
-            # 加载旧缓存用于增量对比（已有电影跳过详情获取，仅更新评分/排名）
-            all_cached: List[RankedMovie] = []
-            if not self._use_cache:
-                cached_top250_old, cached_chart_old = load_ranking_cache()
-                cached_imdb_old = load_imdb_cache() if 'imdb_top250' in self._sources else []
-                all_cached = cached_top250_old + cached_chart_old + cached_imdb_old
-
-            if 'top250' in self._sources:
-                self.progress.emit("正在抓取豆瓣 Top250 榜单...")
-                top250 = fetch_douban_top250(cached_movies=all_cached)
-                self.progress.emit(f"  Top250 获取完成: {len(top250)} 部电影")
-                all_ranked.extend(top250)
-
-                if self._cancelled:
-                    return
-
-            if 'chart' in self._sources:
-                self.progress.emit("正在抓取豆瓣近期热门榜单...")
-                chart = fetch_douban_chart(cached_movies=all_cached)
-                self.progress.emit(f"  热门榜单获取完成: {len(chart)} 部电影")
-                all_ranked.extend(chart)
-
-                if self._cancelled:
-                    return
-
-            if 'imdb_top250' in self._sources:
-                self.progress.emit("正在抓取 IMDB Top250 榜单...")
-                imdb_top250 = fetch_imdb_top250(cached_movies=all_cached)
-                self.progress.emit(f"  IMDB Top250 获取完成: {len(imdb_top250)} 部电影")
-                all_ranked.extend(imdb_top250)
-
-                if self._cancelled:
-                    return
-
-            # 保存到缓存
-            if top250 or chart:
-                save_ranking_cache(top250, chart, imdb_top250 if imdb_top250 else None)
-            elif imdb_top250:
-                # 只有 IMDB 数据时也保存（合并到现有缓存）
-                save_ranking_cache([], [], imdb_top250)
-
-            self.progress.emit(f"榜单合计: {len(all_ranked)} 部电影")
-            self.progress.emit("正在与本地电影库对比...")
-
-            owned, missing = compare_with_local(all_ranked, self._local_movies)
-            self.progress.emit(f"对比完成: 本地已有 {len(owned)} 部, 缺失 {len(missing)} 部")
-
-            self.finished.emit(owned, missing)
-
-        except Exception as e:
-            logger.exception("抓取榜单失败")
-            self.error.emit(str(e))
+# Qt 后台线程 RankingFetcher 已迁移到 scraper/qt_tasks.py（避免网页版服务端导入时拉起 PyQt6），
+# 通过模块级 __getattr__ 懒加载保留原有导入路径。
+def __getattr__(name):
+    if name == 'RankingFetcher':
+        from .qt_tasks import RankingFetcher
+        return RankingFetcher
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

@@ -24,6 +24,12 @@ else:
     DATA_DIR = PROJECT_ROOT / "data" if _app_name == "LocalMovieWall" \
         else Path(os.environ.get("APPDATA", Path.home())) / _app_name / "data"
 
+# 网页版（Ubuntu 服务器部署）可通过 MML_DATA_DIR 环境变量指定数据目录，
+# 桌面版不设置该变量，行为完全不变。
+_data_dir_override = os.environ.get("MML_DATA_DIR")
+if _data_dir_override:
+    DATA_DIR = Path(_data_dir_override)
+
 
 def ensure_data_dir() -> Path:
     """确保 data 目录存在并返回该路径。"""

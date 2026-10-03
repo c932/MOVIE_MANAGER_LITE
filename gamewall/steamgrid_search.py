@@ -61,11 +61,13 @@ def get_vertical_grids(game_id: int, api_key: str) -> tuple:
     grids = []
     for it in items:
         url = it.get("url", "")
+        author = it.get("author") or {}
         grids.append({
             "id": it.get("id"),
             "url": url,
             "thumb": it.get("thumb", "") or url,
-            "title": it.get("title", ""),
+            "author": author.get("name", ""),
+            "style": it.get("style", ""),
             "score": int(it.get("score", 0)),
         })
     # 按评分降序
@@ -120,6 +122,14 @@ def download_poster(grid_url: str, save_path: str, api_key: str,
     except Exception as e:
         logger.warning(f"海报下载失败: {e}")
         return str(e)
+
+
+def fetch_and_download_poster(names: list, api_key: str, save_path: str) -> str:
+    """搜索并下载评分最高的竖版海报到本地，返回 err（成功为空串）。"""
+    grids, err = search_grids_best(names, api_key)
+    if not grids:
+        return err or "未找到竖版海报"
+    return download_poster(grids[0]["url"], save_path, api_key)
 
 
 def get_custom_poster_path(norm_key: str) -> str:

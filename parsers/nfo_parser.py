@@ -16,7 +16,7 @@ class NFOParser:
     """NFO XML 文件解析引擎"""
     
     @staticmethod
-    def parse(nfo_path: str) -> Optional[Movie]:
+    def parse(nfo_path: str, *, include_user_rating: bool = False) -> Optional[Movie]:
         """
         解析 NFO 文件，返回 Movie 对象
         
@@ -92,7 +92,7 @@ class NFOParser:
                     movie.tags.append(custom.text.strip())
             
             # === 提取评分（豆瓣优先，否则 IMDb）===
-            rating_info = NFOParser._extract_rating(root)
+            rating_info = NFOParser._extract_rating(root, include_user_rating=include_user_rating)
             if rating_info:
                 movie.rating = rating_info['value']
                 movie.rating_source = rating_info['source']
@@ -228,10 +228,13 @@ class NFOParser:
         return child.text.strip() if child is not None and child.text else ""
     
     @staticmethod
-    def _extract_rating(root: ET.Element) -> Optional[dict]:
+    def _extract_rating(root: ET.Element, *, include_user_rating: bool = False) -> Optional[dict]:
         """
         提取评分信息，豆瓣优先
         同时提取所有评分源到 ratings 字典
+        
+        include_user_rating=True 时，若只有 user 等非主流评分也返回
+        （主评分 value=0.0、source=""），保证用户评分能被读出来。
         
         Returns:
             {'source': 'douban'/'imdb', 'value': float, 'all_ratings': {...}} 或 None
@@ -265,7 +268,13 @@ class NFOParser:
         
         if primary_rating:
             primary_rating['all_ratings'] = all_ratings
-        
+            return primary_rating
+
+        # NFO 只有 user 等非主流评分时：默认仍返回 None（桌面版旧行为），
+        # include_user_rating=True 时返回空主评分，让用户评分进入 ratings。
+        if include_user_rating and all_ratings:
+            return {'source': '', 'value': 0.0, 'all_ratings': all_ratings}
+
         return primary_rating
     
     @staticmethod
