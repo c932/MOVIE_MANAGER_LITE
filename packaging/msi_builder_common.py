@@ -125,7 +125,7 @@ def _add_standard_sequences(db) -> None:
                 entries,
                 "RemoveExistingProducts",
                 "OLDPRODUCTS AND NOT Installed",
-                1590,
+                6500,  # 在 InstallFiles(4000) 之后，避免弹出"网络资源"对话框
             )
             # RegisterProduct(6100) 依据 ARPINSTALLLOCATION 写卸载登记的 InstallLocation
             entries = _replace_sequence(
