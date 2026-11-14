@@ -1077,6 +1077,9 @@ class ScrapeDialog(QDialog):
         elif channel == "initialize":
             self._retry = ("initialize",)
         self.status_label.setText("操作失败：" + safe_message(message, self.service.settings if self.service else None))
+        if channel == "write":
+            # 底部提示高度有限，完整原因和文件路径也放在可滚动、可复制的预览中。
+            self.preview_text.appendPlainText("\n" + self.status_label.text())
         self.retry_button.setEnabled(True)
         self._update_buttons()
 

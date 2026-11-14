@@ -31,3 +31,13 @@
 - 用户安装时提示已有相同或更新版本。只读核对注册表及已安装 MSI 缓存后，确认本机原先已安装 3.2.2（ProductCode `{80D4FD30-842D-4502-8FA2-D4F8337F5B18}`），本轮交付又用了 3.2.2，且 ProductCode 不同，因此正常触发同版本保护。
 - 将构建默认版本改为 **3.2.3**，沿用相同 UpgradeCode 和已验证的 EXE/ICO 载荷重新生成 `dist/本地电影墙-3.2.3-win64.msi`，替代前述 3.2.2 安装包。
 - 构建测试 **9 passed**。通过 Windows Installer 会话仅执行 `FindRelatedProducts`、`AppSearch`、目录属性设置和 `LaunchConditions`：`OLDPRODUCTS` 正确包含现有产品，`NEWERPRODUCTFOUND` 为空，`INSTALLDIR` 保留 `D:\Program Files (x86)\LocalMovieWall\`，启动条件通过。未执行安装序列，未改变现有程序和用户数据。
+
+## 只读 NFO 保存失败修正（3.2.4）
+
+- 用户的《黑日危机》保存失败。只读检查 NAS 文件发现 `the.world.is.not.enough.1999.1080p.bluray.x264-cinefile.nfo` 为 302 字节发布说明，`st_file_attributes=33`（含 READONLY），海报可写，目录可写。已有 NFO/海报备份证明此前已进入事务；NFO 本身不可替换。
+- 将原文件字节复制到临时目录并设置同样只读属性，复现旧逻辑：`os.replace` 抛出 `PermissionError(13)`，外层仅显示“保存失败，已恢复原文件”，隐藏了原因。
+- 保存前检查 NFO 和确实要替换的海报是否只读，阻止无用下载、备份和部分写入，明确提示用户在属性中取消只读。既有豆瓣补分写入也使用该检查，不自动解除文件保护。
+- 事务错误现在保留备份/写入/校验阶段、系统原因和目标路径；尚未写入时提示“原文件未改动”。界面将完整失败信息追加到可滚动、可复制的预览区。
+- 新增只读 NFO / 海报、服务下载前拦截、解除只读后重试、备份/写入权限失败原因、Qt 错误展示与重试回归。全量 **270 passed**，1 条已有 Starlette/httpx 弃用提示；版本号改为 3.2.4 后 MSI 构建测试 **9 passed**。
+- 实际 302 字节 NFO 副本验证：只读时明确拦截且不产生备份，解除副本只读后原草稿重试成功，备份逐字节一致；NAS 原件哈希与只读属性均未改变。
+- 重新构建 `dist/本地电影墙-3.2.4-win64.msi` 和 `dist/LocalMovieWall-3.2.4/LocalMovieWall.exe`。EXE 9 张图标载荷与窗口 ICO 保持用户指定新图标；Installer 检测本机现有 3.2.3 为可升级旧版本，启动条件通过且保留原 D 盘安装目录，未执行实际安装。

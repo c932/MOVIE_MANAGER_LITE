@@ -1,5 +1,7 @@
 """进度可见性与用户确认后备份重建的真实服务回归。"""
 import threading
+import os
+import stat
 
 import pytest
 from PyQt6.QtCore import Qt
@@ -45,8 +47,10 @@ def test_scan_progress_shows_current_directory_and_known_total(app, tmp_path, mo
         window.close()
 
 
-@pytest.mark.parametrize(("accept", "transient_failure"), [(True, False), (False, False), (True, True)])
-def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app, tmp_path, monkeypatch, accept, transient_failure):
+@pytest.mark.parametrize(("accept", "failure"), [(True, None), (False, None), (True, "readback"), (True, "readonly")])
+def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app, tmp_path, monkeypatch, accept, failure):
+    if failure == "readonly" and os.name != "nt":
+        pytest.skip("Windows 只读属性")
     from scraper.media_discovery import discover_videos
     from ui.scrape_dialog import ScrapeDialog
     video = tmp_path / "Film.2024.mkv"
@@ -54,6 +58,8 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
     nfo = video.with_suffix(".nfo")
     original = b"[URL=https://example.invalid/poster][IMG]release poster[/IMG][/URL]\r\nRelease information"
     nfo.write_bytes(original)
+    if failure == "readonly":
+        nfo.chmod(stat.S_IREAD)
     target = discover_videos([tmp_path])[0]
     service = ScrapeService(ScrapeSettings())
     monkeypatch.setattr(service, "details", lambda c: Metadata("douban", "123", {"title": "重新匹配电影", "plot": "新简介"}, {"douban": "123"}, {"douban": 8.1}))
@@ -77,15 +83,21 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
         window.confirm_button.click()
         window.metadata_only_check.setChecked(True)
         assert window.save_button.isEnabled()
-        if transient_failure:
+        if failure == "readback":
             from parsers.nfo_parser import NFOParser
             real_parse = NFOParser.parse
             monkeypatch.setattr(NFOParser, "parse", lambda *a, **k: None)
         window.save_button.click()
         until(app, lambda: not window.tasks.busy)
-        if transient_failure:
+        if failure:
             assert nfo.read_bytes() == original
-            monkeypatch.setattr(NFOParser, "parse", real_parse)
+            if failure == "readback":
+                monkeypatch.setattr(NFOParser, "parse", real_parse)
+            else:
+                assert "只读" in window.status_label.text()
+                assert str(nfo) in window.preview_text.toPlainText()
+                assert not list(tmp_path.glob("*.mml-backup-*"))
+                nfo.chmod(stat.S_IREAD | stat.S_IWRITE)
             window.retry_button.click()
             until(app, lambda: not window.tasks.busy)
         assert questions and "备份" in questions[0]
@@ -106,4 +118,5 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
             assert nfo.read_bytes() == original
             assert not list(tmp_path.glob("*.mml-backup-*"))
     finally:
+        nfo.chmod(stat.S_IREAD | stat.S_IWRITE)
         window.close()

@@ -13,7 +13,7 @@ from scraper.scrape_models import (
     Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget,
     can_rebuild_nfo, capture_target_version, validate_target_version,
 )
-from scraper.scrape_persistence import commit_draft, fingerprint, read_ids, snapshot_files, update_douban_nfo, validate_score
+from scraper.scrape_persistence import commit_draft, ensure_writable_file, fingerprint, poster_path, read_ids, snapshot_files, update_douban_nfo, validate_score
 from scraper.scrape_settings import ScrapeSettings
 
 
@@ -132,6 +132,7 @@ class ScrapeService:
         if (draft.target.error or draft.target.error_kind) and not rebuilding:
             raise ScrapeError(draft.target.error or draft.target.error_detail or "原 NFO 状态不允许保存")
         validate_target_version(draft.target)
+        ensure_writable_file(draft.target.nfo_path, "NFO")
         wants_poster = bool(draft.poster) and (selected_fields is None or "poster" in selected_fields)
         existing_poster = False
         if draft.target.existing and not rebuilding and not overwrite and not draft.replace_identity:
@@ -145,6 +146,7 @@ class ScrapeService:
         metadata_only = metadata_only or not wants_poster
         image = None
         if not metadata_only and draft.poster:
+            ensure_writable_file(poster_path(draft), "海报")
             from scraper.scrape_http import HttpClient
             image = HttpClient(self.settings).get_bytes(draft.poster.url, max_bytes=15 * 1024 * 1024)
         return commit_draft(draft, selected_fields, overwrite, metadata_only, image)

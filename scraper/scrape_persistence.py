@@ -5,6 +5,7 @@ import hashlib
 import io
 import math
 import re
+import stat
 import threading
 import uuid
 import xml.etree.ElementTree as ET
@@ -32,6 +33,18 @@ def fingerprint(path: Path) -> str | None:
 
 def poster_path(draft: ScrapeDraft) -> Path:
     return draft.target.video_path.with_name(draft.target.video_path.stem + "-poster.jpg")
+
+
+def ensure_writable_file(path: Path, label: str) -> None:
+    """拒绝替换 Windows 只读文件；不擅自修改影库的保护属性。"""
+    try:
+        attributes = path.stat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ScrapeError(f"无法检查{label}，请检查权限或网络：{path}；{exc}") from exc
+    if getattr(attributes, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY:
+        raise ScrapeError(f"{label}为只读，保存未开始。请在文件属性中取消「只读」后重试：{path}")
 
 
 def snapshot_files(draft: ScrapeDraft) -> None:
@@ -212,20 +225,28 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
         ET.indent(root, space="  ")
         assets = [(poster_path(draft), data)] if data is not None else []
         assets.append((path, ET.tostring(root, encoding="utf-8", xml_declaration=True)))
+        for asset, _ in assets:
+            ensure_writable_file(asset, "NFO" if asset == path else "海报")
         old = {p: p.read_bytes() if p.exists() else None for p, _ in assets}
         changed: list[Path] = []
+        phase, operation_path = "备份原文件", path
         try:
             for p, original in old.items():
                 if original is not None:
                     backup = p.with_name(p.name + ".mml-backup-" + uuid.uuid4().hex[:12])
+                    operation_path = backup
                     _atomic_write(backup, original)
+            phase = "检查保存冲突"
             for filename, expected in draft.expected_files.items():
+                operation_path = Path(filename)
                 if fingerprint(Path(filename)) != expected:
                     raise ScrapeError("保存准备期间文件发生改变，请重新加载")
             for p, content in assets:
+                phase, operation_path = ("写入 NFO" if p == path else "写入海报"), p
                 _atomic_write(p, content)
                 changed.append(p)
             # 重新读取和版本刷新也属于提交；失败时不能留下半成功的重建。
+            phase, operation_path = "校验保存结果", path
             movie = NFOParser.parse(str(path), include_user_rating=True)
             if movie is None or not movie.video_path:
                 raise ScrapeError("保存后的 NFO 无法重新读取，请重新扫描")
@@ -252,9 +273,13 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                             draft.target.version_captured = True
                 except (OSError, ScrapeError):
                     pass  # 无法确认恢复版本时保持旧快照，下一次保存仍须通过冲突检查。
-            message = "保存失败，已恢复原文件"
+            message = "保存失败，已恢复原文件" if changed else "保存失败，原文件未改动"
             if failed:
                 message = "保存失败，部分文件未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)
+            reason = str(exc)
+            if isinstance(exc, PermissionError):
+                reason = "访问被拒绝，请检查只读属性、共享目录写入/删除权限或文件占用；" + reason
+            message += f"；{phase}：{reason}；文件：{operation_path}"
             raise ScrapeError(message) from exc
         draft.target.existing = True
         draft.target.nfo_stamp = (stat.st_mtime_ns, stat.st_size)
@@ -280,6 +305,7 @@ def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict, *, expected_f
         before = fingerprint(path)
         if expected_fingerprint is not None and before != expected_fingerprint:
             raise ScrapeError("NFO 在豆瓣请求期间已改变，请重新加载")
+        ensure_writable_file(path, "NFO")
         root = _xml(path)
         apply_fields(root, {"ratings": {"douban": score}, "uniqueids": {"douban": str(douban_id)}})
         sync_ids(root, {"douban": str(douban_id)})

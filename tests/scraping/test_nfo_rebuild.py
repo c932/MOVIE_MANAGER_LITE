@@ -2,6 +2,7 @@
 import hashlib
 import io
 import os
+import stat
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -299,3 +300,58 @@ def test_cancel_during_progress_never_emits_completion(tmp_path):
     with pytest.raises(ScrapeError, match='取消'):
         discover_videos([tmp_path], progress=callback, check_cancelled=lambda: bool(events))
     assert events and all(event.stage != '扫描完成' for event in events)
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows 只读属性与替换行为')
+@pytest.mark.parametrize('asset', ['nfo', 'poster'])
+@pytest.mark.parametrize('save_api', ['service', 'commit'])
+def test_readonly_target_stops_before_download_backup_or_write(tmp_path, monkeypatch, asset, save_api):
+    import scraper.scrape_persistence as persistence
+    from scraper.scrape_http import HttpClient
+    draft = preview(tmp_path)
+    draft.confirmed = draft.rebuild_nfo = True
+    draft.poster = Artwork('https://image.tmdb.org/t/p/test.jpg')
+    poster = persistence.poster_path(draft)
+    poster.write_bytes(png('blue'))
+    persistence.snapshot_files(draft)
+    protected = draft.target.nfo_path if asset == 'nfo' else poster
+    original = protected.read_bytes()
+    downloads = []
+    monkeypatch.setattr(HttpClient, 'get_bytes', lambda *a, **k: downloads.append(True) or png('red'))
+    protected.chmod(stat.S_IREAD)
+    try:
+        with pytest.raises(ScrapeError, match='只读') as raised:
+            if save_api == 'service':
+                ScrapeService().save(draft)
+            else:
+                persistence.commit_draft(draft, poster_bytes=png('red'))
+        assert str(protected) in str(raised.value)
+        assert '取消' in str(raised.value)
+        assert not downloads
+        assert protected.read_bytes() == original
+        assert draft.target.nfo_path.read_bytes() == BB_CODE
+        assert not list(tmp_path.glob('*.mml-backup-*'))
+    finally:
+        protected.chmod(stat.S_IREAD | stat.S_IWRITE)
+    # 用户解除只读后，可沿用已确认草稿直接重试。
+    assert ScrapeService().save(draft).title == '乐高蝙蝠侠大电影'
+
+
+@pytest.mark.parametrize('phase', ['backup', 'nfo'])
+def test_save_error_retains_phase_cause_and_failed_path(tmp_path, monkeypatch, phase):
+    import scraper.scrape_persistence as persistence
+    draft = preview(tmp_path)
+    draft.confirmed = draft.rebuild_nfo = True
+    real_write = persistence._atomic_write
+    def fail(path, data):
+        if (phase == 'backup' and '.mml-backup-' in path.name) or (phase == 'nfo' and path == draft.target.nfo_path):
+            raise PermissionError(13, '模拟共享目录拒绝写入', str(path))
+        real_write(path, data)
+    monkeypatch.setattr(persistence, '_atomic_write', fail)
+    with pytest.raises(ScrapeError) as raised:
+        persistence.commit_draft(draft, metadata_only=True)
+    message = str(raised.value)
+    assert ('备份原文件' if phase == 'backup' else '写入 NFO') in message
+    assert '拒绝' in message
+    assert str(draft.target.nfo_path) in message
+    assert draft.target.nfo_path.read_bytes() == BB_CODE
