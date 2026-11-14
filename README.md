@@ -3,7 +3,7 @@
 游戏墙已独立迁移至 `E:\My_Code\Local_Game_wall`，本仓库仅维护电影墙。
 
 一个面向本地/NAS 媒体库的电影海报墙应用，基于 PyQt6。  
-支持 NFO 解析、海报缓存、增量刷新、离线容错与刮削工作流，适合个人影库长期维护。
+支持 NFO 解析、海报缓存、增量刷新、离线容错与内置刮削工作流，适合个人影库长期维护。
 
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![python](https://img.shields.io/badge/python-3.10%2B-brightgreen.svg)
@@ -34,7 +34,7 @@
 - 右键菜单与详情快捷操作（播放、打开目录、更新海报、删除本地记录等）
 - 刷新媒体库采用增量策略（只更新差异，不全量重建缓存）
 - 海报缓存支持在线补齐与离线回退
-- 可选 TinyMediaManager + 豆瓣注入刮削流程
+- 内置 TMDB / 豆瓣搜索匹配、海报选择、NFO 生成与独立三站评分；兼容原豆瓣补分
 
 ## Table of Contents
 

@@ -52,8 +52,6 @@ class ScrapeService:
     def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
         if not metadata:
             raise ScrapeError("请先选择并获取电影详情")
-        if target.error:
-            raise ScrapeError(target.error)
         if target.nfo_stamp is not None:
             try:
                 stat = target.nfo_path.stat()
@@ -63,6 +61,8 @@ class ScrapeService:
                 raise ScrapeError("NFO 暂时无法访问，请重新加载") from exc
         draft = ScrapeDraft(target)
         snapshot_files(draft)
+        if target.error:
+            draft.warnings.append(target.error + "；当前仅供预览，修复原文件后才能确认保存")
         by_source = {m.source: m for m in metadata}
         identifiers: dict[str, str] = {}
         ratings = {}
@@ -94,7 +94,7 @@ class ScrapeService:
         if ratings:
             draft.fields["ratings"] = ratings
         draft.poster = draft.artwork[0] if draft.artwork else None
-        if target.nfo_path.exists():
+        if target.nfo_path.exists() and not target.error:
             try:
                 content = target.nfo_path.read_bytes()
                 if hashlib.sha256(content).hexdigest() != draft.expected_files[str(target.nfo_path)]:
@@ -102,7 +102,7 @@ class ScrapeService:
                 root = ET.fromstring(content)
                 if root.tag != "movie":
                     raise ET.ParseError("非电影 NFO")
-            except (ET.ParseError, OSError) as exc:
+            except (ET.ParseError, OSError, LookupError) as exc:
                 raise ScrapeError("原 NFO 损坏，请先修复再保存") from exc
             old_ids = read_ids(root)
             common = set(old_ids) & set(identifiers)
@@ -139,12 +139,14 @@ class ScrapeService:
         return commit_draft(draft, selected_fields, overwrite, metadata_only, image)
 
     def douban_only(self, target: VideoTarget) -> dict:
-        return scrape_douban_movie(str(target.nfo_path), target.title, "", target.year)
+        return scrape_douban_movie(str(target.nfo_path), target.title, "", target.year, settings=self.settings)
 
 
-def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", year: str = "") -> dict:
+def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", year: str = "", *, settings: ScrapeSettings | None = None) -> dict:
     """旧豆瓣补分的非交互门面；不依赖 TMDB/OMDb 凭据。"""
     from scraper import douban_cli as cli
+    from scraper.metadata_sources import DoubanProvider
+    provider = DoubanProvider(settings or ScrapeSettings.load())
     try:
         original = Path(nfo_path).read_bytes()
         expected = hashlib.sha256(original).hexdigest()
@@ -157,7 +159,7 @@ def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", yea
             queries = [title, original_title or root.findtext("originaltitle", "")]
             match = None
             for query in dict.fromkeys(q for q in queries if q):
-                match = cli.search_movie(query, year)
+                match = provider._call(cli.search_movie, query, year)
                 if match:
                     break
             if not match:
@@ -165,7 +167,7 @@ def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", yea
             douban_id = str(match["id"])
         if not re.fullmatch(r"\d+", douban_id):
             raise ScrapeError("已有豆瓣 ID 无效，请手动重新匹配")
-        detail = cli.get_movie_detail(douban_id)
+        detail = provider._call(cli.get_movie_detail, douban_id)
         if not isinstance(detail, dict):
             raise ScrapeError("豆瓣详情未取得，请稍后重试或手动匹配")
         if detail.get("id") and str(detail["id"]) != douban_id:
@@ -179,5 +181,5 @@ def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", yea
         if not update_douban_nfo(nfo_path, douban_id, detail, expected_fingerprint=expected):
             raise ScrapeError("豆瓣 NFO 更新失败")
         return {"success": True, "message": f"成功：{detail.get('title') or title} - {score}/10", "rating": str(score), "douban_id": douban_id}
-    except (OSError, ET.ParseError, ScrapeError) as exc:
+    except (OSError, ET.ParseError, LookupError, ScrapeError) as exc:
         return {"success": False, "message": str(exc) if isinstance(exc, ScrapeError) else "原 NFO 无法读取，请先检查文件"}

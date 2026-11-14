@@ -119,3 +119,17 @@ def test_identity_read_and_snapshot_are_same_version(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "snapshot_files", changed_snapshot)
     with pytest.raises(ScrapeError, match="改变|冲突"):
         module.ScrapeService().build_draft(t, [Metadata("tmdb", "1", {"title": "A"}, {"tmdb": "1"})])
+
+
+def test_broken_nfo_allows_readonly_preview_but_not_commit(tmp_path):
+    from scraper.scrape_service import ScrapeService
+    t = VideoTarget(tmp_path / "a.mkv", tmp_path / "a.nfo", error="原 NFO 损坏", existing=True)
+    t.video_path.touch()
+    t.nfo_path.write_text("broken", encoding="utf-8")
+    service = ScrapeService()
+    draft = service.build_draft(t, [Metadata("tmdb", "1", {"title": "预览电影"}, {"tmdb": "1"})])
+    assert draft.fields["title"] == "预览电影"
+    draft.confirmed = True
+    with pytest.raises(ScrapeError, match="损坏"):
+        service.save(draft, metadata_only=True)
+    assert t.nfo_path.read_text(encoding="utf-8") == "broken"

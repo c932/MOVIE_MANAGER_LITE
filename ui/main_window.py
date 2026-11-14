@@ -2793,7 +2793,7 @@ class MainWindow(QMainWindow):
         elif selected == action_open_folder:
             self._menu_open_movie_folder(movie)
         elif selected == action_scrape_full:
-            self._show_scrape_workbench([movie])
+            self._show_scrape_workbench([movie], mode="existing")
         elif selected == action_scrape_douban:
             self._menu_scrape_douban_rating(movie)
         elif selected == action_update_nfo:
@@ -2839,34 +2839,6 @@ class MainWindow(QMainWindow):
     def _menu_scrape_douban_rating(self, movie: Movie):
         """豆瓣快捷操作是统一工作台的预设，不再另建刮削线程。"""
         self._show_scrape_workbench([movie], mode="douban")
-
-    def _refresh_movie_after_scrape(self, movie: Movie):
-        """刮削成功后重新解析 NFO 并刷新显示"""
-        from parsers.nfo_parser import NFOParser
-
-        updated_movie = NFOParser.parse(movie.nfo_path)
-        if not updated_movie:
-            return
-
-        # 保留运行期状态
-        updated_movie.watched = self.watch_history.is_watched(movie.nfo_path)
-        if hasattr(movie, 'added_time') and not getattr(updated_movie, 'added_time', 0.0):
-            updated_movie.added_time = getattr(movie, 'added_time', 0.0)
-
-        for attr in vars(updated_movie):
-            setattr(movie, attr, getattr(updated_movie, attr))
-
-        # 刷新详情页
-        if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(
-                movie, self.watch_history, self.favorite_manager,
-                self.all_movies, rank_info=self._get_movie_rank_info(movie)
-            )
-
-        # 更新本地缓存
-        movie_paths = self.config.get_movie_paths()
-        self.cache_manager.save_cache(self.all_movies, movie_paths)
-        logger.info(f"刮削后刷新完成: {movie.title}")
 
     def _menu_refresh_movie_from_nfo(self, movie: Movie):
         """右键菜单：重新解析NFO并更新本地数据库"""

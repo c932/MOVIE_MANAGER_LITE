@@ -51,7 +51,7 @@ def validate_score(value: Any) -> float:
 def _xml(path: Path) -> ET.Element:
     try:
         root = ET.parse(path).getroot()
-    except (ET.ParseError, OSError) as exc:
+    except (ET.ParseError, OSError, LookupError) as exc:
         raise ScrapeError("原 NFO 损坏或无法读取，请先修复再保存") from exc
     if root.tag != "movie":
         raise ScrapeError("原 NFO 根元素不是 movie，请先修复")
@@ -103,6 +103,28 @@ def sync_ids(root: ET.Element, ids: dict) -> None:
             elem = root.find("url")
             if elem is not None and "douban.com/subject/" in (elem.text or ""):
                 elem.text = f"https://movie.douban.com/subject/{value}/"
+
+
+def _normalize_tmdb_rating(root: ET.Element) -> None:
+    container = root.find("ratings")
+    if container is None:
+        return
+    nodes = [node for node in container.findall("rating") if node.get("name", "").lower() in {"tmdb", "themoviedb"}]
+    if not nodes:
+        return
+    valid = []
+    for node in nodes:
+        try:
+            validate_score(node.findtext("value"))
+            valid.append(node)
+        except ScrapeError:
+            pass
+    # 优先有效 canonical；空 canonical 不能掩盖仍有效的旧别名及其投票数。
+    chosen = next((node for node in valid if node.get("name", "").lower() == "tmdb"), valid[0] if valid else nodes[0])
+    chosen.set("name", "tmdb")
+    for node in nodes:
+        if node is not chosen:
+            container.remove(node)
 
 
 def jpeg_bytes(data: bytes) -> bytes:
@@ -160,12 +182,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                 if child.get("name", "").lower() in SOURCES | {"themoviedb"}:
                     root.find("ratings").remove(child)
         if "tmdb" in fields.get("ratings", {}):
-            for alias in list(root.findall("ratings/rating[@name='themoviedb']")):
-                canonical = root.find("ratings/rating[@name='tmdb']")
-                if canonical is not None:
-                    root.find("ratings").remove(alias)
-                else:
-                    alias.set("name", "tmdb")
+            _normalize_tmdb_rating(root)
         old_poster = NFOParser._local_artwork(root, path.parent, "poster", poster_path(draft), path.parent / "poster.jpg")
         if data is not None and (selected_fields is not None and "poster" not in selected_fields or old_poster and not overwrite and not draft.replace_identity):
             data = None
@@ -255,5 +272,9 @@ def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict, *, expected_f
         ET.indent(root, space="  ")
         if fingerprint(path) != before:
             raise ScrapeError("NFO 已被其他应用改变，请重试")
+        backup = path.with_name(path.name + ".mml-backup-" + uuid.uuid4().hex[:12])
+        _atomic_write(backup, path.read_bytes())
+        if fingerprint(path) != before:
+            raise ScrapeError("NFO 在备份期间已改变，请重新加载")
         _atomic_write(path, ET.tostring(root, encoding="utf-8", xml_declaration=True))
         return True

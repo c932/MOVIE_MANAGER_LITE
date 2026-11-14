@@ -156,3 +156,24 @@ def test_overwrite_old_tmdb_alias_roundtrips_new_score(tmp_path):
     movie = commit_draft(draft, overwrite=True, metadata_only=True)
     assert movie.rating == 6
     assert len(ET.parse(t.nfo_path).getroot().findall("ratings/rating")) == 1
+
+
+def test_empty_canonical_does_not_replace_valid_alias_on_fill(tmp_path):
+    from scraper.scrape_persistence import commit_draft, snapshot_files
+    t = target(tmp_path, '<movie><title>A</title><ratings><rating name="themoviedb"><value>9</value><votes>1000</votes></rating><rating name="tmdb"><value/></rating></ratings></movie>')
+    draft = ScrapeDraft(t, {"ratings": {"tmdb": 5}}, confirmed=True)
+    snapshot_files(draft)
+    movie = commit_draft(draft, metadata_only=True)
+    assert movie.rating == 9
+    assert ET.parse(t.nfo_path).getroot().findtext("ratings/rating[@name='tmdb']/votes") == "1000"
+
+
+@pytest.mark.parametrize("alias", ["TheMovieDB", "THEMOVIEDB", "TMDB"])
+def test_rating_source_names_are_case_insensitive_when_overwriting(tmp_path, alias):
+    from scraper.scrape_persistence import commit_draft, snapshot_files
+    t = target(tmp_path, f'<movie><title>A</title><ratings><rating name="{alias}"><value>9</value></rating></ratings></movie>')
+    draft = ScrapeDraft(t, {"ratings": {"tmdb": 5}}, confirmed=True)
+    snapshot_files(draft)
+    movie = commit_draft(draft, overwrite=True, metadata_only=True)
+    assert movie.rating == 5
+    assert len(ET.parse(t.nfo_path).getroot().findall("ratings/rating")) == 1
