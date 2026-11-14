@@ -11,7 +11,7 @@ from collections import deque
 
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-    QPushButton, QScrollArea, QGridLayout, QLineEdit, QSlider,
+    QPushButton, QScrollArea, QLineEdit, QSlider,
     QProgressBar, QSplitter, QFrame, QSizePolicy, QMenu,
     QApplication, QMessageBox, QFileDialog, QDialog,
 )
@@ -24,7 +24,7 @@ from utils.image_loader import ImageCache, get_poster_cache_manager
 from ui.flow_layout import FlowWidget
 from gamewall.game_models import Game
 from gamewall.game_cache import GameCacheManager
-from gamewall.aaa_classifier import build_auto_evidence, classify_aaa
+from gamewall.aaa_classifier import RULE_VERSION, build_auto_evidence, classify_aaa
 from gamewall.llm_classifier import classify_with_llm, TIER_VALUES, TIER_NORMAL
 from gamewall.llm_search import llm_match_and_fetch
 from gamewall.game_dialogs import (
@@ -35,7 +35,7 @@ from gamewall.steamgrid_search import get_custom_poster_path
 from gamewall import steam_client
 from gamewall.game_card import GameCard
 from gamewall.game_detail_panel import GameDetailPanel
-from gamewall.cover_loader import BatchCoverLoader
+from gamewall.cover_loader import BatchCoverLoader, cover_cache_keys
 from gamewall.enrichment_worker import EnrichmentWorker
 from gamewall.local_scanner import InstalledGameScanner
 from gamewall.name_utils import normalize_name
@@ -183,9 +183,16 @@ class GameMainWindow(QMainWindow):
         self.poster_scale = self.config.get_value("poster_scale", 100) / 100.0
 
         self._card_pool = {}
+        self._wall_entries = []
+        self._empty_wall_widget = None
+        self._wall_resize_timer = QTimer(self)
+        self._wall_resize_timer.setSingleShot(True)
+        self._wall_resize_timer.timeout.connect(self._layout_poster_wall)
         self._cover_loader = None
         self._cover_load_generation = 0
         self._visible_loader_running = False
+        self._cover_batch_cards = ()
+        self._cover_threads = set()
         self._cover_retry_timer = QTimer(self)
         self._cover_retry_timer.setSingleShot(True)
         self._cover_retry_timer.timeout.connect(self._load_visible_posters)
@@ -245,11 +252,10 @@ class GameMainWindow(QMainWindow):
 
         self.poster_wall_widget = QWidget()
         self.poster_wall_widget.setObjectName("PosterWall")
-        self.poster_wall_layout = QGridLayout(self.poster_wall_widget)
-        self.poster_wall_layout.setSpacing(0)
-        self.poster_wall_layout.setContentsMargins(0, 0, 0, 0)
-
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll_area.setWidget(self.poster_wall_widget)
+        self.scroll_area.viewport().installEventFilter(self)
+        self.scroll_area.verticalScrollBar().valueChanged.connect(self._on_scroll_lazy_load)
         poster_layout.addWidget(self.scroll_area)
 
         self.right_splitter.addWidget(self.detail_panel)
@@ -539,6 +545,9 @@ class GameMainWindow(QMainWindow):
         if hasattr(self, "filter_scroll_area") and watched is self.filter_scroll_area.viewport():
             if event.type() == QEvent.Type.Resize:
                 QTimer.singleShot(0, self._reflow_filter_buttons)
+        if (hasattr(self, "scroll_area") and watched is self.scroll_area.viewport()
+                and event.type() == QEvent.Type.Resize):
+            self._wall_resize_timer.start(0)
         return super().eventFilter(watched, event)
 
     def _create_toolbar(self):
@@ -672,7 +681,8 @@ class GameMainWindow(QMainWindow):
         cached_games = self.cache.load_games_from_cache()
         if cached_games:
             self.all_games = list(cached_games)
-            self._refresh_auto_aaa_classifications()
+            self._refresh_auto_aaa_classifications(
+                game for game in self.all_games if game.aaa_rule_version != RULE_VERSION)
             self.cache.save()
             self.generate_genre_options()
             self.generate_year_options()
@@ -715,20 +725,43 @@ class GameMainWindow(QMainWindow):
                 self.status_label.setText(
                     f"Excel 无数据，已保留缓存 {len(previous_games)} 款游戏")
                 return
-            self.all_games = games
-            for game in self.all_games:
-                self.cache.apply_to_game(game)
-            self._refresh_auto_aaa_classifications()
-            self.cache.snapshot_games(self.all_games)
-            self.cache.save()
+            from gamewall.excel_parser import diff_games
+
+            previous_by_key = {game.norm_key: game for game in previous_games}
+            added, updated, _ = diff_games(previous_games, games)
+            changed_keys = {game.norm_key for game in added}
+            changed_keys.update(key for key, _, _ in updated)
+            merged = []
+            changed = []
+            for game in games:
+                key = game.norm_key
+                previous = previous_by_key.get(key)
+                if (previous is not None and key not in changed_keys
+                        and game.excel_row == previous.excel_row
+                        and (not game.release_date or game.release_date == previous.release_date)):
+                    merged.append(previous)
+                else:
+                    self.cache.apply_to_game(game)
+                    merged.append(game)
+                    changed.append(game)
+            wall_changed = len(merged) != len(previous_games) or any(
+                current is not previous for current, previous in zip(merged, previous_games))
+            if wall_changed:
+                self._refresh_auto_aaa_classifications(changed)
+                self.cache.snapshot_games(merged)
+                self.cache.save()
+                self.all_games = merged
+                self.generate_genre_options()
+                self.generate_year_options()
+                self.generate_developer_options()
+                self.apply_filters(reset_scroll=False)
+            else:
+                self.status_label.setText(f"显示 {len(self.filtered_games)} / {len(merged)} 款游戏")
             setattr(self, "_loaded_excel_path", meta.get("path", ""))
             setattr(self, "_excel_mtime", meta.get("mtime"))
-            self.config.set_value("_excel_mtime", meta.get("mtime", 0))
-            self.config.save_config()
-            self.generate_genre_options()
-            self.generate_year_options()
-            self.generate_developer_options()
-            self.apply_filters()
+            if self.config.get_value("_excel_mtime") != meta.get("mtime"):
+                self.config.set_value("_excel_mtime", meta.get("mtime", 0))
+                self.config.save_config()
             logger.info(f"游戏库加载完成: {len(games)} 款 (表头行 {meta.get('header_row', '?')})")
         except Exception:
             logger.exception("处理导入结果失败")
@@ -750,15 +783,7 @@ class GameMainWindow(QMainWindow):
             self._start_background_tasks_safely()
 
     def _on_excel_import_error(self, error):
-        cached_games = self.cache.load_games_from_cache()
-        if cached_games:
-            self.all_games = list(cached_games)
-            self._refresh_auto_aaa_classifications()
-            self.cache.save()
-            self.generate_genre_options()
-            self.generate_year_options()
-            self.generate_developer_options()
-            self.apply_filters()
+        if self.all_games:
             self.status_label.setText(f"Excel 不可用，已从缓存加载 {len(self.all_games)} 款游戏")
         else:
             self._show_empty_state()
@@ -835,7 +860,7 @@ class GameMainWindow(QMainWindow):
             btn.setChecked(True)
         self.apply_filters()
 
-    def apply_filters(self):
+    def apply_filters(self, *, reset_scroll=True):
         """内存筛选（与电影墙同模式）"""
         filtered = []
         for game in self.all_games:
@@ -868,6 +893,8 @@ class GameMainWindow(QMainWindow):
         total = len(self.all_games)
         shown = len(filtered)
         self.status_label.setText(f"显示 {shown} / {total} 款游戏")
+        if reset_scroll:
+            self.scroll_area.verticalScrollBar().setValue(0)
         self.refresh_poster_wall()
 
     def reset_filters(self):
@@ -927,143 +954,90 @@ class GameMainWindow(QMainWindow):
         else:  # update（默认，Excel 已按更新日期排序，保持原序）
             return games
 
-    def _prune_card_pool(self, kept_keys):
-        """淘汰卡片池中不再属于当前游戏库的卡片，避免池无上限增长。
-
-        在 Excel 重新导入替换 all_games 后调用。仅清理确实移除的游戏卡片，
-        保留仍存在的卡片以复用。
-        """
-        stale_keys = [k for k in self._card_pool if k not in kept_keys]
-        if not stale_keys:
-            return
-        for key in stale_keys:
-            card = self._card_pool.pop(key)
-            self.poster_wall_layout.removeWidget(card)
-            card.deleteLater()
-        logger.info(f"卡片池淘汰 {len(stale_keys)} 张陈旧卡片，池剩余 {len(self._card_pool)} 张")
-
     def refresh_poster_wall(self):
-        """刷新海报墙 - 卡片池复用模式"""
+        """更新整个列表的顺序，卡片由当前视口按需创建。"""
+        self._cancel_cover_batch()
+        games_by_key = {}
+        for game in self._apply_sorting(self.filtered_games):
+            games_by_key.setdefault(game.norm_key, game)
+        self._wall_entries = list(games_by_key.items())
+        self._layout_poster_wall()
+
+    def _layout_poster_wall(self):
+        if not self._wall_entries:
+            self._sync_viewport_cards(0, 0)
+            self.poster_wall_widget.setMinimumHeight(0)
+            if self._empty_wall_widget is None:
+                self._show_empty_state()
+            self._empty_wall_widget.setGeometry(self.poster_wall_widget.rect())
+            return
+
+        if self._empty_wall_widget is not None:
+            self._empty_wall_widget.hide()
+            self._empty_wall_widget.deleteLater()
+            self._empty_wall_widget = None
+
+        base_width, base_height = self.config.get_poster_size()
+        self._poster_width = max(1, int(base_width * self.poster_scale))
+        self._poster_height = max(1, int(base_height * self.poster_scale))
+        viewport = self.scroll_area.viewport()
+        height = max(1, viewport.height())
+        # 以无滚动条时的宽度推算列数，再在内容超高时预留滚动条宽度。
+        wall_width = self.scroll_area.maximumViewportSize().width()
+        columns = max(1, wall_width // self._poster_width)
+        rows = (len(self._wall_entries) + columns - 1) // columns
+        if rows * self._poster_height > height:
+            scrollbar = self.scroll_area.verticalScrollBar()
+            wall_width -= scrollbar.sizeHint().width()
+            columns = max(1, wall_width // self._poster_width)
+            rows = (len(self._wall_entries) + columns - 1) // columns
+        self._columns = columns
+        self._column_spacing = max(0, (wall_width - columns * self._poster_width) // columns)
+        self.poster_wall_widget.setMinimumHeight(rows * self._poster_height)
+        self._on_scroll_lazy_load()
+
+    def _sync_viewport_cards(self, start, stop):
+        entries = self._wall_entries[start:stop]
+        active_keys = {key for key, _ in entries}
+        for key in self._card_pool.keys() - active_keys:
+            card = self._card_pool.pop(key)
+            card.hide()
+            card.deleteLater()
+
+        self.movie_cards = []
+        for index, (key, game) in enumerate(entries, start):
+            card = self._card_pool.get(key)
+            if card is None:
+                card = GameCard(game, self._poster_width, self._poster_height,
+                                self.poster_wall_widget)
+                card.clicked.connect(self.on_game_card_clicked)
+                card.right_clicked.connect(self.on_game_card_right_clicked)
+                self._card_pool[key] = card
+            else:
+                if (card.poster_width, card.poster_height) != (self._poster_width, self._poster_height):
+                    self._resize_card(card, self._poster_width, self._poster_height)
+                if card.game is not game:
+                    if card.game.get_cover_urls() != game.get_cover_urls():
+                        self._reset_card_load_state(card)
+                        card.load_placeholder()
+                    card.update_game_info(game)
+            row, column = divmod(index, self._columns)
+            card.move(column * (self._poster_width + self._column_spacing),
+                      row * self._poster_height)
+            card.ensure_placeholder()
+            card.show()
+            self.movie_cards.append(card)
+
+    def _cancel_cover_batch(self):
         self._cover_load_generation += 1
         if self._cover_loader is not None and self._cover_loader.isRunning():
             self._cover_loader.cancel()
         self._cover_loader = None
         self._visible_loader_running = False
+        self._cover_batch_cards = ()
         self._cover_retry_timer.stop()
-
-        # 禁止中间重绘：布局清空 + 逐个 addWidget 会触发大量中间脏区域
-        self.setUpdatesEnabled(False)
-        try:
-            self._do_refresh_poster_wall()
-        finally:
-            self.setUpdatesEnabled(True)
-
-    def _do_refresh_poster_wall(self):
-        pool_widgets = set(self._card_pool.values())
-        while self.poster_wall_layout.count():
-            item = self.poster_wall_layout.takeAt(0)
-            if item.widget() and item.widget() not in pool_widgets:
-                item.widget().deleteLater()
-
-        for r in range(min(self.poster_wall_layout.rowCount(), 2000)):
-            self.poster_wall_layout.setRowStretch(r, 0)
-        for c in range(min(self.poster_wall_layout.columnCount(), 2000)):
-            self.poster_wall_layout.setColumnStretch(c, 0)
-            self.poster_wall_layout.setColumnMinimumWidth(c, 0)
-
-        if not self.filtered_games:
-            self.movie_cards = []
-            self._show_empty_state()
-            return
-
-        base_width, base_height = self.config.get_poster_size()
-        poster_width = int(base_width * self.poster_scale)
-        poster_height = int(base_height * self.poster_scale)
-
-        size_changed = (
-            poster_width != getattr(self, '_prev_poster_width', 0)
-            or poster_height != getattr(self, '_prev_poster_height', 0)
-        )
-        self._prev_poster_width = poster_width
-        self._prev_poster_height = poster_height
-
-        wall_width = self.scroll_area.width() - 20
-        columns = max(1, wall_width // poster_width)
-        spacing = max(0, (wall_width - columns * poster_width) // columns)
-        self.poster_wall_layout.setHorizontalSpacing(spacing)
-
-        sorted_games = self._apply_sorting(self.filtered_games.copy())
-        self._sorted_games = sorted_games
-        self._poster_width = poster_width
-        self._poster_height = poster_height
-        self._columns = columns
-
-        try:
-            self.scroll_area.verticalScrollBar().valueChanged.connect(
-                self._on_scroll_lazy_load, Qt.ConnectionType.UniqueConnection)
-        except TypeError:
-            pass
-
-        visible_key_set = {g.norm_key for g in sorted_games}
-
-        for key, card in self._card_pool.items():
-            if key not in visible_key_set:
-                card.hide()
-                if size_changed:
-                    self._resize_card(card, poster_width, poster_height)
-
-        self.movie_cards = []
-        seen_keys = set()
-        for idx, game in enumerate(sorted_games):
-            key = game.norm_key
-            # 跳过重复 norm_key 的游戏：相同 game 被 addWidget 两次会让 QGridLayout
-            # 留下空 cell（产生可见的空白间距）。每个 norm_key 只显示一次。
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            if key not in self._card_pool:
-                card = GameCard(game, poster_width, poster_height)
-                card.clicked.connect(self.on_game_card_clicked)
-                card.right_clicked.connect(self.on_game_card_right_clicked)
-                self._reset_card_load_state(card)
-                self._card_pool[key] = card
-            else:
-                card = self._card_pool[key]
-                if size_changed:
-                    self._resize_card(card, poster_width, poster_height)
-                card.update_game_info(game)
-                card.show()
-
-            card.ensure_placeholder()
-
-            row = idx // columns
-            col = idx % columns
-            self.poster_wall_layout.removeWidget(card)
-            self.poster_wall_layout.addWidget(card, row, col)
-            self.movie_cards.append(card)
-
-        self.poster_wall_layout.setRowStretch(self.poster_wall_layout.rowCount(), 1)
-        self.poster_wall_layout.setColumnStretch(columns, 1)
-        self.poster_wall_layout.activate()
-
-        QTimer.singleShot(50, self._load_visible_posters)
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not getattr(self, "_initial_show_done", False):
-            self._initial_show_done = True
-            QTimer.singleShot(0, self.refresh_poster_wall)
-
-    def resizeEvent(self, event):
-        """窗口尺寸变化时按新视口宽度重排列数（防抖）"""
-        super().resizeEvent(event)
-        if (getattr(self, "_initial_show_done", False)
-                and getattr(self, "filtered_games", None)):
-            if not hasattr(self, "_resize_timer"):
-                self._resize_timer = QTimer(self)
-                self._resize_timer.setSingleShot(True)
-                self._resize_timer.timeout.connect(self.refresh_poster_wall)
-            self._resize_timer.start(200)
+        for card in self.movie_cards:
+            card._poster_loading = False
 
     def _resize_card(self, card, w, h):
         card.setFixedSize(w, h)
@@ -1083,7 +1057,10 @@ class GameMainWindow(QMainWindow):
         card._poster_next_retry_at = 0.0
 
     def _show_empty_state(self):
-        empty_widget = QWidget()
+        if self._empty_wall_widget is not None:
+            self._empty_wall_widget.hide()
+            self._empty_wall_widget.deleteLater()
+        empty_widget = QWidget(self.poster_wall_widget)
         empty_layout = QVBoxLayout(empty_widget)
         empty_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         empty_layout.setSpacing(12)
@@ -1107,22 +1084,24 @@ class GameMainWindow(QMainWindow):
         hint_label.setStyleSheet("color: #999999;")
         empty_layout.addWidget(hint_label)
 
-        pool_widgets = set(self._card_pool.values())
-        while self.poster_wall_layout.count():
-            item = self.poster_wall_layout.takeAt(0)
-            w = item.widget()
-            if w and w not in pool_widgets:
-                w.deleteLater()
-        for card in self._card_pool.values():
-            card.hide()
-        self.poster_wall_layout.addWidget(empty_widget, 0, 0)
+        self._empty_wall_widget = empty_widget
+        empty_widget.setGeometry(self.poster_wall_widget.rect())
+        empty_widget.show()
 
     def _on_scroll_lazy_load(self):
+        if not self._wall_entries:
+            return
+        scroll_y = self.scroll_area.verticalScrollBar().value()
+        height = self.scroll_area.viewport().height()
+        first_row = min(max(0, scroll_y - height) // self._poster_height,
+                        (len(self._wall_entries) - 1) // self._columns)
+        last_row = (scroll_y + 2 * height) // self._poster_height + 1
+        self._sync_viewport_cards(first_row * self._columns, last_row * self._columns)
         if not hasattr(self, '_scroll_lazy_timer'):
             self._scroll_lazy_timer = QTimer(self)
             self._scroll_lazy_timer.setSingleShot(True)
             self._scroll_lazy_timer.timeout.connect(self._load_visible_posters)
-        self._scroll_lazy_timer.start(100)
+        self._scroll_lazy_timer.start(50)
 
     def _load_visible_posters(self):
         """只加载可见区域（±1 屏缓冲）的封面"""
@@ -1130,15 +1109,15 @@ class GameMainWindow(QMainWindow):
             return
 
         if self._visible_loader_running:
-            if self._cover_loader is None or not self._cover_loader.isRunning():
+            if (self._cover_loader is None or not self._cover_loader.isRunning()
+                    or self._cover_batch_cards == tuple(self.movie_cards)):
                 return
-            self._cover_load_generation += 1
-            self._cover_loader.cancel()
-            for card in self.movie_cards:
-                if getattr(card, '_poster_loading', False) and not card._poster_loaded:
-                    card._poster_loading = False
-            self._cover_loader = None
-            self._visible_loader_running = False
+            self._cancel_cover_batch()
+
+        # 滚动可以取消旧批次，但在途网络请求需要等到返回。
+        if len(self._cover_threads) >= 2:
+            self._schedule_visible_poster_retry()
+            return
 
         self._cover_retry_timer.stop()
         image_cache = ImageCache()
@@ -1160,14 +1139,18 @@ class GameMainWindow(QMainWindow):
         poster_w = self._poster_width
         poster_h = self._poster_height
 
-        for card in self.movie_cards:
+        def distance_to_viewport(card):
+            return max(scroll_y - card.y() - card.height(),
+                       card.y() - scroll_y - visible_height, 0)
+
+        for card in sorted(self.movie_cards, key=distance_to_viewport):
             if card._poster_loaded or getattr(card, '_poster_loading', False):
                 continue
 
             card_y = card.y()
             card_bottom = card_y + card.height()
             if card_y > view_bottom:
-                break
+                continue
             if card_bottom < view_top:
                 continue
 
@@ -1217,6 +1200,7 @@ class GameMainWindow(QMainWindow):
         loader = BatchCoverLoader(load_tasks, self)
         self._cover_loader = loader
         self._visible_loader_running = True
+        self._cover_batch_cards = tuple(self.movie_cards)
         pending = deque()
         loader_finished = False
         apply_scheduled = False
@@ -1245,6 +1229,7 @@ class GameMainWindow(QMainWindow):
                     pass
 
             self._visible_loader_running = False
+            self._cover_batch_cards = ()
             if self._cover_loader is loader:
                 self._cover_loader = None
 
@@ -1274,20 +1259,7 @@ class GameMainWindow(QMainWindow):
             nonlocal apply_scheduled
             from PyQt6 import sip
             if current_generation != self._cover_load_generation:
-                while pending:
-                    url, image = pending.popleft()
-                    if image is None:
-                        continue
-                    pixmap = image if isinstance(image, QPixmap) else QPixmap.fromImage(image)
-                    if not pixmap.isNull():
-                        image_cache.set(url, pixmap)
-                    for card in card_map.get(url, []):
-                        try:
-                            if card is None or sip.isdeleted(card):
-                                continue
-                            card._poster_loading = False
-                        except RuntimeError:
-                            pass
+                pending.clear()
                 apply_scheduled = False
                 return
 
@@ -1322,10 +1294,6 @@ class GameMainWindow(QMainWindow):
         def on_image_loaded(url, image):
             nonlocal apply_scheduled
             if current_generation != self._cover_load_generation:
-                if image is not None:
-                    pixmap = image if isinstance(image, QPixmap) else QPixmap.fromImage(image)
-                    if not pixmap.isNull():
-                        image_cache.set(url, pixmap)
                 return
             pending.append((url, image))
             if not apply_scheduled:
@@ -1341,6 +1309,10 @@ class GameMainWindow(QMainWindow):
 
         loader.image_loaded.connect(on_image_loaded)
         loader.all_loaded.connect(on_all_loaded)
+        if isinstance(loader, QThread):
+            self._cover_threads.add(loader)
+            loader.finished.connect(lambda: self._cover_threads.discard(loader))
+            loader.finished.connect(loader.deleteLater)
         loader.start()
 
         # Fallback watchdog：finish_loader 续触发在 generation 切换时可能漏掉
@@ -1450,8 +1422,8 @@ class GameMainWindow(QMainWindow):
 
     @staticmethod
     def _poster_cache_keys(url):
-        """海报加载器用 url + '#cv2' 作为缓存键，两者都要失效（v2 是 contain 模式改进版）。"""
-        return [url, url + "#cv2"]
+        """返回内存与磁盘使用的缓存键。"""
+        return (url, *cover_cache_keys(url))
 
     def _invalidate_poster_cache(self, urls):
         """失效指定 URL 的内存与磁盘海报缓存。"""
@@ -1495,6 +1467,7 @@ class GameMainWindow(QMainWindow):
         self._refresh_auto_aaa_classifications([game])
         # 新旧 URL 都可能命中缓存：appid 变更后旧竖版仍在缓存，appid 未变时
         # header_image 变更前的图也可能还在缓存，两边都要失效。
+        self._cancel_cover_batch()
         self._invalidate_poster_cache(old_urls | set(game.get_cover_urls()))
         self._reset_card_poster(game)
         QTimer.singleShot(0, self._load_visible_posters)
@@ -1817,7 +1790,6 @@ class GameMainWindow(QMainWindow):
                 self.status_label.setText("已取消 Excel 更新")
                 return
             self.all_games = games
-            self._prune_card_pool({g.norm_key for g in self.all_games})
             for game in self.all_games:
                 self.cache.apply_to_game(game)
             self._refresh_auto_aaa_classifications()
@@ -2138,13 +2110,16 @@ class GameMainWindow(QMainWindow):
         self.cache.save()
         self.generate_year_options()
         self.generate_developer_options()
+        self.status_label.setText(summary)
+        self.status_label.setToolTip(summary)
         logger.info(f"联网补全: {summary}")
 
     def _on_enrichment_failed(self, message):
         self.progress_bar.hide()
         self.cache.save()
         self._schedule_developer_options_refresh()
-        self.status_label.setText("联网补全中止（网络异常），可稍后重试")
+        self.status_label.setText(f"联网补全中止：{message}")
+        self.status_label.setToolTip(message)
         logger.warning(f"联网补全中止: {message}")
 
     def _schedule_visible_poster_retry(self, delay_ms=200):
@@ -2158,11 +2133,9 @@ class GameMainWindow(QMainWindow):
 
     def closeEvent(self, event):
         logger.info("正在关闭游戏墙...")
-        self._cover_load_generation += 1
-        self._cover_retry_timer.stop()
-        if self._cover_loader is not None and self._cover_loader.isRunning():
-            self._cover_loader.cancel()
-        self._visible_loader_running = False
+        self._cancel_cover_batch()
+        for loader in tuple(self._cover_threads):
+            loader.wait()
 
         for loader in [getattr(self, "_excel_worker", None),
                        getattr(self, "_enrichment_worker", None),

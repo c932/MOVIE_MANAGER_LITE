@@ -287,24 +287,24 @@ class PosterCacheManager:
 
         # 2. 跨尺寸复用
         try:
+            exact_key = self._get_cache_key(image_path, width, height)
             with self._lock:
-                entries = dict(self._cache_index.get("entries", {}))
-                candidate_keys = list(self._path_to_cache_keys.get(image_path, []))
+                entries = self._cache_index.get("entries", {})
+                candidates = [
+                    (key, entries[key]) for key in self._path_to_cache_keys.get(image_path, ())
+                    if key in entries and key != exact_key
+                ]
 
-            for cache_key in candidate_keys:
-                entry = entries.get(cache_key)
-                if not entry:
+            candidates.sort(key=lambda item: abs(item[1]["width"] - width)
+                            + abs(item[1]["height"] - height))
+            for cache_key, entry in candidates:
+                if not self.has_valid_cache(image_path, entry["width"], entry["height"]):
                     continue
                 cache_path = self._get_cache_path(cache_key)
-                if cache_path.exists():
-                    image = QImage(str(cache_path))
-                    if not image.isNull():
-                        scaled = image.scaled(
-                            width, height,
-                            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                            Qt.TransformationMode.SmoothTransformation
-                        )
-                        return scaled
+                image = QImage(str(cache_path))
+                if not image.isNull():
+                    return image.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                                        Qt.TransformationMode.SmoothTransformation)
         except Exception as e:
             logger.error(f"查找跨尺寸缓存（QImage）失败: {e}")
 

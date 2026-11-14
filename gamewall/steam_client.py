@@ -12,6 +12,7 @@ Steam 商店数据客户端（免费公开接口，无需 API Key）
 """
 import difflib
 import gzip
+import http.client
 import json
 import logging
 import re
@@ -30,6 +31,8 @@ REQUEST_INTERVAL = 0.2   # 全局请求间隔，约 5 req/s（429 时自动退�
 BACKOFF_SECONDS = 30     # 429/5xx 退避时长
 MAX_RETRY = 3
 HTTP_TIMEOUT = 8
+TRANSPORT_RETRY_DELAY = 0.5
+RESPONSE_ERROR_PREFIX = "响应异常："
 MATCH_MIN_RATIO = 0.6    # 搜索结果相似度下限（防短名误匹配）
 
 # schinese 发售日「2022 年 2 月 24 日」→ ISO
@@ -99,7 +102,15 @@ def _http_get_json(url: str, timeout: float = HTTP_TIMEOUT,
                 raw = resp.read()
                 if "gzip" in (resp.headers.get("Content-Encoding") or ""):
                     raw = gzip.decompress(raw)
-                return json.loads(raw.decode("utf-8", "replace")), None
+                try:
+                    return json.loads(raw), None
+                except (ValueError, UnicodeError):
+                    content_type = resp.headers.get("Content-Type", "unknown")
+                    status = getattr(resp, "status", None)
+                    kind = "空响应" if not raw.strip() else "非 JSON 响应"
+                    last_err = (f"{RESPONSE_ERROR_PREFIX}{kind} "
+                                f"(HTTP {status}, {content_type}, {len(raw)} bytes)")
+                    break
         except SteamCancelled:
             raise
         except urllib.error.HTTPError as e:
@@ -109,9 +120,17 @@ def _http_get_json(url: str, timeout: float = HTTP_TIMEOUT,
                 _sleep(backoff)
                 continue
             break
-        except Exception as e:
+        except (OSError, EOFError) as e:
+            last_err = f"{type(e).__name__}: {e}"
+            if attempt < max_retry - 1:
+                _sleep(TRANSPORT_RETRY_DELAY * (2 ** attempt))
+                continue
+            break
+        except (ValueError, http.client.HTTPException) as e:
             last_err = f"{type(e).__name__}: {e}"
             break
+    endpoint = urllib.parse.urlsplit(url)
+    logger.warning("Steam 请求失败 [%s%s]: %s", endpoint.netloc, endpoint.path, last_err)
     return None, last_err
 
 
@@ -308,13 +327,17 @@ def fetch_appdetails(appid: int) -> tuple:
 def fetch_appreviews(appid: int) -> tuple:
     """获取好评率。返回 (fields, err)，fields 为空 dict 表示 0 条评价。"""
     url = (f"https://store.steampowered.com/appreviews/{appid}"
-           "?json=1&num_per_page=0&language=all&purchase_type=all")
+           "?json=1&num_per_page=1&cursor=%2A&language=all&purchase_type=all")
     data, err = _http_get_json(url)
     if err:
         return None, err
-    qs = (data or {}).get("query_summary") or {}
-    total = int(qs.get("total_reviews") or 0)
-    positive = int(qs.get("total_positive") or 0)
+    qs = data.get("query_summary") if isinstance(data, dict) and data.get("success") == 1 else None
+    total = qs.get("total_reviews") if isinstance(qs, dict) else None
+    positive = qs.get("total_positive") if isinstance(qs, dict) else None
+    if type(total) is not int or type(positive) is not int or not 0 <= positive <= total:
+        err = f"{RESPONSE_ERROR_PREFIX}Steam 未返回有效的评价汇总"
+        logger.warning("Steam 评价失败 [appreviews/%s]: %s", appid, err)
+        return None, err
     if total <= 0:
         return {}, ""   # 0 条评价，视为暂无数据
     pct = round(positive * 100.0 / total, 1)

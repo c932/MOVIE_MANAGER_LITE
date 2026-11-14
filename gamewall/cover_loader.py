@@ -20,6 +20,11 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 
 # 裁切填满模式的缓存键后缀：v2 表示 contain 模式改进版（横版图居中显示）
 _COVER_CACHE_SUFFIX = "#cv2"
+_LEGACY_COVER_CACHE_SUFFIX = "#cv1"
+
+
+def cover_cache_keys(url: str) -> tuple[str, str]:
+    return url + _COVER_CACHE_SUFFIX, url + _LEGACY_COVER_CACHE_SUFFIX
 
 # 并发下载数：串行下载时一张慢图（超时 8s）会拖住整面墙
 _MAX_WORKERS = 8
@@ -108,32 +113,53 @@ class BatchCoverLoader(QThread):
     def _load_single(self, urls, target_width: int, target_height: int):
         """处理单个任务：磁盘缓存优先，未命中下载并回填。返回 (url, QImage) 或 None"""
         cache_manager = get_poster_cache_manager()
+        urls = tuple(dict.fromkeys(filter(None, urls)))
+
+        def publish(url, image):
+            if self.is_cancelled:
+                return None
+            self.image_loaded.emit(url, image)
+            return url, image
+
+        # 检查所有候选的本地数据，避免为了已有备用图的游戏等待 CDN。
         for url in urls:
             if self.is_cancelled:
                 return None
-            if not url:
-                continue
-            cache_key = url + _COVER_CACHE_SUFFIX
             try:
-                cached = cache_manager.get_cached_image(cache_key, target_width, target_height)
+                key, legacy_key = cover_cache_keys(url)
+                cached = cache_manager.get_cached_image(key, target_width, target_height)
                 if cached is not None and not cached.isNull():
-                    # 在子线程里只传 QImage，QPixmap 不能在非 GUI 线程创建。
-                    # 主线程的 apply_chunk 会用 QPixmap.fromImage() 转换。
-                    self.image_loaded.emit(url, cached)
-                    return url, cached
-
+                    return publish(url, cached)
                 if os.path.exists(url):
                     image = QImage(url)
-                else:
-                    data = download_image_bytes(url)
-                    image = QImage.fromData(data)
+                    if not image.isNull():
+                        scaled = fit_cover(image, target_width, target_height)
+                        cache_manager.save_to_cache_from_image(key, target_width, target_height, scaled)
+                        return publish(url, scaled)
+                for key in (key, legacy_key):
+                    cached = cache_manager.get_cached_image(
+                        key, target_width, target_height, allow_cross_size_reuse=True)
+                    if cached is not None and not cached.isNull():
+                        return publish(url, cached)
+            except Exception as e:
+                logger.debug(f"读取封面缓存失败 [{url}]: {e}")
+
+        for url in urls:
+            if self.is_cancelled:
+                return None
+            if not url.lower().startswith(("https://", "http://")):
+                continue
+            try:
+                image = QImage.fromData(download_image_bytes(url))
                 if image.isNull():
                     logger.warning(f"封面数据无效: {url}")
                     continue
+                if self.is_cancelled:
+                    return None
                 scaled = fit_cover(image, target_width, target_height)
+                cache_key = url + _COVER_CACHE_SUFFIX
                 cache_manager.save_to_cache_from_image(cache_key, target_width, target_height, scaled)
-                self.image_loaded.emit(url, scaled)
-                return url, scaled
+                return publish(url, scaled)
             except Exception as e:
                 logger.debug(f"封面下载失败 [{url}]: {e}")
         return None

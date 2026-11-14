@@ -2,6 +2,59 @@
 from gamewall import steam_client
 
 
+def test_appreviews_rejects_response_without_summary(monkeypatch):
+    monkeypatch.setattr(steam_client, "_http_get_json", lambda url: ({"success": 2}, None))
+    fields, error = steam_client.fetch_appreviews(620)
+    assert fields is None
+    assert error.startswith(steam_client.RESPONSE_ERROR_PREFIX)
+
+
+def test_bad_review_responses_pause_reviews_but_keep_fetching_details(monkeypatch):
+    from gamewall.enrichment_worker import EnrichmentWorker, REVIEW_RESPONSE_BREAKER
+    from gamewall.game_models import Game
+
+    monkeypatch.setattr("gamewall.enrichment_worker.STEAM_WORKERS", 1)
+    monkeypatch.setattr(steam_client, "set_cancel_check", lambda _: None)
+    monkeypatch.setattr(steam_client, "fetch_appdetails",
+                        lambda appid: ({"description": "valid details"}, ""))
+    requests = []
+
+    def bad_reviews(appid):
+        requests.append(appid)
+        return None, steam_client.RESPONSE_ERROR_PREFIX + "non-JSON"
+
+    monkeypatch.setattr(steam_client, "fetch_appreviews", bad_reviews)
+    games = [Game(raw_name=f"Game {i}", steam_appid=i + 1)
+             for i in range(REVIEW_RESPONSE_BREAKER + 3)]
+    worker = EnrichmentWorker(games, enable_gamersky=False)
+    enriched, failed, negatives = [], [], []
+    worker.game_enriched.connect(lambda key, fields: enriched.append(key))
+    worker.failed.connect(failed.append)
+    worker.negative_recorded.connect(lambda *args: negatives.append(args))
+    worker.run()
+    assert len(requests) == REVIEW_RESPONSE_BREAKER
+    assert len(enriched) == len(games)
+    assert not failed and not negatives
+
+
+def test_steam_retries_transient_transport_failure(monkeypatch):
+    import io
+    from urllib.error import URLError
+
+    attempts = iter([URLError(TimeoutError("timed out")), io.BytesIO(b'{}')])
+
+    def open_request(*args, **kwargs):
+        result = next(attempts)
+        if isinstance(result, Exception):
+            raise result
+        result.headers = {}
+        return result
+
+    monkeypatch.setattr(steam_client.urllib.request, "urlopen", open_request)
+    monkeypatch.setattr(steam_client, "_sleep", lambda _: None)
+    assert steam_client._http_get_json("https://store.steampowered.com/appreviews/620") == ({}, None)
+
+
 def test_fetch_appdetails_keeps_auditable_store_metadata():
     response = {
         "123": {

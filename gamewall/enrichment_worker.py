@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 # 连续网络层失败熔断阈值（断网时避免全量空转）
 NET_FAIL_BREAKER = 10
+REVIEW_RESPONSE_BREAKER = 10
 # Steam 管线并发线程数（全局限速器约束总请求率）
 STEAM_WORKERS = 3
 
@@ -117,6 +118,9 @@ class EnrichmentWorker(QThread):
         self._abort = False
         self._consecutive_net_fail = 0
         self._fail_lock = threading.Lock()
+        self._review_failures = 0
+        self._reviews_paused = threading.Event()
+        self._response_errors = 0
         self._done = 0
         self._total = 0
 
@@ -126,7 +130,7 @@ class EnrichmentWorker(QThread):
     # ── 内部工具 ──
     def _mark_net_fail(self, err: str) -> bool:
         """记录失败；网络层错误连续达到阈值返回 True（要求中止本轮）"""
-        if err.startswith("HTTP"):
+        if err.startswith(("HTTP", steam_client.RESPONSE_ERROR_PREFIX)):
             self._consecutive_net_fail = 0
             return False
         self._consecutive_net_fail += 1
@@ -196,7 +200,12 @@ class EnrichmentWorker(QThread):
         elif aborted:
             pass  # failed 信号已发出
         else:
-            self.finished_with.emit(f"联网补全完成（用时 {time.time() - started:.0f} 秒）")
+            summary = f"联网补全完成（用时 {time.time() - started:.0f} 秒）"
+            if self._reviews_paused.is_set():
+                summary += "，Steam 评价响应异常，已暂停本轮剩余评价"
+            elif self._response_errors:
+                summary += f"，{self._response_errors} 项 Steam 响应异常，可稍后重试"
+            self.finished_with.emit(summary)
 
     # ── Steam 每游戏全管线（并发） ──
     def _run_steam_pipeline(self, items) -> bool:
@@ -224,25 +233,23 @@ class EnrichmentWorker(QThread):
                     logger.error(f"补全异常 {item['norm_key']}: {e}")
                     fields, err = None, f"{type(e).__name__}: {e}"
                 if fields and any(not _is_empty(v) for v in fields.values()):
-                    with self._fail_lock:
-                        self._consecutive_net_fail = 0
                     self._on_steam_fields(item, fields)
                     self.game_enriched.emit(item["norm_key"], fields)
-                elif err:
+                if err:
+                    if err.startswith(steam_client.RESPONSE_ERROR_PREFIX):
+                        self._response_errors += 1
                     logger.debug(f"补全失败 {item['norm_key']}: {err}")
                     with self._fail_lock:
                         trip = self._mark_net_fail(err)
                     if trip:
                         self._abort = True
-                        self.failed.emit(f"网络连接异常（{err}），本轮联网补全中止")
+                        self.failed.emit(f"Steam 连续请求失败：{err}")
                         pool.shutdown(wait=False, cancel_futures=True)
                         return True
+                else:
+                    with self._fail_lock:
+                        self._consecutive_net_fail = 0
                 if negs:
-                    # 确定性无数据（HTTP 层成功），即时落负结果，进度单调递减；
-                    # 同条目后续请求网络失败时不重置熔断计数
-                    if not err:
-                        with self._fail_lock:
-                            self._consecutive_net_fail = 0
                     for source in negs:
                         self.negative_recorded.emit(item["norm_key"], source)
                 self._done += 1
@@ -262,7 +269,7 @@ class EnrichmentWorker(QThread):
                 if definitive:
                     negs.append("steam_match")
                     return fields, "", negs
-                return fields, "Steam 搜索无响应", negs
+                return fields, "Steam 商店及社区搜索均未成功，具体错误见日志", negs
             # force 模式且 appid 没变：不重复写入 steam_appid
             if appid != item["appid"]:
                 fields["steam_appid"] = appid
@@ -273,15 +280,23 @@ class EnrichmentWorker(QThread):
             item["attempted_details"] = True
             d, err = steam_client.fetch_appdetails(item["appid"])
             if err:
-                return fields, err, negs
+                return fields, f"{err} [appdetails/{item['appid']}]", negs
             fields.update(d or {})
             if not d:
                 negs.append("steam")   # 商店页不存在（下架/地区锁等）
-        if item["missing_reviews"]:
+        if item["missing_reviews"] and not self._reviews_paused.is_set():
             item["attempted_reviews"] = True
             r, err = steam_client.fetch_appreviews(item["appid"])
+            with self._fail_lock:
+                if err and err.startswith(steam_client.RESPONSE_ERROR_PREFIX):
+                    self._review_failures += 1
+                    if self._review_failures == REVIEW_RESPONSE_BREAKER:
+                        self._reviews_paused.set()
+                        logger.warning("Steam 评价连续返回无效响应，暂停本轮剩余评价")
+                elif not err:
+                    self._review_failures = 0
             if err:
-                return fields, err, negs
+                return fields, f"{err} [appreviews/{item['appid']}]", negs
             fields.update(r or {})
             if not r:
                 negs.append("steam")   # 0 条评价

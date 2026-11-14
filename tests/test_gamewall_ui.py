@@ -126,6 +126,54 @@ def _show_and_process(window, app):
     app.processEvents()
 
 
+def test_large_game_wall_materializes_only_nearby_cards():
+    app = QApplication.instance() or QApplication([])
+    window, _cache = _create_window()
+    try:
+        window.resize(1200, 720)
+        _show_and_process(window, app)
+        games = [Game(raw_name=f"Game {i}", title_cn=f"Game {i}") for i in range(1000)]
+        window.all_games = games
+        window.apply_filters()
+        assert window.movie_cards[0].game is games[0]
+        assert len(window.movie_cards) < 100
+        scrollbar = window.scroll_area.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        app.processEvents()
+        assert window.movie_cards[-1].game is games[-1]
+        assert len(window._card_pool) < 100
+        window.search_keyword = "game 23"
+        window.apply_filters()
+        app.processEvents()
+        assert window.movie_cards[0].game is games[23]
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_cover_uses_cached_fallback_and_legacy_size_before_network(tmp_path, monkeypatch):
+    from gamewall import cover_loader
+    from utils.poster_cache_manager import PosterCacheManager
+
+    monkeypatch.setattr(PosterCacheManager, "CACHE_DIR", tmp_path)
+    manager = PosterCacheManager()
+    monkeypatch.setattr(cover_loader, "get_poster_cache_manager", lambda: manager)
+    requests = []
+    monkeypatch.setattr(cover_loader, "download_image_bytes", requests.append)
+    urls = ["https://cover.test/primary", "https://cover.test/fallback"]
+    image = QImage(40, 60, QImage.Format.Format_RGB32)
+    image.fill(0xFF336699)
+    assert manager.save_to_cache_from_image(urls[1] + "#cv1", 40, 60, image)
+    loader = cover_loader.BatchCoverLoader([])
+
+    result = loader._load_single(urls, 20, 30)
+    assert result is not None
+    assert result[0] == urls[1]
+    assert (result[1].width(), result[1].height()) == (20, 30)
+    assert requests == []
+
+
 def test_filter_sidebar_resizes_within_bounds_and_accepts_invalid_config():
     app = QApplication.instance() or QApplication([])
     for splitter_sizes in (None, {"right": [430, 470]}, {"right": ["bad", 470]}):
@@ -434,6 +482,7 @@ def test_stale_cover_result_cannot_update_current_card(monkeypatch):
         window._load_visible_posters()
         first_loader = loader_type.instances[-1]
 
+        window.refresh_poster_wall()
         window._load_visible_posters()
         second_loader = loader_type.instances[-1]
         assert second_loader is not first_loader
@@ -550,6 +599,29 @@ def test_import_apply_failure_restores_previously_displayed_games(caplog):
         assert "已保留 1 款游戏" in window.status_label.text()
         assert any(record.message == "处理导入结果失败" and record.exc_info
                    for record in caplog.records)
+    finally:
+        window.hide()
+        window.deleteLater()
+        app.processEvents()
+
+
+def test_startup_excel_sync_reuses_unchanged_games_and_keeps_workbook_order():
+    app = QApplication.instance() or QApplication([])
+    window, cache = _create_window()
+    unchanged = Game(raw_name="First", excel_row=2, developer="Cached developer")
+    old = Game(raw_name="Updated", excel_row=3, version="1")
+    updated = Game(raw_name="Updated", excel_row=3, version="2")
+    try:
+        window.all_games = [unchanged, old]
+        window.apply_filters()
+        window._start_background_tasks_safely = lambda: None
+        window._on_excel_import_finished(
+            [updated, Game(raw_name="First", excel_row=2)], {"mtime": 10})
+
+        assert window.all_games[0] is updated
+        assert window.all_games[1] is unchanged
+        assert set(cache.auto_classifications) == {updated.norm_key}
+        assert cache.snapshot == [updated, unchanged]
     finally:
         window.hide()
         window.deleteLater()
@@ -811,7 +883,7 @@ def test_llm_search_match_flow_merges_fields_and_invalidates_cache(monkeypatch):
         base = "https://cdn.cloudflare.steamstatic.com/steam/apps/730"
         for url in (f"{base}/library_600x900.jpg", f"{base}/library_600x900_2x.jpg",
                     f"{base}/portrait.png", "https://cover.test/new.jpg"):
-            expected.update({url, url + "#cv2"})
+            expected.update({url, url + "#cv1", url + "#cv2"})
         assert set(removed) == expected
         assert set(invalidated) == expected
     finally:
@@ -861,7 +933,7 @@ def test_apply_steam_update_merges_fields_and_invalidates_poster_cache(monkeypat
                     f"{base}/portrait.png"]
         old_urls = make_urls(100) + ["https://cover.test/old.jpg"]
         new_urls = make_urls(200) + ["https://cover.test/new.jpg"]
-        expected = {url for u in old_urls + new_urls for url in (u, u + "#cv2")}
+        expected = {url for u in old_urls + new_urls for url in (u, u + "#cv1", u + "#cv2")}
         assert set(removed) == expected
         assert set(invalidated) == expected
     finally:

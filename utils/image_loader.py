@@ -4,6 +4,7 @@
 支持海报缩略图本地缓存，大幅提升加载速度
 """
 import logging
+from threading import Lock
 from collections import OrderedDict
 from pathlib import Path
 from PyQt6.QtCore import QThread, pyqtSignal, Qt
@@ -14,13 +15,16 @@ logger = logging.getLogger(__name__)
 
 # 延迟导入避免循环依赖
 _poster_cache_manager = None
+_poster_cache_manager_lock = Lock()
 
 def get_poster_cache_manager():
     """获取海报缓存管理器单例"""
     global _poster_cache_manager
     if _poster_cache_manager is None:
-        from utils.poster_cache_manager import PosterCacheManager
-        _poster_cache_manager = PosterCacheManager()
+        with _poster_cache_manager_lock:
+            if _poster_cache_manager is None:
+                from utils.poster_cache_manager import PosterCacheManager
+                _poster_cache_manager = PosterCacheManager()
     return _poster_cache_manager
 
 

@@ -101,7 +101,9 @@ def test_build_creates_upgradeable_msi_with_full_payload(tmp_path):
         assert _sequence_number(db, "SetInstallDirFromPrevious64") < _sequence_number(
             db, "RemoveExistingProducts"
         )
-        assert _sequence_number(db, "RemoveExistingProducts") < _sequence_number(db, "InstallFiles")
+        assert _sequence_number(db, "InstallInitialize") < _sequence_number(
+            db, "RemoveExistingProducts"
+        ) < _sequence_number(db, "AllocateRegistrySpace")
         assert _sequence_number(db, "SetArpInstallLocation") < _sequence_number(
             db, "RegisterProduct"
         )

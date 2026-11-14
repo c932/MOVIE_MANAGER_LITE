@@ -125,7 +125,7 @@ def _add_standard_sequences(db) -> None:
                 entries,
                 "RemoveExistingProducts",
                 "OLDPRODUCTS AND NOT Installed",
-                6500,  # 在 InstallFiles(4000) 之后，避免弹出"网络资源"对话框
+                1510,  # InstallInitialize 之后、任何写入执行脚本的操作之前。
             )
             # RegisterProduct(6100) 依据 ARPINSTALLLOCATION 写卸载登记的 InstallLocation
             entries = _replace_sequence(
@@ -145,7 +145,7 @@ def _add_upgrade_data(db, config: ProductConfig, version: str) -> None:
         ("ARPURLINFOABOUT", "https://github.com/c932/MOVIE_MANAGER_LITE"),
         ("ARPNOREPAIR", "1"),
         # 每机安装下，AppSearch 结果必须列为安全公共属性才能跨 UI/执行序列传递
-        ("SecureCustomProperties", "PREVIOUSINSTALLDIR;PREVIOUSINSTALLDIR64"),
+        ("SecureCustomProperties", "PREVIOUSINSTALLDIR;PREVIOUSINSTALLDIR64;OLDPRODUCTS;NEWERPRODUCTFOUND"),
     ])
     add_data(db, "Upgrade", [
         (config.upgrade_code, "0.0.0", version, None, 256, None, "OLDPRODUCTS"),
@@ -431,21 +431,22 @@ def verify_built_msi(path: Path, config: ProductConfig) -> None:
         ) is None:
             raise RuntimeError("Missing newer-version launch condition.")
 
-        remove_row = _single_row(
-            db,
-            "SELECT `Sequence` FROM `InstallExecuteSequence` "
-            "WHERE `Action` = 'RemoveExistingProducts'",
-        )
-        install_row = _single_row(
-            db,
-            "SELECT `Sequence` FROM `InstallExecuteSequence` WHERE `Action` = 'InstallFiles'",
-        )
-        if remove_row is None or install_row is None:
-            raise RuntimeError("RemoveExistingProducts or InstallFiles missing from InstallExecuteSequence.")
-        # 修复升级安装弹「网络资源」对话框：RemoveExistingProducts 必须排在
-        # InstallFiles(4000) 之后，卸载旧版时用新安装的缓存副本而非原始 MSI 源文件。
-        if remove_row.GetInteger(1) <= install_row.GetInteger(1):
-            raise RuntimeError("RemoveExistingProducts must execute after InstallFiles.")
+        view = db.OpenView(
+            "SELECT `Action`, `Sequence` FROM `InstallExecuteSequence` WHERE `Sequence` > 0")
+        try:
+            view.Execute(None)
+            actions = {}
+            while (row := view.Fetch()) is not None:
+                actions[row.GetString(1)] = row.GetInteger(2)
+        finally:
+            view.Close()
+        initialize = actions.get("InstallInitialize", 0)
+        remove = actions["RemoveExistingProducts"]
+        if not (0 < initialize < remove < actions.get("AllocateRegistrySpace", 0)) or any(
+            initialize < position <= remove for action, position in actions.items()
+            if action != "RemoveExistingProducts"
+        ):
+            raise RuntimeError("RemoveExistingProducts must run immediately after InstallInitialize.")
 
         for table_name, column_name, expected in [
             ("AppSearch", "Property", "PREVIOUSINSTALLDIR"),

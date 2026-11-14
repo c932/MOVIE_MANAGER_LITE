@@ -12,6 +12,7 @@ os.environ.setdefault("APP_DIR_NAME_OVERRIDE", "LocalGameWall")
 
 import sys
 import logging
+from logging.handlers import RotatingFileHandler
 import tempfile
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -19,6 +20,7 @@ from PyQt6.QtCore import Qt, QLockFile
 from PyQt6.QtGui import QFont
 
 from gamewall.game_main_window import GameMainWindow
+from utils.app_paths import ensure_data_dir
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,6 +30,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 _app_lock = None
+
+
+def _enable_file_logging():
+    try:
+        handler = RotatingFileHandler(ensure_data_dir() / "game_wall.log",
+                                      maxBytes=1024 * 1024, backupCount=1, encoding="utf-8")
+        handler.setFormatter(logging.getLogger().handlers[0].formatter)
+        logging.getLogger().addHandler(handler)
+    except OSError:
+        logger.exception("无法写入游戏墙日志")
 
 
 def load_stylesheet(app: QApplication):
@@ -62,6 +74,7 @@ def main():
         QMessageBox.information(None, "提示", "游戏库程序已经在运行中。")
         return
 
+    _enable_file_logging()
     logger.info("=" * 60)
     logger.info("Local Game Wall - 本地游戏海报墙")
     logger.info("版本: 1.0.0")
