@@ -631,7 +631,10 @@ class ScrapeDialog(QDialog):
             context.checkpoint()
             metadata = service.details(candidate)
             context.checkpoint()
+            additional = getattr(service, "automatic_tmdb_metadata", lambda m: [])(metadata)
+            context.checkpoint()
             sources = [m for m in confirmed if m.source != metadata.source] + [metadata]
+            sources.extend(m for m in additional if m.source not in {source.source for source in sources})
             draft = service.build_draft(prepared, sources, plot_source=plot_source)
             draft.confirmed = False
             return key, draft, sources
@@ -840,8 +843,8 @@ class ScrapeDialog(QDialog):
         self._preview_pending = False
         self._render_draft(draft, confirmed=True)
         self._set_state(self._active_key, "已确认")
-        self.match_label.setText("已确认匹配；可选择字段并保存。")
-        self.status_label.setText("匹配已确认。可继续选择其他来源候选补充，或保存当前。")
+        self.match_label.setText("已确认匹配；请点击「保存当前」写入 NFO。")
+        self.status_label.setText("匹配已确认。请点击「保存当前」写入 NFO；电影墙和系列页会在保存后刷新。")
         self._capture_choices()
         self._update_buttons()
         self._maybe_search_tmdb(metadata)
@@ -1113,7 +1116,12 @@ class ScrapeDialog(QDialog):
                     message = "仅豆瓣补分不能重建 NFO，请切换到完整刮削模式。"
                 self.status_label.setText(message)
             else:
-                self.status_label.setText("详情已取得。核对身份、评分、简介和海报后点击确认匹配。")
+                auto_tmdb = (any(item.source == "douban" for item in metadata)
+                             and any(item.source == "tmdb" for item in metadata))
+                self.status_label.setText(
+                    "详情已取得，并自动关联唯一精确的 TMDB 候选；核对三站评分和系列后点击确认匹配。"
+                    if auto_tmdb else
+                    "详情已取得。核对身份、评分、简介和海报后点击确认匹配。")
         elif channel == "enrich":
             key, draft, metadata = value
             if key != self._active_key or self._closing:

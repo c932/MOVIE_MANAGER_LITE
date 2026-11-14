@@ -222,6 +222,65 @@ def test_non_exact_tmdb_candidates_are_not_automatically_selected(app, tmp_path)
         window.close()
 
 
+def test_service_automatically_merges_only_unique_exact_tmdb(monkeypatch):
+    from scraper.scrape_models import Candidate
+    from scraper.scrape_service import ScrapeService
+    service = ScrapeService(ScrapeSettings(tmdb_api_key='test'))
+    douban = Metadata('douban', '26101255', {
+        'title': '人类清除计划3', 'original_title': 'The Purge: Election Year',
+        'year': '2016'}, ratings={'douban': 6.3})
+    exact = Candidate('tmdb', '316727', '人类清除计划3', 'The Purge: Election Year', '2016')
+    wrong = Candidate('tmdb', '1', '另一部电影', 'Another Film', '2016')
+    monkeypatch.setattr(service, 'search', lambda *a, **k: [wrong, exact])
+    tmdb = Metadata('tmdb', '316727', {'set_name': '人类清除计划（系列）'},
+                    {'tmdb': '316727', 'imdb': 'tt4094724'}, {'tmdb': 6.382}, {'tmdb': 5659})
+    monkeypatch.setattr(service, 'details', lambda candidate: tmdb)
+    monkeypatch.setattr(service, 'enrich_metadata', lambda metadata: metadata)
+    assert service.automatic_tmdb_metadata(douban) == [tmdb]
+    assert service.automatic_tmdb_metadata(douban) == [tmdb]
+
+
+def test_service_does_not_merge_ambiguous_exact_tmdb(monkeypatch):
+    from scraper.scrape_models import Candidate
+    from scraper.scrape_service import ScrapeService
+    service = ScrapeService(ScrapeSettings(tmdb_api_key='test'))
+    douban = Metadata('douban', '1', {'title': '同名', 'original_title': 'Same', 'year': '2016'})
+    candidates = [Candidate('tmdb', '1', '同名', 'Same', '2016'),
+                  Candidate('tmdb', '2', '同名', 'Same', '2016')]
+    monkeypatch.setattr(service, 'search', lambda *a, **k: candidates)
+    monkeypatch.setattr(service, 'details', lambda candidate: pytest.fail('歧义候选不能自动读取'))
+    assert service.automatic_tmdb_metadata(douban) == []
+
+
+def test_ui_preview_includes_exact_tmdb_before_first_confirmation(app, tmp_path, monkeypatch):
+    from scraper.scrape_models import Candidate, VideoTarget
+    from scraper.scrape_service import ScrapeService
+    from tests.scraping.test_scrape_dialog import until
+    from ui.scrape_dialog import ScrapeDialog
+    service = ScrapeService(ScrapeSettings(tmdb_api_key='test'))
+    douban = Metadata('douban', '26101255', {'title': '人类清除计划3', 'original_title': 'The Purge: Election Year', 'year': '2016', 'plot': '豆瓣简介'}, ratings={'douban': 6.3})
+    tmdb = Metadata('tmdb', '316727', {'title': '人类清除计划3', 'original_title': 'The Purge: Election Year', 'year': '2016', 'set_name': '人类清除计划（系列）'}, {'tmdb': '316727', 'imdb': 'tt4094724'}, {'tmdb': 6.382, 'imdb': 6.0}, {'tmdb': 5659, 'imdb': 121889})
+    monkeypatch.setattr(service, 'search', lambda *a, **k: [Candidate('tmdb', '316727', '人类清除计划3', 'The Purge: Election Year', '2016')])
+    monkeypatch.setattr(service, 'details', lambda candidate: douban if candidate.source == 'douban' else tmdb)
+    monkeypatch.setattr(service, 'enrich_metadata', lambda metadata: metadata)
+    target = VideoTarget(tmp_path / 'a.mkv', tmp_path / 'a.nfo', existing=True)
+    window = ScrapeDialog([target], mode='existing', service=service)
+    window.show()
+    until(app, lambda: not window.tasks.busy)
+    try:
+        window._show_candidates([Candidate('douban', '26101255', '人类清除计划3')])
+        window.candidate_list.setCurrentRow(0)
+        until(app, lambda: not window.tasks.busy)
+        assert window._preview is not None
+        assert {m.source for m in window._preview[1]} == {'douban', 'tmdb'}
+        assert window._preview[0].fields['set_name'] == '人类清除计划（系列）'
+        assert 'TMDB：6.382' in window.rating_label.text()
+        assert 'IMDb：6.0' in window.rating_label.text()
+        assert '豆瓣：6.3' in window.rating_label.text()
+    finally:
+        window.close()
+
+
 from tests.scraping.test_scrape_dialog import app
 
 

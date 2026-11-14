@@ -42,6 +42,34 @@ class ScrapeService:
         from .rating_enrichment import enrich_ratings
         return enrich_ratings(metadata, self.settings)
 
+    def automatic_tmdb_metadata(self, metadata: Metadata) -> list[Metadata]:
+        """豆瓣资料无 TMDB 关联时，仅自动采用唯一精确同名同年候选。"""
+        if (metadata.source != "douban" or "tmdb" in metadata.ids or "tmdb" in metadata.ratings
+                or not (self.settings.tmdb_api_key or self.settings.tmdb_token)):
+            return []
+        title = re.sub(r"[\W_]+", "", str(metadata.fields.get("title", "")).casefold())
+        original = re.sub(r"[\W_]+", "", str(metadata.fields.get("original_title", "")).casefold())
+        year = str(metadata.fields.get("year", "")).strip()
+        expected = {title, original} - {""}
+        if not expected or not year:
+            return []
+        try:
+            candidates = self.search("tmdb", metadata.fields.get("original_title") or metadata.fields.get("title", ""), year)
+            exact = []
+            for candidate in candidates:
+                names = {re.sub(r"[\W_]+", "", str(candidate.title).casefold()),
+                         re.sub(r"[\W_]+", "", str(candidate.original_title).casefold())} - {""}
+                if candidate.media_type == "movie" and candidate.year == year and names & expected:
+                    exact.append(candidate)
+            if len(exact) != 1:
+                return []
+            tmdb = self.enrich_metadata(self.details(exact[0]))
+            if tmdb.ids.get("tmdb"):
+                return [tmdb]
+        except (ScrapeError, OSError, ValueError) as exc:
+            metadata.warnings.append("TMDB 自动关联未完成：" + str(exc))
+        return []
+
     def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
         if not metadata:
             raise ScrapeError("请先选择并获取电影详情")
