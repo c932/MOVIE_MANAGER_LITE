@@ -187,6 +187,13 @@ class NFOParser:
                 if potential_video.exists():
                     movie.video_path = str(potential_video)
                     break
+            if not movie.video_path:
+                videos = [p for p in nfo_dir.iterdir() if p.is_file() and p.suffix.lower() in video_extensions]
+                match = next((p for p in videos if p.stem.casefold() == nfo_stem.casefold()), None)
+                if match is None and nfo_stem.lower() == 'movie' and len(videos) == 1:
+                    match = videos[0]
+                if match is not None:
+                    movie.video_path = str(match)
             
             # === 绑定本地资产（海报和背景图）===
             # 支持两种命名方式：
@@ -197,19 +204,13 @@ class NFOParser:
             poster_standard = nfo_dir / 'poster.jpg'
             poster_prefixed = nfo_dir / f'{nfo_stem}-poster.jpg'
             
-            if poster_standard.exists():
-                movie.poster_path = str(poster_standard)
-            elif poster_prefixed.exists():
-                movie.poster_path = str(poster_prefixed)
+            movie.poster_path = NFOParser._local_artwork(root, nfo_dir, 'poster', poster_prefixed, poster_standard)
             
             # 查找背景图
             fanart_standard = nfo_dir / 'fanart.jpg'
             fanart_prefixed = nfo_dir / f'{nfo_stem}-fanart.jpg'
             
-            if fanart_standard.exists():
-                movie.fanart_path = str(fanart_standard)
-            elif fanart_prefixed.exists():
-                movie.fanart_path = str(fanart_prefixed)
+            movie.fanart_path = NFOParser._local_artwork(root, nfo_dir, 'fanart', fanart_prefixed, fanart_standard)
             
             logger.info(f"成功解析电影: {movie.get_display_title()}")
             return movie
@@ -221,6 +222,22 @@ class NFOParser:
             logger.error(f"NFO 解析异常 [{nfo_path}]: {e}")
             return None
     
+    @staticmethod
+    def _local_artwork(root: ET.Element, directory: Path, kind: str, prefixed: Path, standard: Path) -> str:
+        elements = root.findall("thumb[@aspect='poster']") if kind == 'poster' else root.findall('fanart')
+        for element in elements:
+            if len(element):
+                continue
+            name = (element.text or '').strip()
+            if not name:
+                return ''
+            if '/' not in name and '\\' not in name and ':' not in name and name not in {'.', '..'}:
+                local = directory / name
+                return str(local) if local.is_file() else ''
+        if prefixed.is_file():
+            return str(prefixed)
+        return str(standard) if standard.is_file() else ''
+
     @staticmethod
     def _get_text(element: ET.Element, tag: str) -> str:
         """安全获取子元素的文本内容"""

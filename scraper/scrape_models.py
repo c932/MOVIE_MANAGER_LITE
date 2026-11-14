@@ -65,6 +65,7 @@ class ScrapeDraft:
     replace_identity: bool = False
     warnings: list[str] = field(default_factory=list)
     expected_files: dict[str, str | None] = field(default_factory=dict)
+    votes: dict[str, int] = field(default_factory=dict)
 
 
 class ScrapeError(ValueError):

@@ -1,0 +1,161 @@
+"""统一刮削用例；Qt 和旧豆瓣门面均调用此层。"""
+from __future__ import annotations
+
+import copy
+import re
+import xml.etree.ElementTree as ET
+from collections.abc import Sequence
+
+from models.movie import Movie
+from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget
+from scraper.scrape_persistence import commit_draft, read_ids, snapshot_files, update_douban_nfo, validate_score
+from scraper.scrape_settings import ScrapeSettings
+
+
+class ScrapeService:
+    def __init__(self, settings: ScrapeSettings | None = None) -> None:
+        self.settings = settings or ScrapeSettings.load()
+        self._providers: dict = {}
+
+    def _provider(self, source: str):
+        from scraper.metadata_sources import DoubanProvider, TmdbProvider
+        if source not in {"tmdb", "douban"}:
+            raise ScrapeError("请选择 TMDB 或豆瓣作为搜索来源")
+        if source not in self._providers:
+            self._providers[source] = (TmdbProvider if source == "tmdb" else DoubanProvider)(self.settings)
+        return self._providers[source]
+
+    def search(self, source: str, query: str, year: str = "", page: int = 1) -> list[Candidate]:
+        if not query.strip():
+            raise ScrapeError("请输入片名、来源 ID 或电影链接")
+        return self._provider(source).search(query.strip(), year, page)
+
+    def details(self, candidate: Candidate) -> Metadata:
+        metadata = self._provider(candidate.source).details(candidate)
+        imdb = metadata.ids.get("imdb", "")
+        if imdb and self.settings.omdb_api_key:
+            from scraper.metadata_sources import OmdbProvider
+            try:
+                score, votes = OmdbProvider(self.settings).rating(imdb)
+                if score is not None:
+                    metadata.ratings["imdb"] = validate_score(score)
+                if votes:
+                    metadata.votes["imdb"] = votes
+            except (ScrapeError, OSError, ValueError) as exc:
+                metadata.warnings.append("IMDb 评分未取得：" + str(exc))
+        elif imdb:
+            metadata.warnings.append("IMDb 评分未取得：请在刮削设置中配置 OMDb Key")
+        return metadata
+
+    def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
+        if not metadata:
+            raise ScrapeError("请先选择并获取电影详情")
+        if target.error:
+            raise ScrapeError(target.error)
+        if target.nfo_stamp is not None:
+            try:
+                stat = target.nfo_path.stat()
+                if (stat.st_mtime_ns, stat.st_size) != target.nfo_stamp:
+                    raise ScrapeError("NFO 自扫描后已改变，请重新加载")
+            except OSError as exc:
+                raise ScrapeError("NFO 暂时无法访问，请重新加载") from exc
+        draft = ScrapeDraft(target)
+        by_source = {m.source: m for m in metadata}
+        identifiers: dict[str, str] = {}
+        ratings = {}
+        # TMDB 作为基础资料优先，豆瓣仅补缺；简介单独按用户指定来源选择。
+        ordered = sorted(by_source.values(), key=lambda m: 0 if m.source == "tmdb" else 1)
+        for item in ordered:
+            for key, value in item.fields.items():
+                if key not in {"ratings", "uniqueids", "tags", "fileinfo"} and value not in (None, "", [], {}):
+                    draft.fields.setdefault(key, copy.deepcopy(value))
+            for source, value in {**item.ids, item.source: item.id}.items():
+                if value and source in {"tmdb", "imdb", "douban"}:
+                    if source in identifiers and identifiers[source] != str(value):
+                        raise ScrapeError("两站结果指向不同电影，来源 ID 冲突，请重新匹配")
+                    identifiers[source] = str(value)
+            for source, value in item.ratings.items():
+                if source in {"tmdb", "imdb", "douban"}:
+                    ratings[source] = validate_score(value)
+            draft.votes.update(item.votes)
+            draft.artwork.extend(item.artwork)
+            draft.warnings.extend(item.warnings)
+        selected_plot = by_source.get(plot_source)
+        if selected_plot and selected_plot.fields.get("plot"):
+            draft.fields["plot"] = selected_plot.fields["plot"]
+        elif draft.fields.get("plot"):
+            actual = next((m.source for m in ordered if m.fields.get("plot")), "")
+            draft.warnings.append(f"{plot_source} 简介缺失，当前预览采用 {actual} 简介")
+        if identifiers:
+            draft.fields["uniqueids"] = identifiers
+        if ratings:
+            draft.fields["ratings"] = ratings
+        draft.poster = draft.artwork[0] if draft.artwork else None
+        if target.nfo_path.exists():
+            try:
+                root = ET.parse(target.nfo_path).getroot()
+                if root.tag != "movie":
+                    raise ET.ParseError("非电影 NFO")
+            except (ET.ParseError, OSError) as exc:
+                raise ScrapeError("原 NFO 损坏，请先修复再保存") from exc
+            old_ids = read_ids(root)
+            common = set(old_ids) & set(identifiers)
+            draft.replace_identity = any(old_ids[s] != identifiers[s] for s in common)
+            if not common and root.findtext("title", "").strip() and draft.fields.get("title"):
+                draft.replace_identity = root.findtext("title").strip().casefold() != str(draft.fields["title"]).strip().casefold()
+            if draft.replace_identity:
+                draft.warnings.append("电影身份发生变化：保存将替换旧片名、简介、演职员、站点 ID、外部评分和图片关联；保留用户评分、标签及观看收藏状态")
+        snapshot_files(draft)
+        return draft
+
+    def save(self, draft: ScrapeDraft, selected_fields: set[str] | None = None,
+             overwrite: bool = False, metadata_only: bool = False) -> Movie:
+        if not draft.confirmed:
+            raise ScrapeError("请先确认匹配，再保存")
+        image = None
+        if not metadata_only and draft.poster:
+            from scraper.scrape_http import HttpClient
+            image = HttpClient(self.settings).get_bytes(draft.poster.url, max_bytes=15 * 1024 * 1024)
+        return commit_draft(draft, selected_fields, overwrite, metadata_only, image)
+
+    def douban_only(self, target: VideoTarget) -> dict:
+        return scrape_douban_movie(str(target.nfo_path), target.title, "", target.year)
+
+
+def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", year: str = "") -> dict:
+    """旧豆瓣补分的非交互门面；不依赖 TMDB/OMDb 凭据。"""
+    from scraper import douban_cli as cli
+    try:
+        root = ET.parse(nfo_path).getroot()
+        if root.tag != "movie":
+            raise ScrapeError("NFO 根元素不是 movie")
+        ids = read_ids(root)
+        douban_id = ids.get("douban", "")
+        if not douban_id:
+            queries = [title, original_title or root.findtext("originaltitle", "")]
+            match = None
+            for query in dict.fromkeys(q for q in queries if q):
+                match = cli.search_movie(query, year)
+                if match:
+                    break
+            if not match:
+                return {"success": False, "message": f"未找到明确的豆瓣匹配，请在刮削工作台手动确认：{title}", "requires_match": True}
+            douban_id = str(match["id"])
+        if not re.fullmatch(r"\d+", douban_id):
+            raise ScrapeError("已有豆瓣 ID 无效，请手动重新匹配")
+        detail = cli.get_movie_detail(douban_id)
+        if not isinstance(detail, dict):
+            raise ScrapeError("豆瓣详情未取得，请稍后重试或手动匹配")
+        if detail.get("id") and str(detail["id"]) != douban_id:
+            raise ScrapeError("豆瓣返回的电影 ID 不一致，已停止写入")
+        try:
+            score = validate_score(detail.get("rating"))
+        except ScrapeError:
+            return {"success": False, "message": "该电影暂无豆瓣评分，原 NFO 保持不变", "douban_id": douban_id}
+        if score <= 0:
+            return {"success": False, "message": "该电影暂无豆瓣评分，原 NFO 保持不变", "douban_id": douban_id}
+        if not update_douban_nfo(nfo_path, douban_id, detail):
+            raise ScrapeError("豆瓣 NFO 更新失败")
+        return {"success": True, "message": f"成功：{detail.get('title') or title} - {score}/10", "rating": str(score), "douban_id": douban_id}
+    except (OSError, ET.ParseError, ScrapeError) as exc:
+        return {"success": False, "message": str(exc) if isinstance(exc, ScrapeError) else "原 NFO 无法读取，请先检查文件"}
