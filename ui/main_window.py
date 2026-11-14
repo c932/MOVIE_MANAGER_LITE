@@ -33,6 +33,22 @@ from utils.network_mode import initialize_offline_cache_mode_once
 
 logger = logging.getLogger(__name__)
 
+
+def movie_added_time(movie: Movie, fallback: float = 0.0) -> float:
+    """加入时间优先取 NFO mtime；已有有效值保持不变。"""
+    if fallback > 0:
+        return fallback
+    for path in (getattr(movie, "nfo_path", ""), getattr(movie, "video_path", "")):
+        if not path:
+            continue
+        try:
+            stamp = Path(path).stat().st_mtime
+            if stamp > 0:
+                return stamp
+        except OSError:
+            continue
+    return float(getattr(movie, "added_time", 0.0) or 0.0)
+
 # 类型英文到中文映射
 GENRE_TRANSLATION = {
     'Action': '动作',
@@ -66,6 +82,7 @@ class OnlineBackgroundUpdater(QThread):
     """
 
     progress = pyqtSignal(int, int)   # (已完成数, 总数)
+    added_times_ready = pyqtSignal()
     finished_signal = pyqtSignal()
 
     def __init__(
@@ -92,7 +109,6 @@ class OnlineBackgroundUpdater(QThread):
         self._cancelled = True
 
     def run(self):
-        from pathlib import Path
         from PyQt6.QtCore import Qt
         from PyQt6.QtGui import QImage
 
@@ -102,21 +118,21 @@ class OnlineBackgroundUpdater(QThread):
         updated_wall_poster = 0
         updated_detail_poster = 0
 
+        # 先完成轻量时间补齐，让“加入时间”排序无需等待海报缓存预热。
+        for movie in self._movies:
+            if self._cancelled:
+                break
+            if movie.added_time == 0.0:
+                movie.added_time = movie_added_time(movie)
+                if movie.added_time:
+                    updated_mtime += 1
+        self.added_times_ready.emit()
+
         for movie in self._movies:
             if self._cancelled:
                 break
 
-            # ── 1. 更新 added_time（仅对尚未获取的）─────────────────────────
-            if movie.added_time == 0.0:
-                stat_path = movie.video_path or movie.nfo_path
-                if stat_path:
-                    try:
-                        movie.added_time = Path(stat_path).stat().st_mtime
-                        updated_mtime += 1
-                    except Exception:
-                        pass
-
-            # ── 2. 预热海报缓存（仅对缓存缺失的）─────────────────────────────
+            # ── 预热海报缓存（仅对缓存缺失的）─────────────────────────────
             if movie.poster_path:
                 try:
                     need_wall_cache = not self._poster_cache.has_valid_cache(
@@ -934,8 +950,8 @@ class MainWindow(QMainWindow):
             key = WatchHistoryManager.normalize_path(updated.nfo_path)
             old = by_path.get(key)
             updated.watched = self.watch_history.is_watched(updated.nfo_path)
-            if old is not None:
-                updated.added_time = old.added_time
+            updated.added_time = movie_added_time(
+                updated, getattr(old, "added_time", 0.0) if old is not None else 0.0)
             for image_path in {getattr(old, 'poster_path', ''), updated.poster_path} - {''}:
                 image_cache.remove(image_path)
                 if self._poster_cache_manager is not None:
@@ -1404,11 +1420,13 @@ class MainWindow(QMainWindow):
         movie.watched = self.watch_history.is_watched(movie.nfo_path)
 
         # 增量刷新时保留旧缓存中的补充字段（例如 added_time），避免无变化电影被重置。
+        old_added_time = 0.0
         if self._incremental_refresh_mode and movie.nfo_path:
             normalized_path = WatchHistoryManager.normalize_path(movie.nfo_path)
             old_movie = self._refresh_old_movies_by_nfo.get(normalized_path)
-            if old_movie is not None and getattr(movie, 'added_time', 0.0) == 0.0:
-                movie.added_time = getattr(old_movie, 'added_time', 0.0)
+            if old_movie is not None:
+                old_added_time = getattr(old_movie, 'added_time', 0.0)
+        movie.added_time = movie_added_time(movie, old_added_time)
 
         if movie.watched:
             logger.info(f"加载已观看电影: {movie.title} (NFO: {movie.nfo_path})")
@@ -1418,8 +1436,7 @@ class MainWindow(QMainWindow):
         if old is None:
             self.all_movies.append(movie)
         else:
-            if not movie.added_time:
-                movie.added_time = old.added_time
+            movie.added_time = movie_added_time(movie, getattr(old, 'added_time', 0.0))
             for name, value in vars(movie).items():
                 setattr(old, name, value)
     
@@ -1583,6 +1600,7 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         self._bg_updater.progress.connect(self._on_bg_update_progress)
+        self._bg_updater.added_times_ready.connect(self._on_added_times_ready)
         self._bg_updater.finished_signal.connect(self._on_bg_update_finished)
         self._bg_updater.start(QThread.Priority.LowPriority)
 
@@ -1590,12 +1608,19 @@ class MainWindow(QMainWindow):
         """后台更新进度回调（低频，不更新 UI）"""
         logger.debug(f"后台更新进度: {done}/{total}")
 
+    def _on_added_times_ready(self):
+        """轻量时间补齐完成后，立即刷新当前加入时间排序。"""
+        if self.sort_mode == 'added':
+            self.apply_filters()
+
     def _on_bg_update_finished(self):
         """后台更新完成：保存 movie cache（含新 added_time）"""
         logger.info("后台更新完成，保存电影缓存")
         movie_paths = self.config.get_movie_paths()
         if self.cache_manager.save_cache(self.all_movies, movie_paths):
             logger.info("电影缓存（含 mtime）已保存")
+        if self.sort_mode == 'added':
+            self.apply_filters()
         # 后台更新完成后安排一次“空闲本地孤立缓存清理”。
         self._schedule_idle_local_cache_cleanup(5000)
 

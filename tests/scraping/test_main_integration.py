@@ -51,6 +51,7 @@ def test_douban_shortcut_selects_same_workbench_mode():
 
 
 def test_saved_movies_are_added_without_full_rescan_or_lost_queue(tmp_path, monkeypatch):
+    import os
     import time
     from PyQt6.QtWidgets import QApplication
     from PyQt6.QtTest import QTest
@@ -64,6 +65,7 @@ def test_saved_movies_are_added_without_full_rescan_or_lost_queue(tmp_path, monk
         (tmp_path / (name + ".mkv")).touch()
         nfo = tmp_path / (name + ".nfo")
         nfo.write_text(f"<movie><title>{name}</title></movie>", encoding="utf-8")
+        os.utime(nfo, (1_700_000_000, 1_700_000_000 if name == "A" else 1_800_000_000))
         paths.append(str(nfo))
     window._on_scrape_saved(paths[:1])
     window._on_scrape_saved(paths[1:])
@@ -75,6 +77,9 @@ def test_saved_movies_are_added_without_full_rescan_or_lost_queue(tmp_path, monk
         QTest.qWait(10)
     try:
         assert {m.title for m in window.all_movies} == {"A", "B"}
+        assert all(m.added_time > 0 for m in window.all_movies)
+        added_order = [m.title for m in sorted(window.all_movies, key=lambda m: m.added_time, reverse=True)]
+        assert added_order[:2] == ["B", "A"]
         assert not window._pending_scrape_paths
         assert not window._scrape_refresh_runner.busy
     finally:
@@ -155,3 +160,29 @@ def test_scrape_refresh_updates_actual_card_title_and_rating(qt_window, tmp_path
     else:
         badge = getattr(current, "rating_badge", None)
         assert badge is None or badge.isHidden() or not badge.text()
+
+
+def test_added_time_uses_nfo_and_repairs_stale_zero_on_scrape_refresh(qt_window, tmp_path, monkeypatch):
+    import os
+    from models.movie import Movie
+    from ui.main_window import movie_added_time
+    from ui.scrape_tasks import TaskRunner
+    app, window = qt_window
+    video = tmp_path / "new.mkv"
+    video.touch()
+    nfo = tmp_path / "new.nfo"
+    nfo.write_text("<movie><title>新片</title></movie>", encoding="utf-8")
+    os.utime(video, (1_600_000_000, 1_600_000_000))
+    os.utime(nfo, (1_800_000_000, 1_800_000_000))
+    assert movie_added_time(Movie(title="新片", video_path=str(video), nfo_path=str(nfo))) == 1_800_000_000
+    assert movie_added_time(Movie(title="旧片", nfo_path=str(nfo), added_time=1_700_000_000), 1_700_000_000) == 1_700_000_000
+    old = Movie(title="旧缓存", video_path=str(video), nfo_path=str(nfo), added_time=0.0)
+    window.all_movies = [old]
+    monkeypatch.setattr(window.cache_manager, "save_cache", lambda *args: True)
+    window._scrape_refresh_runner = TaskRunner(window)
+    window._on_scrape_refresh_result("read", 0, [Movie(title="刮削完成", video_path=str(video), nfo_path=str(nfo))])
+    _wait(app, lambda: not window._scrape_refresh_runner.busy)
+    assert old.title == "刮削完成"
+    assert old.added_time == 1_800_000_000
+    window.sort_mode = "added"
+    assert window._apply_sorting(window.all_movies)[0] is old
