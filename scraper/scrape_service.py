@@ -9,7 +9,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from models.movie import Movie
-from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget
+from scraper.scrape_models import (
+    Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget,
+    capture_target_version, validate_target_version,
+)
 from scraper.scrape_persistence import commit_draft, fingerprint, read_ids, snapshot_files, update_douban_nfo, validate_score
 from scraper.scrape_settings import ScrapeSettings
 
@@ -52,15 +55,11 @@ class ScrapeService:
     def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
         if not metadata:
             raise ScrapeError("请先选择并获取电影详情")
-        if target.nfo_stamp is not None:
-            try:
-                stat = target.nfo_path.stat()
-                if (stat.st_mtime_ns, stat.st_size) != target.nfo_stamp:
-                    raise ScrapeError("NFO 自扫描后已改变，请重新加载")
-            except OSError as exc:
-                raise ScrapeError("NFO 暂时无法访问，请重新加载") from exc
+        target = capture_target_version(target)
         draft = ScrapeDraft(target)
         snapshot_files(draft)
+        if draft.expected_files[str(target.nfo_path)] != target.nfo_fingerprint:
+            raise ScrapeError("NFO 在生成草稿时已改变，请重新加载")
         if target.error:
             draft.warnings.append(target.error + "；当前仅供预览，修复原文件后才能确认保存")
         by_source = {m.source: m for m in metadata}
@@ -115,12 +114,14 @@ class ScrapeService:
                 draft.warnings.append("电影身份发生变化：保存将替换旧片名、简介、演职员、站点 ID、外部评分和图片关联；保留用户评分、标签及观看收藏状态")
         if any(fingerprint(Path(path)) != expected for path, expected in draft.expected_files.items()):
             raise ScrapeError("文件在生成草稿时已改变，请重新加载")
+        validate_target_version(target)
         return draft
 
     def save(self, draft: ScrapeDraft, selected_fields: set[str] | None = None,
              overwrite: bool = False, metadata_only: bool = False) -> Movie:
         if not draft.confirmed:
             raise ScrapeError("请先确认匹配，再保存")
+        validate_target_version(draft.target)
         wants_poster = bool(draft.poster) and (selected_fields is None or "poster" in selected_fields)
         existing_poster = False
         if draft.target.existing and not overwrite and not draft.replace_identity:

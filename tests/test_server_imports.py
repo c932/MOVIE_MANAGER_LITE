@@ -23,6 +23,13 @@ DOMAIN_MODULES = [
     "scraper.douban_cli",
     "scraper.douban_ranking",
     "scraper.new_movie_checker",
+    "scraper.scrape_models",
+    "scraper.scrape_settings",
+    "scraper.scrape_http",
+    "scraper.metadata_sources",
+    "scraper.media_discovery",
+    "scraper.scrape_persistence",
+    "scraper.scrape_service",
 ]
 
 

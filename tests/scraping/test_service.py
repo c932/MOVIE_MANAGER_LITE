@@ -133,3 +133,25 @@ def test_broken_nfo_allows_readonly_preview_but_not_commit(tmp_path):
     with pytest.raises(ScrapeError, match="损坏"):
         service.save(draft, metadata_only=True)
     assert t.nfo_path.read_text(encoding="utf-8") == "broken"
+
+
+@pytest.mark.parametrize("existed", [True, False])
+def test_captured_target_version_is_checked_before_build_and_save(tmp_path, existed):
+    from scraper.scrape_models import capture_target_version
+    from scraper.scrape_service import ScrapeService
+    target = VideoTarget(tmp_path / "version.mkv", tmp_path / "version.nfo", existing=existed)
+    target.video_path.touch()
+    if existed:
+        target.nfo_path.write_text('<movie><title>A</title></movie>', encoding="utf-8")
+    captured = capture_target_version(target)
+    service = ScrapeService()
+    metadata = Metadata("tmdb", "1", {"title": "A"}, {"tmdb": "1"})
+    draft = service.build_draft(captured, [metadata])
+    draft.confirmed = True
+    external = '<movie><title>B</title></movie>'
+    target.nfo_path.write_text(external, encoding="utf-8")
+    with pytest.raises(ScrapeError, match="改变|冲突"):
+        service.build_draft(captured, [metadata])
+    with pytest.raises(ScrapeError, match="改变|冲突"):
+        service.save(draft, overwrite=True, metadata_only=True)
+    assert target.nfo_path.read_text(encoding="utf-8") == external

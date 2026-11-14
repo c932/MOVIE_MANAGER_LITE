@@ -89,11 +89,8 @@ class MovieCard(QWidget):
         tech_layout.addStretch()
         
         # === 评分徽章（右上角，半透明）===
-        if self.movie.rating > 0:
-            self.rating_badge = QLabel(self.poster_container)
-            rating_icon = "⭐" if self.movie.rating_source == "douban" else "★"
-            self.rating_badge.setText(f"{rating_icon} {self.movie.rating:.1f}")
-            self.rating_badge.setStyleSheet("""
+        self.rating_badge = QLabel(self.poster_container)
+        self.rating_badge.setStyleSheet("""
                 QLabel {
                     background-color: rgba(255, 193, 7, 0.75);
                     color: #1C1C1E;
@@ -102,9 +99,8 @@ class MovieCard(QWidget):
                     padding: 2px 6px;
                     border-radius: 4px;
                 }
-            """)
-            self.rating_badge.adjustSize()
-            self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, 6)
+        """)
+        self._refresh_rating()
         
         # === 排名角标容器（左下角，水平并排）===
         self._rank_badges = []
@@ -168,6 +164,23 @@ class MovieCard(QWidget):
             }}
         """)
         self.title_label.setGeometry(0, self.poster_height - label_height, self.poster_width, label_height)
+
+    def refresh_metadata(self, movie: Movie) -> None:
+        """卡片复用时同步实际控件；不启动 I/O 或重建海报线程。"""
+        self.movie = movie
+        self.title_label.setText(movie.title or "")
+        self._refresh_rating()
+
+    def _refresh_rating(self) -> None:
+        if self.movie.rating > 0:
+            icon = "⭐" if self.movie.rating_source == "douban" else "★"
+            self.rating_badge.setText(f"{icon} {self.movie.rating:.1f}")
+            self.rating_badge.adjustSize()
+            self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, 6)
+            self.rating_badge.show()
+        else:
+            self.rating_badge.clear()
+            self.rating_badge.hide()
     
     # 技术徽章颜色映射（半透明）
     _BADGE_COLORS = {

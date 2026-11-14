@@ -922,6 +922,12 @@ class MainWindow(QMainWindow):
     def _on_scrape_refresh_result(self, channel, generation, value):
         if channel != 'read':
             return
+        if hasattr(self, 'scanner') and self.scanner.isRunning():
+            # 读取期间可能开始扫描；扫描结束后重新读盘，不合并过期的中间列表。
+            pending = getattr(self, '_pending_scrape_paths', set())
+            pending.update(movie.nfo_path for movie in value if movie.nfo_path)
+            self._pending_scrape_paths = pending
+            return
         by_path = {WatchHistoryManager.normalize_path(m.nfo_path): m for m in self.all_movies}
         image_cache = ImageCache()
         for updated in value:
@@ -941,7 +947,8 @@ class MainWindow(QMainWindow):
                 self.all_movies.append(updated)
                 by_path[key] = updated
             for card in self._card_pool.values():
-                if card.movie.nfo_path == updated.nfo_path:
+                if WatchHistoryManager.normalize_path(card.movie.nfo_path) == key:
+                    card.refresh_metadata(old or updated)
                     card._poster_loaded = False
                     card._poster_loading = False
                     card._poster_fail_count = 0
@@ -1379,6 +1386,7 @@ class MainWindow(QMainWindow):
         self.scanner.progress_updated.connect(self.on_scan_progress)
         self.scanner.movie_found.connect(self.on_movie_found)
         self.scanner.scan_completed.connect(self.on_scan_completed)
+        self.scanner.finished.connect(self._drain_scrape_refresh_queue)
         self.scanner.scan_error.connect(self.on_scan_error)
         
         # 启动扫描
@@ -1404,7 +1412,16 @@ class MainWindow(QMainWindow):
 
         if movie.watched:
             logger.info(f"加载已观看电影: {movie.title} (NFO: {movie.nfo_path})")
-        self.all_movies.append(movie)
+        normalized = WatchHistoryManager.normalize_path(movie.nfo_path) if movie.nfo_path else None
+        old = next((item for item in self.all_movies
+                    if normalized and WatchHistoryManager.normalize_path(item.nfo_path) == normalized), None)
+        if old is None:
+            self.all_movies.append(movie)
+        else:
+            if not movie.added_time:
+                movie.added_time = old.added_time
+            for name, value in vars(movie).items():
+                setattr(old, name, value)
     
     def on_scan_completed(self, count: int):
         """扫描完成"""
@@ -2253,7 +2270,7 @@ class MainWindow(QMainWindow):
         visible_nfo_set = set()
         for m in sorted_movies:
             if m.nfo_path:
-                visible_nfo_set.add(m.nfo_path.replace('\\', '/'))
+                visible_nfo_set.add(WatchHistoryManager.normalize_path(m.nfo_path))
 
         # 隐藏不在当前筛选结果中的卡片（保留在池中，不销毁）
         for nfo_key, card in self._card_pool.items():
@@ -2270,7 +2287,7 @@ class MainWindow(QMainWindow):
         # 为当前筛选结果创建或复用卡片
         self.movie_cards = []
         for idx, movie in enumerate(sorted_movies):
-            nfo_key = movie.nfo_path.replace('\\', '/') if movie.nfo_path else f"_no_nfo_{idx}"
+            nfo_key = WatchHistoryManager.normalize_path(movie.nfo_path) if movie.nfo_path else f"_no_nfo_{idx}"
 
             if nfo_key not in self._card_pool:
                 # 创建新卡片并加入池中（传入豆瓣Top250排名信息）
@@ -2285,6 +2302,7 @@ class MainWindow(QMainWindow):
                 self._card_pool[nfo_key] = card
             else:
                 card = self._card_pool[nfo_key]
+                card.refresh_metadata(movie)
                 # 尺寸变化时：调整卡片大小并标记需要重新加载海报
                 if size_changed:
                     card.setFixedSize(poster_width, poster_height)
@@ -2953,7 +2971,7 @@ class MainWindow(QMainWindow):
 
         # 从卡片池中移除对应卡片
         if target_nfo:
-            nfo_key = target_nfo.replace('\\', '/')
+            nfo_key = WatchHistoryManager.normalize_path(target_nfo)
             if nfo_key in self._card_pool:
                 card = self._card_pool.pop(nfo_key)
                 card.hide()

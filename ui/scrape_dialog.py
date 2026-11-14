@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
-from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, VideoTarget
+from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, VideoTarget, capture_target_version
 from scraper.scrape_settings import ScrapeSettings
 from ui.scrape_tasks import TaskContext, TaskRunner, download_preview, safe_message
 
@@ -227,6 +227,18 @@ class ScrapeDialog(QDialog):
         self.match_label.setWordWrap(True)
         self.match_label.setObjectName("scrapeHint")
         preview_layout.addWidget(self.match_label)
+        preview_layout.addWidget(QLabel("片名（确认匹配后可编辑）"))
+        self.title_edit = QLineEdit()
+        self.title_edit.setAccessibleName("草稿片名")
+        self.title_edit.textChanged.connect(self._edit_draft)
+        preview_layout.addWidget(self.title_edit)
+        preview_layout.addWidget(QLabel("简介（确认匹配后可编辑）"))
+        self.plot_edit = QPlainTextEdit()
+        self.plot_edit.setAccessibleName("草稿简介")
+        self.plot_edit.setMinimumHeight(100)
+        self.plot_edit.setMaximumHeight(150)
+        self.plot_edit.textChanged.connect(self._edit_draft)
+        preview_layout.addWidget(self.plot_edit)
         self.preview_text = QPlainTextEdit()
         self.preview_text.setReadOnly(True)
         self.preview_text.setMinimumHeight(155)
@@ -408,6 +420,7 @@ class ScrapeDialog(QDialog):
         target = self.current_target
         self._active_key = _key(target) if target else None
         self.preview_text.clear()
+        self._populate_editors(None)
         self.artwork_list.clear()
         self.identity_label.clear()
         self.rating_label.setText("TMDB：未取得   IMDb：未取得   豆瓣：未取得")
@@ -523,10 +536,12 @@ class ScrapeDialog(QDialog):
         self.artwork_list.clear()
         self.status_label.setText("正在后台获取候选详情与写入预览…")
         def build(context):
+            prepared = capture_target_version(target)
+            context.checkpoint()
             metadata = service.details(candidate)
             context.checkpoint()
             sources = [m for m in confirmed if m.source != metadata.source] + [metadata]
-            draft = service.build_draft(target, sources, plot_source=plot_source)
+            draft = service.build_draft(prepared, sources, plot_source=plot_source)
             draft.confirmed = False
             return key, draft, sources
         self.tasks.start("preview", build)
@@ -534,18 +549,8 @@ class ScrapeDialog(QDialog):
 
     def _render_draft(self, draft: ScrapeDraft, confirmed=False) -> None:
         self.match_label.setText("已确认匹配；可选择字段并保存。" if confirmed else "候选仅供预览，点击「确认匹配」后才能保存。")
-        lines = [f"视频：{draft.target.video_path}", f"将写入 NFO：{draft.target.nfo_path}"]
-        for name, value in draft.fields.items():
-            self._ensure_field(name)
-            lines.append(f"{FIELD_LABELS.get(name, name)}：{_text(value)}")
-        if getattr(draft, "votes", None):
-            lines.append(f"评分人数：{_text(draft.votes)}")
-        lines.extend(f"提示：{warning}" for warning in draft.warnings)
-        if draft.target.error:
-            lines.append(f"原 NFO 损坏，保存已禁用：{draft.target.error}")
-        if draft.poster:
-            lines.append(f"海报：{draft.poster.url}")
-        self.preview_text.setPlainText("\n\n".join(lines))
+        self._populate_editors(draft)
+        self._render_fields(draft)
         ratings = draft.fields.get("ratings", {})
         if not isinstance(ratings, dict):
             ratings = {}
@@ -568,6 +573,40 @@ class ScrapeDialog(QDialog):
         self.artwork_list.blockSignals(False)
         self._poster_policy_changed()
         self._load_images("artwork-images", [(index + 1, artwork.preview_url or artwork.url) for index, artwork in enumerate(draft.artwork)])
+
+    def _populate_editors(self, draft: ScrapeDraft | None) -> None:
+        self.title_edit.blockSignals(True)
+        self.plot_edit.blockSignals(True)
+        self.title_edit.setText(str(draft.fields.get("title", "")) if draft else "")
+        self.plot_edit.setPlainText(str(draft.fields.get("plot", "")) if draft else "")
+        self.title_edit.blockSignals(False)
+        self.plot_edit.blockSignals(False)
+
+    def _edit_draft(self) -> None:
+        draft = self.drafts.get(self._active_key)
+        if (not draft or not draft.confirmed or draft.target.error or self.mode == "douban"
+                or self._preview or self._preview_pending or self._write_active):
+            return
+        draft.fields["title"] = self.title_edit.text().strip()
+        draft.fields["plot"] = self.plot_edit.toPlainText()
+        self._saved_keys.discard(self._active_key)
+        self._set_state(self._active_key, "已确认（已编辑）")
+        self._render_fields(draft)
+        self._update_buttons()
+
+    def _render_fields(self, draft: ScrapeDraft) -> None:
+        lines = [f"视频：{draft.target.video_path}", f"将写入 NFO：{draft.target.nfo_path}"]
+        for name, value in draft.fields.items():
+            self._ensure_field(name)
+            lines.append(f"{FIELD_LABELS.get(name, name)}：{_text(value)}")
+        if getattr(draft, "votes", None):
+            lines.append(f"评分人数：{_text(draft.votes)}")
+        lines.extend(f"提示：{warning}" for warning in draft.warnings)
+        if draft.target.error:
+            lines.append(f"原 NFO 损坏，保存已禁用：{draft.target.error}")
+        if draft.poster:
+            lines.append(f"海报：{draft.poster.url}")
+        self.preview_text.setPlainText("\n\n".join(lines))
 
     def _load_images(self, channel: str, urls: list[tuple[int, str]]) -> None:
         self.tasks.invalidate(channel)
@@ -709,7 +748,8 @@ class ScrapeDialog(QDialog):
                 payload.replace_identity = False
                 if hasattr(payload, "votes"):
                     payload.votes = {s: count for s, count in payload.votes.items() if s == "douban"}
-            queue.append(("save", key, payload, fields, choices.get("overwrite", False), metadata_only))
+            overwrite = self.mode == "douban" or choices.get("overwrite", False)
+            queue.append(("save", key, payload, fields, overwrite, metadata_only))
         self._begin_queue(queue)
 
     def _save_current(self) -> None:
@@ -793,6 +833,10 @@ class ScrapeDialog(QDialog):
         self.save_button.setEnabled(bool(draft and draft.confirmed and not draft.target.error and not self._preview and not self._preview_pending and available))
         self.save_all_button.setEnabled(bool(any(d.confirmed and not d.target.error and key not in self._saved_keys for key, d in self.drafts.items()) and available))
         self.confirm_button.setEnabled(bool(self._preview and not self._preview[0].target.error and not self._closing and not writing))
+        editable = bool(draft and draft.confirmed and not draft.target.error and available
+                        and not self._preview and not self._preview_pending and self.mode != "douban")
+        self.title_edit.setEnabled(editable)
+        self.plot_edit.setEnabled(editable)
         self.douban_button.setEnabled(bool(self.service and available))
         self.mode_combo.setEnabled(available)
         self.settings_button.setEnabled(self.service is not None and available)

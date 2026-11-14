@@ -16,7 +16,7 @@ from PIL import Image, UnidentifiedImageError
 from models.movie import Movie
 from parsers.nfo_parser import NFOParser
 from parsers.nfo_writer import _atomic_write, apply_fields
-from scraper.scrape_models import ScrapeDraft, ScrapeError
+from scraper.scrape_models import ScrapeDraft, ScrapeError, validate_target_version
 
 _LOCK = threading.RLock()
 SOURCES = {"tmdb", "imdb", "douban"}
@@ -166,6 +166,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
     if "ratings" in fields:
         fields["ratings"] = {s: validate_score(v) for s, v in fields["ratings"].items() if s in SOURCES}
     with _LOCK:
+        validate_target_version(draft.target)
         if not draft.expected_files:
             raise ScrapeError("草稿缺少磁盘快照，请重新加载电影")
         for filename, expected in draft.expected_files.items():
@@ -243,6 +244,8 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
         stat = path.stat()
         draft.target.nfo_stamp = (stat.st_mtime_ns, stat.st_size)
         snapshot_files(draft)
+        draft.target.nfo_fingerprint = draft.expected_files[str(path)]
+        draft.target.version_captured = True
         return movie
 
 

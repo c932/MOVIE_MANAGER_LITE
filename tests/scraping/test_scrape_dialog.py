@@ -622,3 +622,144 @@ def test_rescan_reloads_repaired_nfo_and_invalidates_changed_draft(dialog, app, 
     assert not window.current_target.error
     assert window.current_target.nfo_stamp == (10, 100)
     assert not window.save_button.isEnabled()
+
+
+@pytest.mark.parametrize("new_id", ["111", "222"])
+def test_douban_manual_save_overwrites_only_selected_douban_data(app, tmp_path, monkeypatch, new_id):
+    import xml.etree.ElementTree as ET
+    from PyQt6.QtWidgets import QMessageBox
+    from scraper.scrape_service import ScrapeService
+    from ui.scrape_dialog import ScrapeDialog
+    video = tmp_path / "douban.mkv"
+    video.touch()
+    nfo = video.with_suffix(".nfo")
+    nfo.write_text('''<movie><title>原片名</title><plot>原简介</plot><userrating>6</userrating><playcount>1</playcount><tag>收藏标签</tag><custom>自定义</custom><uniqueid type="douban">111</uniqueid><uniqueid type="tmdb">888</uniqueid><uniqueid type="imdb">tt1234567</uniqueid><ratings><rating name="douban"><value>7</value><votes>10</votes></rating><rating name="imdb"><value>8.2</value><votes>20</votes></rating></ratings><thumb aspect="poster">poster.jpg</thumb></movie>''', encoding="utf-8")
+    poster = tmp_path / "poster.jpg"
+    poster.write_bytes(b"old-poster")
+    service = ScrapeService(ScrapeSettings())
+    monkeypatch.setattr(service, "search", lambda *args, **kwargs: [Candidate("douban", new_id, "不同的来源片名")])
+    monkeypatch.setattr(service, "details", lambda candidate: Metadata("douban", new_id, fields={"title": "不同的来源片名", "plot": "不应写入的简介"}, ids={"douban": new_id}, ratings={"douban": 9.1}, votes={"douban": 123}))
+    monkeypatch.setattr(QMessageBox, "question", lambda *args: QMessageBox.StandardButton.Yes)
+    window = ScrapeDialog([Movie(title="原片名", video_path=str(video), nfo_path=str(nfo))], mode="douban", service=service)
+    window.show()
+    try:
+        search_and_preview(app, window)
+        window.confirm_button.click()
+        window.save_button.click()
+        until(app, lambda: not window.tasks.busy)
+        assert "成功" in window.status_label.text()
+        root = ET.parse(nfo).getroot()
+        assert root.findtext("uniqueid[@type='douban']") == new_id
+        assert root.findtext("ratings/rating[@name='douban']/value") == "9.1"
+        assert root.findtext("ratings/rating[@name='douban']/votes") == "123"
+        assert root.findtext("uniqueid[@type='tmdb']") == "888"
+        assert root.findtext("uniqueid[@type='imdb']") == "tt1234567"
+        assert root.findtext("ratings/rating[@name='imdb']/value") == "8.2"
+        assert root.findtext("plot") == "原简介" and root.findtext("title") == "原片名"
+        assert root.findtext("userrating") == "6" and root.findtext("playcount") == "1"
+        assert root.findtext("tag") == "收藏标签" and root.findtext("custom") == "自定义"
+        assert root.findtext("thumb") == "poster.jpg" and poster.read_bytes() == b"old-poster"
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize("existed", [True, False])
+def test_nfo_changed_during_real_service_details_is_rejected(app, tmp_path, monkeypatch, existed):
+    from scraper.scrape_service import ScrapeService
+    from ui.scrape_dialog import ScrapeDialog
+    video = tmp_path / "conflict.mkv"
+    video.touch()
+    nfo = video.with_suffix(".nfo")
+    if existed:
+        nfo.write_text('<movie><title>原版本</title></movie>', encoding="utf-8")
+    service = ScrapeService(ScrapeSettings())
+    entered, release = threading.Event(), threading.Event()
+    external = '<movie><title>外部修改</title><plot>保留外部内容</plot></movie>'
+    def details(candidate):
+        entered.set()
+        release.wait(3)
+        nfo.write_text(external, encoding="utf-8")
+        return Metadata("douban", "123", fields={"title": "原版本"}, ids={"douban": "123"})
+    monkeypatch.setattr(service, "details", details)
+    window = ScrapeDialog([Movie(title="原版本", video_path=str(video), nfo_path=str(nfo))], mode="existing", service=service)
+    window.show()
+    try:
+        window._show_candidates([Candidate("douban", "123", "原版本")])
+        window.candidate_list.setCurrentRow(0)
+        until(app, entered.is_set)
+        release.set()
+        until(app, lambda: not window.tasks.busy)
+        assert not window.confirm_button.isEnabled()
+        assert not window.save_button.isEnabled()
+        assert "改变" in window.status_label.text() or "冲突" in window.status_label.text()
+        assert nfo.read_text(encoding="utf-8") == external
+    finally:
+        release.set()
+        until(app, lambda: not window.tasks.busy)
+        window.close()
+
+
+def test_confirmed_draft_editors_persist_per_target_and_save_selected_fields(dialog, app):
+    window, service = dialog
+    search_and_preview(app, window, "来源片名甲")
+    window.confirm_button.click()
+    window.title_edit.setText("人工片名甲")
+    window.plot_edit.setPlainText("人工简介甲")
+    window.query_edit.setText("搜索词不参与保存")
+    window.metadata_only_check.setChecked(True)
+    window.target_list.setCurrentRow(1)
+    search_and_preview(app, window, "来源片名乙")
+    window.confirm_button.click()
+    window.title_edit.setText("人工片名乙")
+    window.plot_edit.setPlainText("人工简介乙")
+    window.metadata_only_check.setChecked(True)
+    window.field_checks["plot"].setChecked(False)
+    window.target_list.setCurrentRow(0)
+    assert window.title_edit.text() == "人工片名甲"
+    assert window.plot_edit.toPlainText() == "人工简介甲"
+    window.save_all_button.click()
+    until(app, lambda: len(service.save_calls) == 2 and not window.tasks.busy)
+    assert [call[0].fields["title"] for call in service.save_calls] == ["人工片名甲", "人工片名乙"]
+    assert service.save_calls[0][0].fields["plot"] == "人工简介甲"
+    assert "plot" not in service.save_calls[1][1]
+
+
+def test_douban_mode_disables_title_and_plot_editors(dialog, app):
+    window, service = dialog
+    window.mode_combo.setCurrentIndex(window.mode_combo.findData("douban"))
+    search_and_preview(app, window)
+    window.confirm_button.click()
+    assert not window.title_edit.isEnabled()
+    assert not window.plot_edit.isEnabled()
+
+
+def test_real_service_saves_edited_title_and_respects_unselected_plot(app, tmp_path, monkeypatch):
+    import xml.etree.ElementTree as ET
+    from scraper.scrape_service import ScrapeService
+    from ui.scrape_dialog import ScrapeDialog
+    video = tmp_path / "edited.mkv"
+    video.touch()
+    nfo = video.with_suffix(".nfo")
+    nfo.write_text('<movie><title>原片名</title><plot>原简介</plot><uniqueid type="tmdb">1</uniqueid></movie>', encoding="utf-8")
+    service = ScrapeService(ScrapeSettings())
+    monkeypatch.setattr(service, "search", lambda *args, **kwargs: [Candidate("tmdb", "1", "原片名")])
+    monkeypatch.setattr(service, "details", lambda candidate: Metadata("tmdb", "1", fields={"title": "原片名", "plot": "来源简介"}, ids={"tmdb": "1"}))
+    window = ScrapeDialog([Movie(title="原片名", video_path=str(video), nfo_path=str(nfo))], mode="existing", service=service)
+    window.show()
+    try:
+        search_and_preview(app, window)
+        window.confirm_button.click()
+        window.title_edit.setText("人工修订片名")
+        window.plot_edit.setPlainText("本次不写入的编辑简介")
+        window.query_edit.setText("仅用于搜索的内容")
+        window.field_checks["plot"].setChecked(False)
+        window.overwrite_check.setChecked(True)
+        window.metadata_only_check.setChecked(True)
+        window.save_button.click()
+        until(app, lambda: not window.tasks.busy)
+        assert "成功" in window.status_label.text()
+        root = ET.parse(nfo).getroot()
+        assert root.findtext("title") == "人工修订片名"
+        assert root.findtext("plot") == "原简介"
+    finally:
+        window.close()
