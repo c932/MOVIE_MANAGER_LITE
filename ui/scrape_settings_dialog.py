@@ -26,6 +26,11 @@ def test_connection(settings: ScrapeSettings, source: str) -> str:
         rating, _votes = OmdbProvider(settings).rating("tt0111161")
         if rating is None:
             raise ValueError("连接已返回，但未取得测试条目的 IMDb 评分")
+    elif source == "imdb":
+        from scraper.imdb_provider import ImdbProvider
+        rating, _votes = ImdbProvider(settings).rating("tt0111161")
+        if rating is None:
+            raise ValueError("IMDb 未提供测试电影的评分")
     else:
         if source == "tmdb" and not (settings.tmdb_api_key or settings.tmdb_token):
             raise ValueError("请先填写 TMDB API Key 或 Token")
@@ -90,13 +95,13 @@ class ScrapeSettingsDialog(QDialog):
         form.addRow("HTTP(S) 代理", self.proxy_edit)
         form.addRow("请求超时", self.timeout_spin)
         form.addRow("豆瓣请求间隔", self.delay_spin)
-        note = QLabel("凭据保存在本机配置文件中，未加密。TMDB / OMDb 未配置时，对应来源不可用；豆瓣仍可独立使用。豆瓣需要 Node / npx，其 CLI 代理支持以连接测试结果为准。")
+        note = QLabel("凭据保存在本机配置文件中，未加密。TMDB Key 用于 TMDB；IMDb 评分无需 Key，OMDb 是可选来源。确认匹配后按明确 IMDb ID 补充跨站评分。豆瓣需要 Node / npx，其 CLI 代理支持以连接测试结果为准。")
         note.setWordWrap(True)
         note.setObjectName("scrapeHint")
         form.addRow(note)
         test_row = QHBoxLayout()
         self.test_source_combo = QComboBox()
-        for label, value in (("TMDB", "tmdb"), ("OMDb / IMDb", "omdb"), ("豆瓣", "douban")):
+        for label, value in (("TMDB", "tmdb"), ("IMDb（无需 Key）", "imdb"), ("OMDb（可选）", "omdb"), ("豆瓣", "douban")):
             self.test_source_combo.addItem(label, value)
         self.test_button = QPushButton("测试连接")
         self.test_button.clicked.connect(self._test)

@@ -187,6 +187,21 @@ class TmdbProvider:
             result.warnings.append('TMDB 未提供所选语言的简介')
         return result
 
+    def rating_by_imdb(self, imdb_id: str) -> tuple[str, float | None, int | None]:
+        identity = _imdb_id(imdb_id)
+        if not identity:
+            raise ProviderError('IMDb ID 格式无效')
+        results = _items(self._get(f'find/{identity}', external_source='imdb_id'), 'movie_results', 'TMDB', required=True)
+        matches = {_text(item.get('id')) for item in results if re.fullmatch(r'\d+', _text(item.get('id')))}
+        if len(matches) != 1:
+            raise ProviderError('TMDB 未找到唯一的 IMDb 电影关联')
+        tmdb_id = matches.pop()
+        movie = self._get(f'movie/{tmdb_id}')
+        if _text(movie.get('id')) != tmdb_id or _imdb_id(_text(movie.get('imdb_id'))) != identity:
+            raise ProviderError('TMDB 返回不同的电影，IMDb 关联冲突')
+        score, votes = _score(movie.get('vote_average')), _votes(movie.get('vote_count'))
+        return tmdb_id, score if votes and votes > 0 else None, votes
+
 
 class OmdbProvider:
     def __init__(self, settings: ScrapeSettings) -> None:

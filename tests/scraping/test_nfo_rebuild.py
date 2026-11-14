@@ -303,9 +303,8 @@ def test_cancel_during_progress_never_emits_completion(tmp_path):
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows 只读属性与替换行为')
-@pytest.mark.parametrize('asset', ['nfo', 'poster'])
 @pytest.mark.parametrize('save_api', ['service', 'commit'])
-def test_readonly_target_stops_before_download_backup_or_write(tmp_path, monkeypatch, asset, save_api):
+def test_readonly_poster_stops_before_download_backup_or_write(tmp_path, monkeypatch, save_api):
     import scraper.scrape_persistence as persistence
     from scraper.scrape_http import HttpClient
     draft = preview(tmp_path)
@@ -314,7 +313,7 @@ def test_readonly_target_stops_before_download_backup_or_write(tmp_path, monkeyp
     poster = persistence.poster_path(draft)
     poster.write_bytes(png('blue'))
     persistence.snapshot_files(draft)
-    protected = draft.target.nfo_path if asset == 'nfo' else poster
+    protected = poster
     original = protected.read_bytes()
     downloads = []
     monkeypatch.setattr(HttpClient, 'get_bytes', lambda *a, **k: downloads.append(True) or png('red'))
@@ -335,6 +334,234 @@ def test_readonly_target_stops_before_download_backup_or_write(tmp_path, monkeyp
         protected.chmod(stat.S_IREAD | stat.S_IWRITE)
     # 用户解除只读后，可沿用已确认草稿直接重试。
     assert ScrapeService().save(draft).title == '乐高蝙蝠侠大电影'
+
+
+def is_readonly(path):
+    return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_READONLY)
+
+
+@pytest.fixture(params=['commit', 'douban'])
+def readonly_nfo_operation(tmp_path, request):
+    if os.name != 'nt':
+        pytest.skip('Windows 只读属性与替换行为')
+    import scraper.scrape_persistence as persistence
+    if request.param == 'commit':
+        draft = preview(tmp_path)
+        draft.confirmed = draft.rebuild_nfo = True
+        path, original = draft.target.nfo_path, BB_CODE
+        def save():
+            return persistence.commit_draft(draft, metadata_only=True)
+    else:
+        original = '<?xml version="1.0" encoding="utf-16"?><movie><!--原始格式--><title>旧片</title><plot>保留简介</plot></movie>'.encode('utf-16')
+        path = library(tmp_path, original).with_suffix('.nfo')
+        def save():
+            return persistence.update_douban_nfo(str(path), '123', {'rating': '8.2', 'rating_count': 42},
+                                                 expected_fingerprint=hashlib.sha256(original).hexdigest())
+    path.chmod(stat.S_IREAD)
+    try:
+        yield path, original, save
+    finally:
+        if path.exists():
+            path.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_readonly_check_opt_in_never_changes_attributes(readonly_nfo_operation):
+    from scraper.scrape_persistence import ensure_writable_file
+    path, original, _ = readonly_nfo_operation
+    with pytest.raises(ScrapeError, match='只读'):
+        ensure_writable_file(path, 'NFO')
+    ensure_writable_file(path, 'NFO', allow_readonly=True)
+    assert is_readonly(path)
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob('*.mml-backup-*'))
+
+
+def test_readonly_nfo_replaced_only_after_exact_backup(readonly_nfo_operation, monkeypatch):
+    import scraper.scrape_persistence as persistence
+    path, original, save = readonly_nfo_operation
+    real_chmod = Path.chmod
+    def checked_chmod(p, mode, *args, **kwargs):
+        if p == path and mode & stat.S_IWRITE:
+            assert [b.read_bytes() for b in path.parent.glob('*.mml-backup-*')] == [original]
+            assert p.read_bytes() == original
+        return real_chmod(p, mode, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'chmod', checked_chmod)
+        assert save()
+    assert not is_readonly(path)
+    assert path.read_bytes() != original
+    root = ET.parse(path).getroot()
+    if root.find('ratings') is not None:
+        assert root.findtext("ratings/rating[@name='douban']/value") == '8.2'
+        assert root.findtext('plot') == '保留简介'
+    else:
+        assert root.findtext('title') == '乐高蝙蝠侠大电影'
+    assert [b.read_bytes() for b in path.parent.glob('*.mml-backup-*')] == [original]
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows 只读属性与替换行为')
+def test_readonly_valid_nfo_merge_preserves_fields_and_original_backup(tmp_path):
+    import scraper.scrape_persistence as persistence
+    original = '<movie><title>旧片</title><plot>保留简介</plot><custom>保留标签</custom></movie>'.encode('utf-16')
+    library(tmp_path, original)
+    draft = ScrapeService().build_draft(discover_videos([tmp_path])[0],
+                                       [Metadata('tmdb', '324849', {'title': '旧片', 'year': '2017'})])
+    draft.confirmed = True
+    path = draft.target.nfo_path
+    path.chmod(stat.S_IREAD)
+    try:
+        movie = persistence.commit_draft(draft, metadata_only=True)
+        assert movie.title == '旧片'
+        assert not is_readonly(path)
+        root = ET.parse(path).getroot()
+        assert root.findtext('plot') == '保留简介'
+        assert root.findtext('custom') == '保留标签'
+        assert root.findtext('year') == '2017'
+        assert [b.read_bytes() for b in tmp_path.glob('*.mml-backup-*')] == [original]
+    finally:
+        path.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+@pytest.mark.parametrize('failure', ['backup', 'replace', 'chmod', 'chmod_after_change', 'readback'])
+def test_readonly_nfo_failure_restores_bytes_and_attribute(readonly_nfo_operation, monkeypatch, failure):
+    import scraper.scrape_persistence as persistence
+    path, original, save = readonly_nfo_operation
+    real_write, real_chmod, real_replace = persistence._atomic_write, Path.chmod, os.replace
+    def write(p, data):
+        if failure == 'backup' and '.mml-backup-' in p.name:
+            raise PermissionError('模拟备份失败')
+        return real_write(p, data)
+    def chmod(p, mode, *args, **kwargs):
+        if p == path and mode & stat.S_IWRITE and failure in {'chmod', 'chmod_after_change'}:
+            if failure == 'chmod_after_change':
+                real_chmod(p, mode, *args, **kwargs)
+            raise PermissionError('模拟属性设置失败')
+        if p == path and mode & stat.S_IWRITE and failure == 'backup':
+            pytest.fail('备份失败不得解除只读')
+        return real_chmod(p, mode, *args, **kwargs)
+    def replace(src, dst):
+        if failure == 'replace' and Path(dst) == path:
+            raise PermissionError('模拟原子替换失败')
+        return real_replace(src, dst)
+    with monkeypatch.context() as patch:
+        patch.setattr(persistence, '_atomic_write', write)
+        patch.setattr(Path, 'chmod', chmod)
+        patch.setattr(os, 'replace', replace)
+        if failure == 'readback':
+            patch.setattr(persistence.NFOParser, 'parse', lambda *a, **k: None)
+            real_xml = persistence._xml
+            def xml(p):
+                if p == path and p.read_bytes() != original:
+                    raise ScrapeError('模拟回读失败')
+                return real_xml(p)
+            patch.setattr(persistence, '_xml', xml)
+        with pytest.raises(ScrapeError):
+            save()
+    assert path.read_bytes() == original
+    assert is_readonly(path)
+    assert not list(path.parent.glob('*.tmp'))
+    if failure != 'backup':
+        assert [b.read_bytes() for b in path.parent.glob('*.mml-backup-*')] == [original]
+    # 回滚后仍可使用同一已确认操作重试。
+    assert save()
+    assert not is_readonly(path)
+
+
+@pytest.mark.parametrize('external_readonly', [False, True])
+def test_readonly_nfo_backup_conflict_never_changes_external_attributes(readonly_nfo_operation, monkeypatch, external_readonly):
+    import scraper.scrape_persistence as persistence
+    path, original, save = readonly_nfo_operation
+    external = b'Changed externally'
+    real_write, real_chmod = persistence._atomic_write, Path.chmod
+    def backup_then_change(p, data):
+        real_write(p, data)
+        if '.mml-backup-' in p.name:
+            real_chmod(path, stat.S_IREAD | stat.S_IWRITE)
+            path.write_bytes(external)
+            if external_readonly:
+                real_chmod(path, stat.S_IREAD)
+    def forbidden_chmod(p, *args, **kwargs):
+        if p == path:
+            pytest.fail('冲突时不得修改外部文件属性')
+        return real_chmod(p, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(persistence, '_atomic_write', backup_then_change)
+        patch.setattr(Path, 'chmod', forbidden_chmod)
+        with pytest.raises(ScrapeError, match='改变|冲突'):
+            save()
+    assert path.read_bytes() == external
+    assert is_readonly(path) is external_readonly
+    assert [b.read_bytes() for b in path.parent.glob('*.mml-backup-*')] == [original]
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows 只读属性与替换行为')
+@pytest.mark.parametrize('existing_poster', [False, True])
+@pytest.mark.parametrize('failure', ['poster', 'nfo', 'readback', 'nfo_conflict'])
+def test_readonly_nfo_with_poster_failure_restores_transaction(tmp_path, monkeypatch, existing_poster, failure):
+    import scraper.scrape_persistence as persistence
+    draft = preview(tmp_path)
+    draft.confirmed = draft.rebuild_nfo = True
+    path, poster = draft.target.nfo_path, persistence.poster_path(draft)
+    original_poster = png('blue') if existing_poster else None
+    if original_poster is not None:
+        poster.write_bytes(original_poster)
+    persistence.snapshot_files(draft)
+    path.chmod(stat.S_IREAD)
+    real_write, real_chmod = persistence._atomic_write, Path.chmod
+    external = b'External NFO'
+    def write(p, data):
+        if ((failure == 'poster' and p == poster and data != original_poster)
+                or (failure == 'nfo' and p == path and data != BB_CODE)):
+            raise PermissionError('模拟保存失败')
+        real_write(p, data)
+        if failure == 'nfo_conflict' and p == poster and data != original_poster:
+            real_chmod(path, stat.S_IREAD | stat.S_IWRITE)
+            path.write_bytes(external)
+            real_chmod(path, stat.S_IREAD)
+    def chmod(p, *args, **kwargs):
+        if p == path and failure in {'poster', 'nfo_conflict'}:
+            pytest.fail('NFO 尚未写入或发生冲突时不得修改属性')
+        return real_chmod(p, *args, **kwargs)
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(persistence, '_atomic_write', write)
+            patch.setattr(Path, 'chmod', chmod)
+            if failure == 'readback':
+                patch.setattr(persistence.NFOParser, 'parse', lambda *a, **k: None)
+            with pytest.raises(ScrapeError):
+                persistence.commit_draft(draft, poster_bytes=png('red'))
+        assert path.read_bytes() == (external if failure == 'nfo_conflict' else BB_CODE)
+        assert is_readonly(path)
+        assert (poster.read_bytes() if poster.exists() else None) == original_poster
+        assert BB_CODE in [b.read_bytes() for b in tmp_path.glob('*.mml-backup-*')]
+        if failure != 'nfo_conflict':
+            assert persistence.commit_draft(draft, poster_bytes=png('red')).title == '乐高蝙蝠侠大电影'
+            assert not is_readonly(path)
+    finally:
+        path.chmod(stat.S_IREAD | stat.S_IWRITE)
+
+
+def test_readonly_nfo_attribute_rollback_failure_reports_backup(readonly_nfo_operation, monkeypatch):
+    import scraper.scrape_persistence as persistence
+    path, original, save = readonly_nfo_operation
+    real_chmod, real_write = Path.chmod, persistence._atomic_write
+    def chmod(p, mode, *args, **kwargs):
+        if p == path and not mode & stat.S_IWRITE:
+            raise PermissionError('模拟无法恢复只读')
+        return real_chmod(p, mode, *args, **kwargs)
+    def write(p, data):
+        if p == path:
+            raise PermissionError('模拟写入失败')
+        return real_write(p, data)
+    with monkeypatch.context() as patch:
+        patch.setattr(Path, 'chmod', chmod)
+        patch.setattr(persistence, '_atomic_write', write)
+        with pytest.raises(ScrapeError, match='未能恢复.*mml-backup') as raised:
+            save()
+    assert str(path) in str(raised.value)
+    assert path.read_bytes() == original
+    assert not is_readonly(path)
+    assert [b.read_bytes() for b in path.parent.glob('*.mml-backup-*')] == [original]
 
 
 @pytest.mark.parametrize('phase', ['backup', 'nfo'])

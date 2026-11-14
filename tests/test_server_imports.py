@@ -31,6 +31,10 @@ DOMAIN_MODULES = [
     "scraper.nfo_inspection",
     "scraper.scrape_persistence",
     "scraper.scrape_service",
+    "scraper.scan_queue",
+    "scraper.rating_enrichment",
+    "scraper.imdb_provider",
+    "scraper.imdb_ratings",
 ]
 
 

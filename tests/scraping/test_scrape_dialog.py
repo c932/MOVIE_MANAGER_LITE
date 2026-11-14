@@ -15,6 +15,12 @@ from scraper.scrape_models import Artwork, Candidate, Metadata, ScrapeDraft, Vid
 from scraper.scrape_settings import ScrapeSettings
 
 
+@pytest.fixture(autouse=True)
+def isolate_optional_rating_network(monkeypatch):
+    from scraper.scrape_service import ScrapeService
+    monkeypatch.setattr(ScrapeService, "enrich_metadata", lambda self, metadata: metadata)
+
+
 @pytest.fixture(scope="session")
 def app():
     from PyQt6.QtGui import QFont, QFontDatabase
@@ -147,6 +153,7 @@ def test_preview_requires_manual_confirmation_and_saves_selected_fields(dialog, 
     assert not window.save_button.isEnabled()
     assert "匹配甲" in window.preview_text.toPlainText()
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.field_checks["plot"].setChecked(False)
     window.metadata_only_check.setChecked(True)
     window.save_button.click()
@@ -160,9 +167,11 @@ def test_confirmed_drafts_survive_target_switch_and_batch_save(dialog, app):
     window, service = dialog
     search_and_preview(app, window, "甲确认")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.target_list.setCurrentRow(1)
     search_and_preview(app, window, "乙确认")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     window.target_list.setCurrentRow(0)
     assert "甲确认" in window.preview_text.toPlainText()
@@ -186,6 +195,7 @@ def test_late_candidate_details_cannot_replace_current_preview(dialog, app):
     until(app, lambda: not window.tasks.busy)
     assert "旧候选" not in window.preview_text.toPlainText()
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     assert next(iter(window.drafts.values())).fields["title"] == "新候选"
 
 
@@ -214,6 +224,7 @@ def test_douban_batch_ambiguity_stays_in_same_window_without_other_sources(dialo
     assert not any(c[0] in {"save", "search", "details"} for c in service.calls)
     search_and_preview(app, window, "手动豆瓣")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.save_button.click()
     until(app, lambda: len(service.save_calls) == 1 and not window.tasks.busy)
     selected = service.save_calls[0][1]
@@ -224,6 +235,7 @@ def test_save_error_is_visible_and_retryable(dialog, app):
     window, service = dialog
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     service.fail_save = True
     window.save_button.click()
@@ -239,6 +251,7 @@ def test_close_defers_until_current_write_finishes_and_cancels_following(dialog,
     window, service = dialog
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     service.gates["save"] = threading.Event()
     paths = []
@@ -279,6 +292,7 @@ def test_loading_new_candidate_disables_saving_old_confirmed_draft(dialog, app):
     window, service = dialog
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     gate = threading.Event()
     service.gates["尚未确认"] = gate
     window._show_candidates([Candidate("tmdb", "尚未确认", "尚未确认")])
@@ -292,10 +306,12 @@ def test_cross_source_only_merges_after_explicit_confirmation(dialog, app):
     window, service = dialog
     search_and_preview(app, window, "TMDB片名")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.source_combo.setCurrentIndex(1)
     search_and_preview(app, window, "豆瓣片名")
     assert "douban" not in next(iter(window.drafts.values())).fields["ratings"]
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     assert next(iter(window.drafts.values())).fields["ratings"] == {"tmdb": 8.1, "douban": 8.1}
 
 
@@ -303,10 +319,12 @@ def test_switching_to_douban_does_not_save_other_source_fields(dialog, app):
     window, service = dialog
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.mode_combo.setCurrentIndex(window.mode_combo.findData("douban"))
     assert not window.save_button.isEnabled(), "豆瓣模式须单独人工确认豆瓣身份"
     search_and_preview(app, window, "豆瓣补分")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.save_button.click()
     until(app, lambda: bool(service.save_calls) and not window.tasks.busy)
     fields = service.save_calls[0][1]
@@ -335,6 +353,7 @@ def test_real_service_roundtrip_saves_uniqueids_and_votes(app, tmp_path, monkeyp
     window.target_list.setCurrentRow(0)
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     paths = []
     window.saved.connect(paths.extend)
@@ -368,6 +387,7 @@ def test_cancel_batch_stops_following_saves_but_reports_current(dialog, app):
         window.target_list.setCurrentRow(row)
         search_and_preview(app, window, str(row))
         window.confirm_button.click()
+        until(app, lambda: not window.tasks.busy)
         window.metadata_only_check.setChecked(True)
     gate = threading.Event()
     service.gates["save"] = gate
@@ -405,6 +425,7 @@ def test_thumbnails_decode_in_worker_and_remain_visible(dialog, app, monkeypatch
     assert "1000" in window.artwork_list.item(1).text()
     window.artwork_list.setCurrentRow(1)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.field_checks["poster"].setChecked(False)
     window.save_button.click()
     until(app, lambda: bool(service.save_calls) and not window.tasks.busy)
@@ -427,6 +448,7 @@ def test_identity_replacement_requires_confirmation_but_daily_save_does_not(dial
     monkeypatch.setattr(QMessageBox, "question", reject)
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     window.save_button.click()
     assert asked and "整组替换" in asked[0]
@@ -469,6 +491,7 @@ def test_real_service_can_save_same_draft_again_after_success(app, tmp_path, mon
     until(app, lambda: not window.tasks.busy)
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.metadata_only_check.setChecked(True)
     paths = []
     window.saved.connect(paths.extend)
@@ -491,6 +514,7 @@ def test_new_movie_without_poster_requires_explicit_metadata_only(app, tmp_path)
     until(app, lambda: not window.tasks.busy)
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.field_checks["poster"].setChecked(False)
     window.save_button.click()
     assert not service.save_calls
@@ -531,6 +555,7 @@ def test_real_service_existing_poster_requires_explicit_overwrite(app, tmp_path,
     window.show()
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.overwrite_check.setChecked(overwrite)
     window.save_button.click()
     until(app, lambda: not window.tasks.busy)
@@ -613,6 +638,7 @@ def test_rescan_reloads_repaired_nfo_and_invalidates_changed_draft(dialog, app, 
     window, service = dialog
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     target = window.targets[0]
     target.error = "原 NFO 损坏"
     repaired = VideoTarget(target.video_path, target.nfo_path, target.title, existing=True, nfo_stamp=(10, 100))
@@ -645,6 +671,7 @@ def test_douban_manual_save_overwrites_only_selected_douban_data(app, tmp_path, 
     try:
         search_and_preview(app, window)
         window.confirm_button.click()
+        until(app, lambda: not window.tasks.busy)
         window.save_button.click()
         until(app, lambda: not window.tasks.busy)
         assert "成功" in window.status_label.text()
@@ -703,6 +730,7 @@ def test_confirmed_draft_editors_persist_per_target_and_save_selected_fields(dia
     window, service = dialog
     search_and_preview(app, window, "来源片名甲")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.title_edit.setText("人工片名甲")
     window.plot_edit.setPlainText("人工简介甲")
     window.query_edit.setText("搜索词不参与保存")
@@ -710,6 +738,7 @@ def test_confirmed_draft_editors_persist_per_target_and_save_selected_fields(dia
     window.target_list.setCurrentRow(1)
     search_and_preview(app, window, "来源片名乙")
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     window.title_edit.setText("人工片名乙")
     window.plot_edit.setPlainText("人工简介乙")
     window.metadata_only_check.setChecked(True)
@@ -729,6 +758,7 @@ def test_douban_mode_disables_title_and_plot_editors(dialog, app):
     window.mode_combo.setCurrentIndex(window.mode_combo.findData("douban"))
     search_and_preview(app, window)
     window.confirm_button.click()
+    until(app, lambda: not window.tasks.busy)
     assert not window.title_edit.isEnabled()
     assert not window.plot_edit.isEnabled()
 
@@ -749,6 +779,7 @@ def test_real_service_saves_edited_title_and_respects_unselected_plot(app, tmp_p
     try:
         search_and_preview(app, window)
         window.confirm_button.click()
+        until(app, lambda: not window.tasks.busy)
         window.title_edit.setText("人工修订片名")
         window.plot_edit.setPlainText("本次不写入的编辑简介")
         window.query_edit.setText("仅用于搜索的内容")

@@ -62,6 +62,7 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
         nfo.chmod(stat.S_IREAD)
     target = discover_videos([tmp_path])[0]
     service = ScrapeService(ScrapeSettings())
+    monkeypatch.setattr(service, "enrich_metadata", lambda metadata: metadata)
     monkeypatch.setattr(service, "details", lambda c: Metadata("douban", "123", {"title": "重新匹配电影", "plot": "新简介"}, {"douban": "123"}, {"douban": 8.1}))
     window = ScrapeDialog([target], mode="existing", service=service)
     window.show()
@@ -81,6 +82,7 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
         window.rebuild_check.setChecked(True)
         assert window.confirm_button.isEnabled()
         window.confirm_button.click()
+        until(app, lambda: not window.tasks.busy)
         window.metadata_only_check.setChecked(True)
         assert window.save_button.isEnabled()
         if failure == "readback":
@@ -89,15 +91,9 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
             monkeypatch.setattr(NFOParser, "parse", lambda *a, **k: None)
         window.save_button.click()
         until(app, lambda: not window.tasks.busy)
-        if failure:
+        if failure == "readback":
             assert nfo.read_bytes() == original
-            if failure == "readback":
-                monkeypatch.setattr(NFOParser, "parse", real_parse)
-            else:
-                assert "只读" in window.status_label.text()
-                assert str(nfo) in window.preview_text.toPlainText()
-                assert not list(tmp_path.glob("*.mml-backup-*"))
-                nfo.chmod(stat.S_IREAD | stat.S_IWRITE)
+            monkeypatch.setattr(NFOParser, "parse", real_parse)
             window.retry_button.click()
             until(app, lambda: not window.tasks.busy)
         assert questions and "备份" in questions[0]

@@ -37,7 +37,7 @@ class _TaskThread(QThread):
 
     def run(self) -> None:
         try:
-            if self.channel not in {"write", "settings-save"}:
+            if self.channel not in {"write", "settings-save", "queue-load", "queue-save"}:
                 self.context.checkpoint()
             value = self.function(self.context)
             # 已开始的写盘即使取消也必须汇报已完成结果。
@@ -86,7 +86,7 @@ class TaskRunner(QObject):
 
     def cancel(self) -> None:
         for channel in tuple(self._generations):
-            if channel not in {"write", "settings-save"}:
+            if channel not in {"write", "settings-save", "queue-load", "queue-save"}:
                 self.invalidate(channel)
         for thread in self._threads:
             thread.context.cancelled.set()

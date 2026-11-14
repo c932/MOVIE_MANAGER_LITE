@@ -5,16 +5,16 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QCloseEvent, QIcon, QImage, QPixmap
+from PyQt6.QtCore import QSize, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
+from PyQt6.QtGui import QCloseEvent, QDesktopServices, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-    QProgressBar, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
+    QMenu, QProgressBar, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
-from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, VideoTarget, ScanProgress, can_rebuild_nfo, capture_target_version
+from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget, ScanProgress, can_rebuild_nfo, capture_target_version
 from scraper.scrape_settings import ScrapeSettings
 from ui.scrape_tasks import TaskContext, TaskRunner, download_preview, safe_message
 
@@ -85,6 +85,9 @@ class ScrapeDialog(QDialog):
         self._queue_cancelled = False
         self._closing = False
         self._scanning = False
+        self._queue_loaded = False
+        self._queue_save_active = False
+        self._queue_save_pending = None
         self._settings_window = None
         self._build_ui()
         mode = {"douban_only": "douban", "new": "full", "update": "existing"}.get(mode, mode)
@@ -96,8 +99,8 @@ class ScrapeDialog(QDialog):
             QTimer.singleShot(0, self._initialize_service)
         else:
             self._configure_sources()
-            if self.mode == "full":
-                QTimer.singleShot(0, self.scan)
+        from scraper.scan_queue import load_queue
+        self.tasks.start("queue-load", lambda context: load_queue())
 
     def sizeHint(self) -> QSize:
         return QSize(1000, 680)
@@ -187,6 +190,8 @@ class ScrapeDialog(QDialog):
         self.target_list.setMinimumHeight(160)
         self.target_list.setAccessibleName("待处理电影列表")
         self.target_list.currentItemChanged.connect(self._target_changed)
+        self.target_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.target_list.customContextMenuRequested.connect(self._target_menu)
         left_layout.addWidget(self.target_list, 1)
         self.choose_folder_button = self._button("选择目录扫描…", self._choose_folder)
         left_layout.addWidget(self.choose_folder_button)
@@ -248,6 +253,10 @@ class ScrapeDialog(QDialog):
         self.rating_label = QLabel("TMDB：未取得   IMDb：未取得   豆瓣：未取得")
         self.rating_label.setWordWrap(True)
         preview_layout.addWidget(self.rating_label)
+        self.tmdb_match_button = self._button("匹配 TMDB 补充评分", self._match_tmdb)
+        self.tmdb_match_button.setToolTip("保留当前资料，搜索并人工确认对应 TMDB 条目后补齐 TMDB / IMDb 评分。")
+        self.tmdb_match_button.setVisible(False)
+        preview_layout.addWidget(self.tmdb_match_button)
         plot_row = QHBoxLayout()
         plot_row.addWidget(QLabel("简介来源"))
         self.plot_source_combo = QComboBox()
@@ -438,6 +447,32 @@ class ScrapeDialog(QDialog):
             if _key(target) == key:
                 self._label_target(item, target)
 
+    def _target_menu(self, point) -> None:
+        item = self.target_list.itemAt(point)
+        if item is None:
+            return
+        target = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        action = menu.addAction("打开所在文件夹")
+        action.triggered.connect(lambda: self._open_target_folder(target))
+        menu.exec(self.target_list.viewport().mapToGlobal(point))
+
+    def _open_target_folder(self, target: VideoTarget) -> None:
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.video_path.parent))):
+            self.status_label.setText("打开目录失败，请检查网络或目录是否可访问：" + str(target.video_path.parent))
+
+    def _persist_queue(self) -> None:
+        self._queue_save_pending = deepcopy(self.targets)
+        self._dispatch_queue_save()
+
+    def _dispatch_queue_save(self) -> None:
+        if not self._queue_loaded or self._queue_save_active or self._queue_save_pending is None:
+            return
+        from scraper.scan_queue import save_queue
+        snapshot, self._queue_save_pending = self._queue_save_pending, None
+        self._queue_save_active = True
+        self.tasks.start("queue-save", lambda context: save_queue(snapshot))
+
     def _target_changed(self, current, previous) -> None:
         self._capture_choices()
         self.clear_search(clear_query=False)
@@ -452,6 +487,7 @@ class ScrapeDialog(QDialog):
         self.rebuild_check.setVisible(False)
         self.rebuild_check.blockSignals(False)
         self.rating_label.setText("TMDB：未取得   IMDb：未取得   豆瓣：未取得")
+        self.tmdb_match_button.setVisible(False)
         if target:
             self.query_edit.setText(target.title)
             self.year_edit.setText(target.year)
@@ -478,7 +514,7 @@ class ScrapeDialog(QDialog):
         self.clear_search(clear_query=False)
 
     def clear_search(self, checked=False, *, clear_query=True) -> None:
-        for channel in ("search", "preview", "artwork-images", "candidate-images"):
+        for channel in ("search", "preview", "enrich", "artwork-images", "candidate-images"):
             self.tasks.invalidate(channel)
         self.candidate_list.clear()
         self._preview = None
@@ -510,6 +546,7 @@ class ScrapeDialog(QDialog):
         source, query, year = self._search_spec
         page, service = self._page, self.service
         self.tasks.invalidate("preview")
+        self.tasks.invalidate("enrich")
         self.tasks.invalidate("candidate-images")
         self._preview = None
         self._preview_pending = False
@@ -551,6 +588,7 @@ class ScrapeDialog(QDialog):
         self._preview_candidate(candidate)
 
     def _preview_candidate(self, candidate: Candidate) -> None:
+        self.tasks.invalidate("enrich")
         target, service = deepcopy(self.current_target), self.service
         if not target:
             return
@@ -589,6 +627,9 @@ class ScrapeDialog(QDialog):
         if not isinstance(ratings, dict):
             ratings = {}
         self.rating_label.setText("   ".join(f"{label}：{_text(ratings.get(name))}" for name, label in (("tmdb", "TMDB"), ("imdb", "IMDb"), ("douban", "豆瓣"))))
+        settings = self.service.settings if self.service else ScrapeSettings()
+        self.tmdb_match_button.setVisible(bool(confirmed and self.mode != "douban" and "tmdb" not in ratings
+                                              and (settings.tmdb_api_key or settings.tmdb_token)))
         self.identity_label.setText("身份变更：将整组替换片名、简介、演职员、各站 ID、外部评分和图片关联；保留观看、标签和用户资料。保存时需明确确认。" if draft.replace_identity else "")
         self.artwork_list.blockSignals(True)
         self.artwork_list.clear()
@@ -696,27 +737,70 @@ class ScrapeDialog(QDialog):
         metadata = deepcopy(self._preview[1] if self._preview else self._confirmed_metadata.get(self._active_key, []))
         if not metadata or not self.service:
             return
-        target, key = deepcopy(self.current_target), self._active_key
+        self.tasks.invalidate("enrich")
+        previous = deepcopy(current_draft)
+        target, key = deepcopy(previous.target if previous else self.current_target), self._active_key
         source, service = self.plot_source_combo.currentData(), self.service
         self._preview = None
         self._preview_pending = True
         self.confirm_button.setEnabled(False)
         def build(context):
             draft = service.build_draft(target, metadata, plot_source=source)
+            if previous is not None:
+                self._preserve_snapshot(previous, draft)
             draft.confirmed = False
             return key, draft, metadata
         self.tasks.start("preview", build)
         self.status_label.setText("正在切换简介来源，请预览后确认。")
 
+    @staticmethod
+    def _preserve_snapshot(previous: ScrapeDraft, current: ScrapeDraft) -> None:
+        if current.expected_files != previous.expected_files:
+            raise ScrapeError("NFO 或海报自预览后已改变，存在保存冲突，请重新加载")
+        current.expected_files = deepcopy(previous.expected_files)
+
     def _confirm(self) -> None:
-        if not self._preview or self._draft_blocked(self._preview[0]):
+        if not self._preview or self._preview_pending or self._draft_blocked(self._preview[0]):
             return
         draft, metadata = self._preview
+        enrich = getattr(self.service, "enrich_metadata", None)
+        if self.mode != "douban" and enrich is not None:
+            self._capture_choices()
+            key, service, plot_source = self._active_key, self.service, self.plot_source_combo.currentData()
+            draft, metadata = deepcopy(draft), deepcopy(metadata)
+            self._preview_pending = True
+            self._retry = ("confirm",)
+            self.status_label.setText("匹配已确认，正在后台补充 TMDB / IMDb 评分…")
+            def enrich_confirmed(context):
+                context.checkpoint()
+                metadata[-1] = enrich(metadata[-1])
+                context.checkpoint()
+                result = service.build_draft(draft.target, metadata, plot_source=plot_source)
+                self._preserve_snapshot(draft, result)
+                result.rebuild_nfo, result.poster = draft.rebuild_nfo, draft.poster
+                return key, result, metadata
+            self.tasks.start("enrich", enrich_confirmed)
+            self._update_buttons()
+            return
+        self._accept_match(draft, metadata)
+
+    def _match_tmdb(self) -> None:
+        draft = self.drafts.get(self._active_key)
+        if not draft or not draft.confirmed:
+            return
+        self.source_combo.setCurrentIndex(self.source_combo.findData("tmdb"))
+        self.query_edit.setText(str(draft.fields.get("original_title") or draft.fields.get("title", "")))
+        self.year_edit.setText(str(draft.fields.get("year", "")))
+        self.search()
+
+    def _accept_match(self, draft: ScrapeDraft, metadata: list[Metadata]) -> None:
         draft.confirmed = True
         self.drafts[self._active_key] = draft
         self._saved_keys.discard(self._active_key)
         self._confirmed_metadata[self._active_key] = metadata
         self._preview = None
+        self._preview_pending = False
+        self._render_draft(draft, confirmed=True)
         self._set_state(self._active_key, "已确认")
         self.match_label.setText("已确认匹配；可选择字段并保存。")
         self.status_label.setText("匹配已确认。可继续选择其他来源候选补充，或保存当前。")
@@ -887,6 +971,8 @@ class ScrapeDialog(QDialog):
             self._run_search()
         elif kind == "preview":
             self._preview_candidate(args[0])
+        elif kind == "confirm":
+            self._confirm()
         elif kind == "scan":
             self.scan(paths=args[0])
         elif kind == "initialize":
@@ -902,8 +988,9 @@ class ScrapeDialog(QDialog):
         available = not writing and not self._closing
         self.save_button.setEnabled(bool(draft and draft.confirmed and not self._draft_blocked(draft) and not self._preview and not self._preview_pending and available))
         self.save_all_button.setEnabled(bool(any(d.confirmed and not self._draft_blocked(d) and key not in self._saved_keys for key, d in self.drafts.items()) and available))
-        self.confirm_button.setEnabled(bool(self._preview and not self._draft_blocked(self._preview[0]) and not self._closing and not writing))
+        self.confirm_button.setEnabled(bool(self._preview and not self._preview_pending and not self._draft_blocked(self._preview[0]) and not self._closing and not writing))
         self.rebuild_check.setEnabled(available and self.mode != "douban")
+        self.tmdb_match_button.setEnabled(available and not self._preview_pending)
         editable = bool(draft and draft.confirmed and not self._draft_blocked(draft) and available
                         and not self._preview and not self._preview_pending and self.mode != "douban")
         self.title_edit.setEnabled(editable)
@@ -918,13 +1005,25 @@ class ScrapeDialog(QDialog):
 
     @pyqtSlot(str, int, object)
     def _on_result(self, channel: str, generation: int, value: object) -> None:
-        if channel == "initialize":
+        if channel == "queue-load":
+            known = {_key(target) for target in self.targets}
+            loaded = [target for target in value if _key(target) not in known]
+            self.targets.extend(loaded)
+            self._queue_loaded = True
+            if self._queue_save_pending is not None:
+                self._queue_save_pending = deepcopy(self.targets)
+            if loaded:
+                self._refresh_targets()
+                self.status_label.setText(f"已恢复上次扫描列表（{len(loaded)} 项）；点击「扫描电影目录」时才重新扫描。")
+            self._dispatch_queue_save()
+        elif channel == "queue-save":
+            self._queue_save_active = False
+            self._dispatch_queue_save()
+        elif channel == "initialize":
             self.service = value
             self._set_ready(True)
             self._configure_sources()
             self.status_label.setText("刮削服务已就绪。请选择电影或扫描目录。")
-            if self.mode == "full" and not self._closing:
-                self.scan()
         elif channel == "scan":
             self._scanning = False
             if self.scan_progress.maximum() == 0:
@@ -953,6 +1052,7 @@ class ScrapeDialog(QDialog):
                         self._states.pop(key, None)
                         reset += 1
             self._refresh_targets()
+            self._persist_queue()
             warnings = [t.error for t in value if t.error]
             self.status_label.setText(f"扫描完成：发现 {len(value)} 项。" +
                                       (f"{reset} 项文件状态已变，需重新确认。" if reset else "") +
@@ -975,6 +1075,11 @@ class ScrapeDialog(QDialog):
                 self.status_label.setText(message)
             else:
                 self.status_label.setText("详情已取得。核对身份、评分、简介和海报后点击确认匹配。")
+        elif channel == "enrich":
+            key, draft, metadata = value
+            if key != self._active_key or self._closing:
+                return
+            self._accept_match(draft, metadata)
         elif channel == "write" and self._write_active:
             job = self._write_active
             self._write_active = None
@@ -1009,6 +1114,7 @@ class ScrapeDialog(QDialog):
                 self.saved.emit([path])
                 self._set_state(key, "部分成功" if payload.warnings else "成功")
                 self.status_label.setText("保存成功：" + path + ("；" + "；".join(payload.warnings) if payload.warnings else ""))
+                self._persist_queue()
             elif value.get("success"):
                 self.saved.emit([str(payload.nfo_path)])
                 self._set_state(key, "成功")
@@ -1052,12 +1158,20 @@ class ScrapeDialog(QDialog):
 
     @pyqtSlot(str, int, str)
     def _on_error(self, channel: str, generation: int, message: str) -> None:
+        if channel == "queue-load":
+            self._queue_loaded = True
+            self._dispatch_queue_save()
+        elif channel == "queue-save":
+            self._queue_save_active = False
+            self.status_label.setText("待处理列表保存失败：" + safe_message(message, self.service.settings if self.service else None))
+            self._dispatch_queue_save()
+            return
         if channel == "scan":
             self._scanning = False
             self.scan_progress.setRange(0, 1)
             self.scan_progress.setValue(0)
             self.scan_progress.setFormat("扫描失败，可重试")
-        if channel == "preview":
+        if channel in {"preview", "enrich"}:
             self._preview_pending = False
         if channel == "write" and self._write_active:
             kind, key, payload, *_ = self._write_active

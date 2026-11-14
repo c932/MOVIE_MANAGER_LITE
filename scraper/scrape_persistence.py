@@ -35,16 +35,51 @@ def poster_path(draft: ScrapeDraft) -> Path:
     return draft.target.video_path.with_name(draft.target.video_path.stem + "-poster.jpg")
 
 
-def ensure_writable_file(path: Path, label: str) -> None:
-    """拒绝替换 Windows 只读文件；不擅自修改影库的保护属性。"""
+def ensure_writable_file(path: Path, label: str, allow_readonly: bool = False) -> None:
+    """预检不修改属性；NFO 可显式允许只读，实际解除须在备份和冲突校验后。"""
     try:
         attributes = path.stat()
     except FileNotFoundError:
         return
     except OSError as exc:
         raise ScrapeError(f"无法检查{label}，请检查权限或网络：{path}；{exc}") from exc
-    if getattr(attributes, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY:
+    if not allow_readonly and getattr(attributes, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY:
         raise ScrapeError(f"{label}为只读，保存未开始。请在文件属性中取消「只读」后重试：{path}")
+
+
+def _prepare_nfo_replace(path: Path, expected: str | None, readonly_modes: dict[Path, int]) -> None:
+    """仅在原字节备份成功后调用；最后确认版本再临时解除 NFO 的只读。"""
+    try:
+        attributes = path.stat()
+    except FileNotFoundError:
+        attributes = None
+    if fingerprint(path) != expected:
+        raise ScrapeError("NFO 在保存准备期间已改变，请重新加载")
+    if attributes is not None and getattr(attributes, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY:
+        # 先登记再设置，属性调用即使修改后抛错也必须恢复。
+        readonly_modes[path] = stat.S_IMODE(attributes.st_mode)
+        path.chmod(readonly_modes[path] | stat.S_IWRITE)
+
+
+def _restore_files(old: dict[Path, bytes | None], changed: list[Path],
+                   readonly_modes: dict[Path, int]) -> list[str]:
+    """先恢复原字节，再恢复只读；写入失败但属性已解除的路径也须恢复属性。"""
+    failed: list[str] = []
+    for path in reversed(changed):
+        try:
+            if old[path] is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write(path, old[path])
+        except OSError:
+            failed.append(str(path))
+    for path, mode in readonly_modes.items():
+        try:
+            path.chmod(mode)
+        except OSError:
+            if str(path) not in failed:
+                failed.append(str(path))
+    return failed
 
 
 def snapshot_files(draft: ScrapeDraft) -> None:
@@ -226,9 +261,10 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
         assets = [(poster_path(draft), data)] if data is not None else []
         assets.append((path, ET.tostring(root, encoding="utf-8", xml_declaration=True)))
         for asset, _ in assets:
-            ensure_writable_file(asset, "NFO" if asset == path else "海报")
+            ensure_writable_file(asset, "NFO" if asset == path else "海报", allow_readonly=asset == path)
         old = {p: p.read_bytes() if p.exists() else None for p, _ in assets}
         changed: list[Path] = []
+        readonly_modes: dict[Path, int] = {}
         phase, operation_path = "备份原文件", path
         try:
             for p, original in old.items():
@@ -243,6 +279,10 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                     raise ScrapeError("保存准备期间文件发生改变，请重新加载")
             for p, content in assets:
                 phase, operation_path = ("写入 NFO" if p == path else "写入海报"), p
+                if p == path:
+                    _prepare_nfo_replace(p, draft.expected_files[str(p)], readonly_modes)
+                else:
+                    ensure_writable_file(p, "海报")
                 _atomic_write(p, content)
                 changed.append(p)
             # 重新读取和版本刷新也属于提交；失败时不能留下半成功的重建。
@@ -253,15 +293,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             stat = path.stat()
             expected_files = {str(p): fingerprint(p) for p in (path, poster_path(draft))}
         except Exception as exc:
-            failed = []
-            for p in reversed(changed):
-                try:
-                    if old[p] is None:
-                        p.unlink(missing_ok=True)
-                    else:
-                        _atomic_write(p, old[p])
-                except OSError:
-                    failed.append(str(p))
+            failed = _restore_files(old, changed, readonly_modes)
             if changed and not failed:
                 # 原子恢复会改变时间戳；仅在所有快照字节恢复一致后允许原草稿重试。
                 try:
@@ -275,7 +307,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                     pass  # 无法确认恢复版本时保持旧快照，下一次保存仍须通过冲突检查。
             message = "保存失败，已恢复原文件" if changed else "保存失败，原文件未改动"
             if failed:
-                message = "保存失败，部分文件未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)
+                message = "保存失败，部分文件或只读属性未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)
             reason = str(exc)
             if isinstance(exc, PermissionError):
                 reason = "访问被拒绝，请检查只读属性、共享目录写入/删除权限或文件占用；" + reason
@@ -305,7 +337,7 @@ def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict, *, expected_f
         before = fingerprint(path)
         if expected_fingerprint is not None and before != expected_fingerprint:
             raise ScrapeError("NFO 在豆瓣请求期间已改变，请重新加载")
-        ensure_writable_file(path, "NFO")
+        ensure_writable_file(path, "NFO", allow_readonly=True)
         root = _xml(path)
         apply_fields(root, {"ratings": {"douban": score}, "uniqueids": {"douban": str(douban_id)}})
         sync_ids(root, {"douban": str(douban_id)})
@@ -322,8 +354,23 @@ def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict, *, expected_f
         if fingerprint(path) != before:
             raise ScrapeError("NFO 已被其他应用改变，请重试")
         backup = path.with_name(path.name + ".mml-backup-" + uuid.uuid4().hex[:12])
-        _atomic_write(backup, path.read_bytes())
-        if fingerprint(path) != before:
-            raise ScrapeError("NFO 在备份期间已改变，请重新加载")
-        _atomic_write(path, ET.tostring(root, encoding="utf-8", xml_declaration=True))
+        old = {path: path.read_bytes()}
+        changed: list[Path] = []
+        readonly_modes: dict[Path, int] = {}
+        phase = "备份原文件"
+        try:
+            _atomic_write(backup, old[path])
+            phase = "检查保存冲突"
+            _prepare_nfo_replace(path, before, readonly_modes)
+            phase = "写入 NFO"
+            _atomic_write(path, ET.tostring(root, encoding="utf-8", xml_declaration=True))
+            changed.append(path)
+            phase = "校验保存结果"
+            _xml(path)
+        except Exception as exc:
+            failed = _restore_files(old, changed, readonly_modes)
+            message = "保存失败，已恢复原文件" if changed else "保存失败，原文件未改动"
+            if failed:
+                message = "保存失败，原文件或只读属性未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)
+            raise ScrapeError(f"{message}；{phase}：{exc}；文件：{path}") from exc
         return True

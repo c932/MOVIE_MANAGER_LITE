@@ -36,21 +36,11 @@ class ScrapeService:
         return self._provider(source).search(query.strip(), year, page)
 
     def details(self, candidate: Candidate) -> Metadata:
-        metadata = self._provider(candidate.source).details(candidate)
-        imdb = metadata.ids.get("imdb", "")
-        if imdb and self.settings.omdb_api_key:
-            from scraper.metadata_sources import OmdbProvider
-            try:
-                score, votes = OmdbProvider(self.settings).rating(imdb)
-                if score is not None:
-                    metadata.ratings["imdb"] = validate_score(score)
-                if votes:
-                    metadata.votes["imdb"] = votes
-            except (ScrapeError, OSError, ValueError) as exc:
-                metadata.warnings.append("IMDb 评分未取得：" + str(exc))
-        elif imdb:
-            metadata.warnings.append("IMDb 评分未取得：请在刮削设置中配置 OMDb Key")
-        return metadata
+        return self._provider(candidate.source).details(candidate)
+
+    def enrich_metadata(self, metadata: Metadata) -> Metadata:
+        from .rating_enrichment import enrich_ratings
+        return enrich_ratings(metadata, self.settings)
 
     def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
         if not metadata:
@@ -98,6 +88,14 @@ class ScrapeService:
             draft.fields["uniqueids"] = identifiers
         if ratings:
             draft.fields["ratings"] = ratings
+        # 人工补充另一个来源后，不再显示已经解决的“缺少关联 / 未取得评分”提示。
+        resolved = []
+        if identifiers.get("imdb"):
+            resolved.extend(("缺少可核验的 IMDb ID", "跨站评分关联未完成："))
+        for source, label in (("tmdb", "TMDB"), ("imdb", "IMDb")):
+            if source in ratings:
+                resolved.append(label + " 评分未取得：")
+        draft.warnings = [warning for warning in draft.warnings if not any(warning.startswith(prefix) for prefix in resolved)]
         draft.poster = draft.artwork[0] if draft.artwork else None
         if target.nfo_path.exists() and not (target.error or target.error_kind):
             try:
@@ -132,7 +130,7 @@ class ScrapeService:
         if (draft.target.error or draft.target.error_kind) and not rebuilding:
             raise ScrapeError(draft.target.error or draft.target.error_detail or "原 NFO 状态不允许保存")
         validate_target_version(draft.target)
-        ensure_writable_file(draft.target.nfo_path, "NFO")
+        ensure_writable_file(draft.target.nfo_path, "NFO", allow_readonly=True)
         wants_poster = bool(draft.poster) and (selected_fields is None or "poster" in selected_fields)
         existing_poster = False
         if draft.target.existing and not rebuilding and not overwrite and not draft.replace_identity:
