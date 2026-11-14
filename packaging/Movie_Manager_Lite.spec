@@ -9,6 +9,7 @@ a = Analysis(
     datas=[
         (os.path.join(ROOT, 'logo'), 'logo'),
         (os.path.join(ROOT, 'styles'), 'styles'),
+        (os.path.join(ROOT, 'Movie_Manager_Lite.ico'), '.'),
     ],
     hiddenimports=[
         'PyQt6.sip',

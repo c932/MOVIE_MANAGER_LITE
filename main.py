@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QMessageBox
 from PyQt6.QtCore import Qt, QLockFile
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 
 from ui.main_window import MainWindow
 
@@ -25,6 +25,14 @@ logger = logging.getLogger(__name__)
 
 # 进程级单实例锁，需保持全局引用避免被提前释放
 _app_lock = None
+
+
+def load_application_icon(app: QApplication) -> None:
+    """窗口与任务栏使用和 EXE/MSI 一致的电影墙图标。"""
+    base_dir = Path(sys._MEIPASS) if getattr(sys, 'frozen', False) else Path(__file__).parent
+    path = base_dir / "Movie_Manager_Lite.ico"
+    if path.is_file():
+        app.setWindowIcon(QIcon(str(path)))
 
 
 def load_stylesheet(app: QApplication):
@@ -85,6 +93,7 @@ def main():
     app.setApplicationName("Local Movie Wall")
     app.setOrganizationName("LocalMovieWall")
     app.setApplicationVersion("1.0.0")
+    load_application_icon(app)
     
     # 设置全局默认字体
     app.setFont(QFont("Microsoft YaHei", 10))
