@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+import re
 from typing import Any
 
 from PyQt6.QtCore import QSize, Qt, QTimer, QUrl, pyqtSignal, pyqtSlot
@@ -39,6 +40,10 @@ def _text(value: Any) -> str:
     if isinstance(value, (tuple, list)):
         return " / ".join(_text(v) for v in value)
     return str(value) if value is not None else "未取得"
+
+
+def _title_key(value: Any) -> str:
+    return re.sub(r"[\W_]+", "", str(value or "").casefold())
 
 
 class ScrapeDialog(QDialog):
@@ -88,6 +93,7 @@ class ScrapeDialog(QDialog):
         self._queue_loaded = False
         self._queue_save_active = False
         self._queue_save_pending = None
+        self._pending_tmdb_match: tuple[str, str, str] | None = None
         self._settings_window = None
         self._build_ui()
         mode = {"douban_only": "douban", "new": "full", "update": "existing"}.get(mode, mode)
@@ -519,6 +525,7 @@ class ScrapeDialog(QDialog):
         self.candidate_list.clear()
         self._preview = None
         self._preview_pending = False
+        self._pending_tmdb_match = None
         self._search_spec = None
         self._page = 1
         self.page_label.setText("第 1 页")
@@ -529,7 +536,9 @@ class ScrapeDialog(QDialog):
             self._render_draft(self.drafts[self._active_key], confirmed=True)
         self._update_buttons()
 
-    def search(self) -> None:
+    def search(self, checked=False, *, tmdb_auto=False) -> None:
+        if not tmdb_auto:
+            self._pending_tmdb_match = None
         if not self.service or not self.current_target or self._closing:
             self.status_label.setText("请先选择待处理电影。")
             return
@@ -571,6 +580,22 @@ class ScrapeDialog(QDialog):
             item.setData(Qt.ItemDataRole.UserRole, candidate)
             item.setToolTip(f"{candidate.source} / {candidate.id}\n{candidate.overview}")
             self.candidate_list.addItem(item)
+        if self._pending_tmdb_match is not None:
+            title, original_title, year = self._pending_tmdb_match
+            expected = {_title_key(title), _title_key(original_title)} - {""}
+            matches = []
+            for index in range(self.candidate_list.count()):
+                candidate = self.candidate_list.item(index).data(Qt.ItemDataRole.UserRole)
+                names = {_title_key(candidate.title), _title_key(candidate.original_title)} - {""}
+                if (candidate.source == "tmdb" and candidate.media_type == "movie"
+                        and names & expected and (not year or candidate.year == year)):
+                    matches.append(index)
+            self._pending_tmdb_match = None
+            if len(matches) == 1:
+                self.status_label.setText("已找到唯一同名同年的 TMDB 候选，正在加载评分预览。")
+                self.candidate_list.setCurrentRow(matches[0])
+                self._update_buttons()
+                return
         self.status_label.setText(f"找到 {self.candidate_list.count()} 个候选；请选择并预览。" if self.candidate_list.count() else "没有找到电影候选，可改词、换来源或输入 ID / 链接重试。")
         images = [(i, self.candidate_list.item(i).data(Qt.ItemDataRole.UserRole).poster_url) for i in range(self.candidate_list.count())]
         self._load_images("candidate-images", images)
@@ -788,10 +813,23 @@ class ScrapeDialog(QDialog):
         draft = self.drafts.get(self._active_key)
         if not draft or not draft.confirmed:
             return
+        original_title = str(draft.fields.get("original_title") or draft.fields.get("title", ""))
+        title = str(draft.fields.get("title", ""))
+        year = str(draft.fields.get("year", ""))
         self.source_combo.setCurrentIndex(self.source_combo.findData("tmdb"))
-        self.query_edit.setText(str(draft.fields.get("original_title") or draft.fields.get("title", "")))
-        self.year_edit.setText(str(draft.fields.get("year", "")))
-        self.search()
+        self._pending_tmdb_match = (title, original_title, year)
+        self.query_edit.setText(original_title)
+        self.year_edit.setText(year)
+        self.search(tmdb_auto=True)
+
+    def _maybe_search_tmdb(self, metadata: list[Metadata]) -> None:
+        settings = self.service.settings if self.service else ScrapeSettings()
+        if (self.mode == "douban" or not any(item.source == "douban" for item in metadata)
+                or any(item.source == "tmdb" for item in metadata)
+                or any("tmdb" in item.ratings or "tmdb" in item.ids for item in metadata)
+                or not (settings.tmdb_api_key or settings.tmdb_token)):
+            return
+        QTimer.singleShot(0, self._match_tmdb)
 
     def _accept_match(self, draft: ScrapeDraft, metadata: list[Metadata]) -> None:
         draft.confirmed = True
@@ -806,6 +844,7 @@ class ScrapeDialog(QDialog):
         self.status_label.setText("匹配已确认。可继续选择其他来源候选补充，或保存当前。")
         self._capture_choices()
         self._update_buttons()
+        self._maybe_search_tmdb(metadata)
 
     def _draft_blocked(self, draft: ScrapeDraft) -> bool:
         return bool(draft.target.error and not (draft.rebuild_nfo and can_rebuild_nfo(draft.target) and self.mode != "douban"))
@@ -1171,6 +1210,8 @@ class ScrapeDialog(QDialog):
             self.scan_progress.setRange(0, 1)
             self.scan_progress.setValue(0)
             self.scan_progress.setFormat("扫描失败，可重试")
+        if channel == "search":
+            self._pending_tmdb_match = None
         if channel in {"preview", "enrich"}:
             self._preview_pending = False
         if channel == "write" and self._write_active:
