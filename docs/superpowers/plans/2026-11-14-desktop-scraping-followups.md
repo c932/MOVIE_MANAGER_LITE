@@ -25,3 +25,9 @@
 - 独立审阅发现两项 P2：完整回滚后时间戳导致重试冲突、重建后界面草稿残留警告。均已补回归并修复：仅在恢复字节与原快照一致时刷新版本；界面同步快照、警告和重建选项，重试与再次保存通过。
 - 新 ICO SHA256：`dccf38f5cc999a610bff373410d45a0b0c74246523130086ce3ff5155d8e52a7`。交付 EXE 的 9 个 RT_ICON 图像载荷与原 ICO 一致；MSI `Icon` 表和 `_internal/Movie_Manager_Lite.ico` 与原文件逐字节一致。
 - Python 3.11 重新打包成功，交付 `dist/本地电影墙-3.2.2-win64.msi` 与 `dist/LocalMovieWall-3.2.2/LocalMovieWall.exe`，版本目录避免覆盖旧运行版。未安装到用户系统、未修改真实影库，继续保留当前 worktree 分支。
+
+## 安装版本纠正
+
+- 用户安装时提示已有相同或更新版本。只读核对注册表及已安装 MSI 缓存后，确认本机原先已安装 3.2.2（ProductCode `{80D4FD30-842D-4502-8FA2-D4F8337F5B18}`），本轮交付又用了 3.2.2，且 ProductCode 不同，因此正常触发同版本保护。
+- 将构建默认版本改为 **3.2.3**，沿用相同 UpgradeCode 和已验证的 EXE/ICO 载荷重新生成 `dist/本地电影墙-3.2.3-win64.msi`，替代前述 3.2.2 安装包。
+- 构建测试 **9 passed**。通过 Windows Installer 会话仅执行 `FindRelatedProducts`、`AppSearch`、目录属性设置和 `LaunchConditions`：`OLDPRODUCTS` 正确包含现有产品，`NEWERPRODUCTFOUND` 为空，`INSTALLDIR` 保留 `D:\Program Files (x86)\LocalMovieWall\`，启动条件通过。未执行安装序列，未改变现有程序和用户数据。
