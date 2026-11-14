@@ -16,3 +16,12 @@
 ## 验证
 
 先写针对发布说明、异常 XML、读取错误、用户取消、重建备份/回滚、进度回调和 Qt 底部进度的回归；设置临时 MML_DATA_DIR。运行全量 Python 测试、桌面 UI 审计与截图、Python 3.11 打包，并核对源 ICO 哈希及 EXE 的图标资源。
+
+## 验收结果（2026-11-14）
+
+- 全量 Python 测试 **263 passed**，1 条已有 Starlette/httpx 弃用提示；随后 MSI 构建默认版本调整为 3.2.2，相关构建测试 **9 passed**。所有测试使用临时 `MML_DATA_DIR`，Qt 使用 offscreen。
+- 真实 NAS 上《乐高蝙蝠侠大电影》的 9005 字节发布说明 NFO 仅复制到临时目录验证。真实豆瓣搜索、预览、确认、下载海报及重建成功；备份与原始字节相同，NAS 原件 SHA256 前后相同。
+- Qt 验证完整目录可复制、底部扫描进度可见；780×520 小窗口也保留底部进度。[界面截图](../../images/scraping-nfo-rebuild.png)。
+- 独立审阅发现两项 P2：完整回滚后时间戳导致重试冲突、重建后界面草稿残留警告。均已补回归并修复：仅在恢复字节与原快照一致时刷新版本；界面同步快照、警告和重建选项，重试与再次保存通过。
+- 新 ICO SHA256：`dccf38f5cc999a610bff373410d45a0b0c74246523130086ce3ff5155d8e52a7`。交付 EXE 的 9 个 RT_ICON 图像载荷与原 ICO 一致；MSI `Icon` 表和 `_internal/Movie_Manager_Lite.ico` 与原文件逐字节一致。
+- Python 3.11 重新打包成功，交付 `dist/本地电影墙-3.2.2-win64.msi` 与 `dist/LocalMovieWall-3.2.2/LocalMovieWall.exe`，版本目录避免覆盖旧运行版。未安装到用户系统、未修改真实影库，继续保留当前 worktree 分支。

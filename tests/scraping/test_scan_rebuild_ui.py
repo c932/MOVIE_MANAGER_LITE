@@ -45,8 +45,8 @@ def test_scan_progress_shows_current_directory_and_known_total(app, tmp_path, mo
         window.close()
 
 
-@pytest.mark.parametrize("accept", [True, False])
-def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app, tmp_path, monkeypatch, accept):
+@pytest.mark.parametrize(("accept", "transient_failure"), [(True, False), (False, False), (True, True)])
+def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app, tmp_path, monkeypatch, accept, transient_failure):
     from scraper.media_discovery import discover_videos
     from ui.scrape_dialog import ScrapeDialog
     video = tmp_path / "Film.2024.mkv"
@@ -59,6 +59,7 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
     monkeypatch.setattr(service, "details", lambda c: Metadata("douban", "123", {"title": "重新匹配电影", "plot": "新简介"}, {"douban": "123"}, {"douban": 8.1}))
     window = ScrapeDialog([target], mode="existing", service=service)
     window.show()
+    window.plot_source_combo.setCurrentIndex(window.plot_source_combo.findData("douban"))
     window._show_candidates([Candidate("douban", "123", "重新匹配电影")])
     window.candidate_list.setCurrentRow(0)
     until(app, lambda: not window.tasks.busy)
@@ -76,14 +77,31 @@ def test_release_nfo_requires_explicit_backup_rebuild_and_save_confirmation(app,
         window.confirm_button.click()
         window.metadata_only_check.setChecked(True)
         assert window.save_button.isEnabled()
+        if transient_failure:
+            from parsers.nfo_parser import NFOParser
+            real_parse = NFOParser.parse
+            monkeypatch.setattr(NFOParser, "parse", lambda *a, **k: None)
         window.save_button.click()
         until(app, lambda: not window.tasks.busy)
+        if transient_failure:
+            assert nfo.read_bytes() == original
+            monkeypatch.setattr(NFOParser, "parse", real_parse)
+            window.retry_button.click()
+            until(app, lambda: not window.tasks.busy)
         assert questions and "备份" in questions[0]
         if accept:
             import xml.etree.ElementTree as ET
             assert ET.parse(nfo).getroot().findtext("title") == "重新匹配电影"
             backups = list(tmp_path.glob("*.mml-backup-*"))
             assert backups and backups[0].read_bytes() == original
+            assert not window.rebuild_check.isVisible()
+            assert not window.rebuild_check.isChecked()
+            assert not any("原 NFO" in warning for warning in window.drafts[window._active_key].warnings)
+            assert "备份原 NFO" not in window.preview_text.toPlainText()
+            window.save_button.click()
+            until(app, lambda: not window.tasks.busy)
+            assert "成功" in window.target_list.item(0).text()
+            assert "部分成功" not in window.target_list.item(0).text()
         else:
             assert nfo.read_bytes() == original
             assert not list(tmp_path.glob("*.mml-backup-*"))

@@ -240,6 +240,7 @@ def test_rebuild_readback_failure_rolls_back_nfo_and_new_poster(tmp_path, monkey
     draft = preview(tmp_path)
     draft.confirmed = draft.rebuild_nfo = True
     poster = tmp_path / (draft.target.video_path.stem + '-poster.jpg')
+    real_parse = persistence.NFOParser.parse
     monkeypatch.setattr(persistence.NFOParser, 'parse', lambda *a, **k: None)
     with pytest.raises(ScrapeError):
         persistence.commit_draft(draft, poster_bytes=png('red'))
@@ -247,6 +248,8 @@ def test_rebuild_readback_failure_rolls_back_nfo_and_new_poster(tmp_path, monkey
     assert not poster.exists()
     assert draft.target.error_kind == 'not_metadata' and draft.rebuild_nfo
     assert BB_CODE in [p.read_bytes() for p in tmp_path.glob('*.mml-backup-*')]
+    monkeypatch.setattr(persistence.NFOParser, 'parse', real_parse)
+    assert persistence.commit_draft(draft, poster_bytes=png('red')).title == '乐高蝙蝠侠大电影'
 
 
 def test_scan_progress_reports_traversal_parse_and_completion(tmp_path):

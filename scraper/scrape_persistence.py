@@ -16,7 +16,7 @@ from PIL import Image, UnidentifiedImageError
 from models.movie import Movie
 from parsers.nfo_parser import NFOParser
 from parsers.nfo_writer import _atomic_write, apply_fields
-from scraper.scrape_models import ScrapeDraft, ScrapeError, can_rebuild_nfo, validate_target_version
+from scraper.scrape_models import ScrapeDraft, ScrapeError, _nfo_version, can_rebuild_nfo, validate_target_version
 
 _LOCK = threading.RLock()
 SOURCES = {"tmdb", "imdb", "douban"}
@@ -241,6 +241,17 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                         _atomic_write(p, old[p])
                 except OSError:
                     failed.append(str(p))
+            if changed and not failed:
+                # 原子恢复会改变时间戳；仅在所有快照字节恢复一致后允许原草稿重试。
+                try:
+                    if all(fingerprint(Path(name)) == digest for name, digest in draft.expected_files.items()):
+                        restored_stamp, restored_digest = _nfo_version(path)
+                        if restored_digest == draft.expected_files[str(path)]:
+                            draft.target.nfo_stamp = restored_stamp
+                            draft.target.nfo_fingerprint = restored_digest
+                            draft.target.version_captured = True
+                except (OSError, ScrapeError):
+                    pass  # 无法确认恢复版本时保持旧快照，下一次保存仍须通过冲突检查。
             message = "保存失败，已恢复原文件"
             if failed:
                 message = "保存失败，部分文件未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)

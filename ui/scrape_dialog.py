@@ -986,6 +986,15 @@ class ScrapeDialog(QDialog):
                     original.expected_files = deepcopy(payload.expected_files)
                     original.target = deepcopy(payload.target)
                     original.rebuild_nfo = payload.rebuild_nfo
+                    original.warnings = list(payload.warnings)
+                    if not payload.rebuild_nfo:
+                        self._choices.setdefault(key, {})["rebuild_nfo"] = False
+                    if key == self._active_key and not self._preview and not self._preview_pending:
+                        self.rebuild_check.blockSignals(True)
+                        self.rebuild_check.setChecked(original.rebuild_nfo)
+                        self.rebuild_check.setVisible(can_rebuild_nfo(original.target))
+                        self.rebuild_check.blockSignals(False)
+                        self._render_fields(original)
                 self._saved_keys.add(key)
                 for target in self.targets:
                     if _key(target) == key:
@@ -1051,6 +1060,16 @@ class ScrapeDialog(QDialog):
         if channel == "preview":
             self._preview_pending = False
         if channel == "write" and self._write_active:
+            kind, key, payload, *_ = self._write_active
+            if kind == "save" and key in self.drafts:
+                # 完整回滚后的新时间戳也必须同步，重试按钮和再次保存共用同一版本。
+                self.drafts[key].expected_files = deepcopy(payload.expected_files)
+                self.drafts[key].target = deepcopy(payload.target)
+                for target in self.targets:
+                    if _key(target) == key:
+                        target.nfo_stamp = payload.target.nfo_stamp
+                        target.nfo_fingerprint = payload.target.nfo_fingerprint
+                        target.version_captured = payload.target.version_captured
             self._set_state(self._write_active[1], "失败：" + safe_message(message, self.service.settings))
             self._retry = ("write", self._write_active)
             self._write_active = None
