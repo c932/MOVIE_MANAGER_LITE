@@ -53,10 +53,26 @@ class VideoTarget:
     nfo_stamp: tuple[int, int] | None = None
     nfo_fingerprint: str | None = None
     version_captured: bool = False
+    error_kind: str = ""
+    error_detail: str = ""
 
     def __post_init__(self) -> None:
         self.video_path = Path(self.video_path)
         self.nfo_path = Path(self.nfo_path)
+
+
+def can_rebuild_nfo(target: VideoTarget) -> bool:
+    """只有可读取的说明文件或异常 XML 可经用户授权备份重建。"""
+    return target.error_kind in {"not_metadata", "invalid_xml"}
+
+
+@dataclass
+class ScanProgress:
+    stage: str
+    current: int
+    total: int
+    directory: str
+    found: int = 0
 
 
 @dataclass
@@ -70,6 +86,7 @@ class ScrapeDraft:
     warnings: list[str] = field(default_factory=list)
     expected_files: dict[str, str | None] = field(default_factory=dict)
     votes: dict[str, int] = field(default_factory=dict)
+    rebuild_nfo: bool = False
 
 
 class ScrapeError(ValueError):

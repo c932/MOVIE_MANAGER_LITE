@@ -11,7 +11,7 @@ from pathlib import Path
 from models.movie import Movie
 from scraper.scrape_models import (
     Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget,
-    capture_target_version, validate_target_version,
+    can_rebuild_nfo, capture_target_version, validate_target_version,
 )
 from scraper.scrape_persistence import commit_draft, fingerprint, read_ids, snapshot_files, update_douban_nfo, validate_score
 from scraper.scrape_settings import ScrapeSettings
@@ -55,13 +55,19 @@ class ScrapeService:
     def build_draft(self, target: VideoTarget, metadata: Sequence[Metadata], plot_source: str = "tmdb") -> ScrapeDraft:
         if not metadata:
             raise ScrapeError("请先选择并获取电影详情")
-        target = capture_target_version(target)
+        readonly_unreadable = target.error_kind == "unreadable"
+        target = copy.copy(target) if readonly_unreadable else capture_target_version(target)
         draft = ScrapeDraft(target)
-        snapshot_files(draft)
-        if draft.expected_files[str(target.nfo_path)] != target.nfo_fingerprint:
-            raise ScrapeError("NFO 在生成草稿时已改变，请重新加载")
-        if target.error:
-            draft.warnings.append(target.error + "；当前仅供预览，修复原文件后才能确认保存")
+        if not readonly_unreadable:
+            snapshot_files(draft)
+            if draft.expected_files[str(target.nfo_path)] != target.nfo_fingerprint:
+                raise ScrapeError("NFO 在生成草稿时已改变，请重新加载")
+        if target.error or target.error_kind:
+            reason = target.error_detail or target.error or "原 NFO 状态异常"
+            if can_rebuild_nfo(target):
+                draft.warnings.append(reason + "；可显式选择备份原 NFO 并重建，确认电影匹配后才能保存")
+            else:
+                draft.warnings.append(reason + "；当前仅供预览，请先解决原文件读取或路径问题再保存")
         by_source = {m.source: m for m in metadata}
         identifiers: dict[str, str] = {}
         ratings = {}
@@ -93,7 +99,7 @@ class ScrapeService:
         if ratings:
             draft.fields["ratings"] = ratings
         draft.poster = draft.artwork[0] if draft.artwork else None
-        if target.nfo_path.exists() and not target.error:
+        if target.nfo_path.exists() and not (target.error or target.error_kind):
             try:
                 content = target.nfo_path.read_bytes()
                 if hashlib.sha256(content).hexdigest() != draft.expected_files[str(target.nfo_path)]:
@@ -114,17 +120,21 @@ class ScrapeService:
                 draft.warnings.append("电影身份发生变化：保存将替换旧片名、简介、演职员、站点 ID、外部评分和图片关联；保留用户评分、标签及观看收藏状态")
         if any(fingerprint(Path(path)) != expected for path, expected in draft.expected_files.items()):
             raise ScrapeError("文件在生成草稿时已改变，请重新加载")
-        validate_target_version(target)
+        if not readonly_unreadable:
+            validate_target_version(target)
         return draft
 
     def save(self, draft: ScrapeDraft, selected_fields: set[str] | None = None,
              overwrite: bool = False, metadata_only: bool = False) -> Movie:
         if not draft.confirmed:
             raise ScrapeError("请先确认匹配，再保存")
+        rebuilding = draft.rebuild_nfo and can_rebuild_nfo(draft.target)
+        if (draft.target.error or draft.target.error_kind) and not rebuilding:
+            raise ScrapeError(draft.target.error or draft.target.error_detail or "原 NFO 状态不允许保存")
         validate_target_version(draft.target)
         wants_poster = bool(draft.poster) and (selected_fields is None or "poster" in selected_fields)
         existing_poster = False
-        if draft.target.existing and not overwrite and not draft.replace_identity:
+        if draft.target.existing and not rebuilding and not overwrite and not draft.replace_identity:
             from parsers.nfo_parser import NFOParser
             existing = NFOParser.parse(str(draft.target.nfo_path))
             if existing and existing.poster_path:

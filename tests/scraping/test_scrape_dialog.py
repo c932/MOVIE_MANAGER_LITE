@@ -548,7 +548,7 @@ def test_scan_uses_config_blacklists_in_background(dialog, app, tmp_path, monkey
     config = ConfigManager()
     config._config = {"movie_paths": [str(tmp_path)], "blacklist_folders": ["skip"], "blacklist_patterns": ["sample"]}
     calls = []
-    def discover(paths, blacklist_folders=(), blacklist_patterns=(), check_cancelled=None):
+    def discover(paths, blacklist_folders=(), blacklist_patterns=(), check_cancelled=None, progress=None):
         assert threading.current_thread() is not threading.main_thread()
         calls.append((paths, blacklist_folders, blacklist_patterns))
         return [VideoTarget(tmp_path / "scanned.mkv", tmp_path / "scanned.nfo", "扫描新片")]

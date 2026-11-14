@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 import re
 from typing import Callable, Iterable
-import xml.etree.ElementTree as ET
 
-from .scrape_models import ScrapeError, VideoTarget
+from .nfo_inspection import inspect_nfo
+from .scrape_models import ScanProgress, ScrapeError, VideoTarget
 
 VIDEO_EXTENSIONS = frozenset({'.mkv', '.mp4', '.avi', '.mov', '.m2ts', '.ts'})
 _FRAGMENT = re.compile(r'(?:^|[\W_])(sample|extras?|trailers?|BDMV|VIDEO_TS)(?:$|[\W_])', re.I)
@@ -39,6 +39,7 @@ def discover_videos(
     blacklist_folders: Iterable[str] = (),
     blacklist_patterns: Iterable[str] = (),
     check_cancelled: Callable[[], object] | None = None,
+    progress: Callable[[ScanProgress], None] | None = None,
 ) -> list[VideoTarget]:
     """发现视频并捕捉 NFO 指纹。只读，不修改缓存或媒体文件。
 
@@ -53,6 +54,11 @@ def discover_videos(
     visited: set[Path] = set()
     videos: set[Path] = set()
     siblings: dict[Path, list[Path]] = {}
+    scanned_directories = 0
+
+    def report(stage: str, current: int, total: int, directory: Path | str) -> None:
+        if progress is not None:
+            progress(ScanProgress(stage, current, total, str(directory), len(videos)))
 
     def cancelled() -> None:
         if check_cancelled is not None and check_cancelled():
@@ -64,6 +70,7 @@ def discover_videos(
                 or any(pattern.search(path.name) for pattern in patterns))
 
     def entries(directory: Path) -> list[Path]:
+        nonlocal scanned_directories
         if directory not in siblings:
             cancelled()
             try:
@@ -72,6 +79,8 @@ def discover_videos(
                         (Path(entry.path) for entry in iterator), key=lambda p: p.name.casefold())
             except OSError:
                 raise ScrapeError(f'无法访问视频目录：{directory}') from None
+            scanned_directories += 1
+            report('扫描目录', scanned_directories, 0, directory)
         return siblings[directory]
 
     def walk(path: Path, boundary: Path | None = None) -> None:
@@ -89,19 +98,24 @@ def discover_videos(
             if path in visited:
                 return
             visited.add(path)
-            if path.is_dir():
-                for child in entries(path):
-                    # 不递归目录符号链接，避免环和媒体库外的意外遍历。
-                    if child.is_symlink() and child.is_dir():
-                        continue
-                    walk(child, boundary)
-            elif path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
-                videos.add(path)
+            is_directory = path.is_dir()
+            is_video = path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS
         except OSError:
             raise ScrapeError(f'无法访问视频路径：{path}') from None
+        # 回调与递归放在文件系统异常处理之外；调用方异常必须原样传播。
+        if is_directory:
+            for child in entries(path):
+                if child.is_symlink() and child.is_dir():
+                    continue
+                walk(child, boundary)
+        elif is_video:
+            videos.add(path)
 
     for path in paths:
         walk(Path(path))
+    # 显式传入视频时，也先读取父目录，保证所有扫描事件先于解析事件。
+    for directory in sorted({video.parent for video in videos}, key=str):
+        entries(directory)
     targets: list[VideoTarget] = []
     for video in sorted(videos, key=lambda p: str(p).casefold()):
         cancelled()
@@ -119,18 +133,17 @@ def discover_videos(
         target = VideoTarget(video, nfo or video.with_suffix('.nfo'), title=title, year=year,
                              existing=nfo is not None)
         if nfo is not None:
-            try:
-                stamp = nfo.stat()
-                target.nfo_stamp = (stamp.st_mtime_ns, stamp.st_size)
-                root = ET.parse(nfo).getroot()
-                if root.tag != 'movie':
-                    raise ValueError('root')
+            root = inspect_nfo(target)
+            if root is not None:
                 target.title = root.findtext('title') or title
                 target.year = root.findtext('year') or year
-            except (ET.ParseError, ValueError, LookupError, OSError):
-                target.error = '原 NFO 损坏或无法读取，请先修复原文件'
         if same_stem > 1:
             conflict = 'NFO 路径冲突：同目录存在多个同名视频，请先区分视频文件名后再保存'
             target.error = f'{target.error}；{conflict}' if target.error else conflict
+            target.error_kind = 'path_conflict'
+            target.error_detail = target.error
         targets.append(target)
+        report('解析 NFO', len(targets), len(videos), video.parent)
+    cancelled()
+    report('扫描完成', len(targets), len(videos), targets[-1].video_path.parent if targets else '')
     return targets

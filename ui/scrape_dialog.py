@@ -11,10 +11,10 @@ from PyQt6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog,
     QGridLayout, QHBoxLayout, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
-    QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
+    QProgressBar, QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget,
 )
 
-from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, VideoTarget, capture_target_version
+from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, VideoTarget, ScanProgress, can_rebuild_nfo, capture_target_version
 from scraper.scrape_settings import ScrapeSettings
 from ui.scrape_tasks import TaskContext, TaskRunner, download_preview, safe_message
 
@@ -84,6 +84,7 @@ class ScrapeDialog(QDialog):
         self._write_active: tuple | None = None
         self._queue_cancelled = False
         self._closing = False
+        self._scanning = False
         self._settings_window = None
         self._build_ui()
         mode = {"douban_only": "douban", "new": "full", "update": "existing"}.get(mode, mode)
@@ -287,6 +288,12 @@ class ScrapeDialog(QDialog):
         self.identity_label.setObjectName("scrapeWarning")
         self.identity_label.setWordWrap(True)
         preview_layout.addWidget(self.identity_label)
+        self.rebuild_check = QCheckBox("备份原 NFO 并重新生成电影信息")
+        self.rebuild_check.setAccessibleName("备份原 NFO 并重建")
+        self.rebuild_check.setToolTip("仅替换可读取的下载说明或异常 XML；保存前会再次确认并保留原文件备份。")
+        self.rebuild_check.setVisible(False)
+        self.rebuild_check.toggled.connect(self._rebuild_changed)
+        preview_layout.addWidget(self.rebuild_check)
         splitter.addWidget(right)
         splitter.setSizes([200, 260, 430])
         body_layout.addWidget(splitter, 1)
@@ -299,6 +306,18 @@ class ScrapeDialog(QDialog):
         self.status_label.setWordWrap(True)
         self.status_label.setMaximumHeight(64)
         root.addWidget(self.status_label)
+        self.scan_progress = QProgressBar()
+        self.scan_progress.setAccessibleName("电影扫描进度")
+        self.scan_progress.setRange(0, 1)
+        self.scan_progress.setValue(0)
+        self.scan_progress.setVisible(False)
+        root.addWidget(self.scan_progress)
+        self.scan_directory = QLineEdit()
+        self.scan_directory.setAccessibleName("当前扫描目录")
+        self.scan_directory.setPlaceholderText("当前扫描目录")
+        self.scan_directory.setReadOnly(True)
+        self.scan_directory.setVisible(False)
+        root.addWidget(self.scan_directory)
         footer = QHBoxLayout()
         self.retry_button = self._button("重试失败操作", self._retry_last)
         self.cancel_button = self._button("取消任务", self.cancel_tasks)
@@ -359,6 +378,7 @@ class ScrapeDialog(QDialog):
                 "overwrite": self.overwrite_check.isChecked(),
                 "metadata_only": self.metadata_only_check.isChecked(),
                 "plot_source": self.plot_source_combo.currentData(),
+                "rebuild_nfo": self.rebuild_check.isChecked(),
             }
 
     def _mode_changed(self) -> None:
@@ -403,8 +423,12 @@ class ScrapeDialog(QDialog):
 
     def _label_target(self, item: QListWidgetItem, target: VideoTarget) -> None:
         state = self._states.get(_key(target), "原 NFO 损坏" if target.error else "待处理")
+        kinds = {"not_metadata": "下载说明 NFO（可备份重建）", "invalid_xml": "NFO 格式异常（可备份重建）",
+                 "unreadable": "NFO 无法读取", "path_conflict": "NFO 路径冲突"}
+        if target.error_kind in kinds:
+            state = kinds[target.error_kind] + (f"；{self._states[_key(target)]}" if _key(target) in self._states else "")
         item.setText(f"{target.title or target.video_path.stem} {target.year}\n{state}")
-        item.setToolTip(f"视频：{target.video_path}\nNFO：{target.nfo_path}\n{target.error or state}")
+        item.setToolTip(f"视频：{target.video_path}\nNFO：{target.nfo_path}\n{target.error or state}\n{target.error_detail}")
 
     def _set_state(self, key: str, state: str) -> None:
         self._states[key] = state
@@ -423,6 +447,10 @@ class ScrapeDialog(QDialog):
         self._populate_editors(None)
         self.artwork_list.clear()
         self.identity_label.clear()
+        self.rebuild_check.blockSignals(True)
+        self.rebuild_check.setChecked(False)
+        self.rebuild_check.setVisible(False)
+        self.rebuild_check.blockSignals(False)
         self.rating_label.setText("TMDB：未取得   IMDb：未取得   豆瓣：未取得")
         if target:
             self.query_edit.setText(target.title)
@@ -440,7 +468,7 @@ class ScrapeDialog(QDialog):
             if draft:
                 self._render_draft(draft, confirmed=True)
             else:
-                self.preview_text.setPlainText(f"视频：{target.video_path}\n将写入：{target.nfo_path}" + (f"\n原 NFO 损坏，需先修复：{target.error}" if target.error else ""))
+                self.preview_text.setPlainText(f"视频：{target.video_path}\n将写入：{target.nfo_path}" + (f"\nNFO 状态：{target.error}\n{target.error_detail}" if target.error else ""))
                 self.match_label.setText("请搜索并选择候选；不会自动匹配。")
         else:
             self.match_label.setText("请选择电影并搜索候选。")
@@ -548,6 +576,12 @@ class ScrapeDialog(QDialog):
         self._update_buttons()
 
     def _render_draft(self, draft: ScrapeDraft, confirmed=False) -> None:
+        self.rebuild_check.blockSignals(True)
+        self.rebuild_check.setVisible(can_rebuild_nfo(draft.target))
+        chosen = self._choices.get(self._active_key, {}).get("rebuild_nfo", draft.rebuild_nfo)
+        draft.rebuild_nfo = bool(chosen and can_rebuild_nfo(draft.target) and self.mode != "douban")
+        self.rebuild_check.setChecked(draft.rebuild_nfo)
+        self.rebuild_check.blockSignals(False)
         self.match_label.setText("已确认匹配；可选择字段并保存。" if confirmed else "候选仅供预览，点击「确认匹配」后才能保存。")
         self._populate_editors(draft)
         self._render_fields(draft)
@@ -584,7 +618,7 @@ class ScrapeDialog(QDialog):
 
     def _edit_draft(self) -> None:
         draft = self.drafts.get(self._active_key)
-        if (not draft or not draft.confirmed or draft.target.error or self.mode == "douban"
+        if (not draft or not draft.confirmed or self._draft_blocked(draft) or self.mode == "douban"
                 or self._preview or self._preview_pending or self._write_active):
             return
         draft.fields["title"] = self.title_edit.text().strip()
@@ -603,7 +637,13 @@ class ScrapeDialog(QDialog):
             lines.append(f"评分人数：{_text(draft.votes)}")
         lines.extend(f"提示：{warning}" for warning in draft.warnings)
         if draft.target.error:
-            lines.append(f"原 NFO 损坏，保存已禁用：{draft.target.error}")
+            if can_rebuild_nfo(draft.target):
+                lines.append("将备份原 NFO，并用当前匹配生成新的电影信息。" if draft.rebuild_nfo else
+                             "原 NFO 不可作为电影元数据使用；勾选「备份原 NFO 并重新生成电影信息」后可确认匹配。")
+            else:
+                lines.append(f"原 NFO 损坏或不可用，保存已禁用：{draft.target.error}")
+            if draft.target.error_detail:
+                lines.append("具体原因：" + draft.target.error_detail)
         if draft.poster:
             lines.append(f"海报：{draft.poster.url}")
         self.preview_text.setPlainText("\n\n".join(lines))
@@ -650,7 +690,8 @@ class ScrapeDialog(QDialog):
         self.poster_policy_label.setText(text)
 
     def _plot_changed(self) -> None:
-        if not self.current_target or self.current_target.error or self.mode == "douban":
+        current_draft = self._preview[0] if self._preview else self.drafts.get(self._active_key)
+        if not self.current_target or self.mode == "douban" or current_draft and self._draft_blocked(current_draft):
             return
         metadata = deepcopy(self._preview[1] if self._preview else self._confirmed_metadata.get(self._active_key, []))
         if not metadata or not self.service:
@@ -668,7 +709,7 @@ class ScrapeDialog(QDialog):
         self.status_label.setText("正在切换简介来源，请预览后确认。")
 
     def _confirm(self) -> None:
-        if not self._preview or self._preview[0].target.error:
+        if not self._preview or self._draft_blocked(self._preview[0]):
             return
         draft, metadata = self._preview
         draft.confirmed = True
@@ -682,11 +723,28 @@ class ScrapeDialog(QDialog):
         self._capture_choices()
         self._update_buttons()
 
+    def _draft_blocked(self, draft: ScrapeDraft) -> bool:
+        return bool(draft.target.error and not (draft.rebuild_nfo and can_rebuild_nfo(draft.target) and self.mode != "douban"))
+
+    def _rebuild_changed(self, checked: bool) -> None:
+        draft = self._preview[0] if self._preview else self.drafts.get(self._active_key)
+        if draft is not None:
+            draft.rebuild_nfo = bool(checked and can_rebuild_nfo(draft.target) and self.mode != "douban")
+            self._render_fields(draft)
+        self._capture_choices()
+        self._update_buttons()
+
     def scan(self, checked=False, *, paths=None) -> None:
         if not self.service or self.mode == "douban" or self._closing:
             return
         self._retry = ("scan", paths)
+        self._scanning = True
         self.status_label.setText("正在后台扫描电影目录，遵循媒体库黑名单…")
+        self.scan_progress.setVisible(True)
+        self.scan_progress.setRange(0, 0)
+        self.scan_progress.setFormat("正在扫描目录…")
+        self.scan_directory.setVisible(True)
+        self.scan_directory.setText("正在准备扫描目录…")
         def discover(context):
             from scraper.media_discovery import discover_videos
             from utils.config_manager import ConfigManager
@@ -696,7 +754,7 @@ class ScrapeDialog(QDialog):
                 return []
             return discover_videos(folders, blacklist_folders=config.get_blacklist_folders(),
                                    blacklist_patterns=config.get_blacklist_patterns(),
-                                   check_cancelled=context.check_cancelled)
+                                   check_cancelled=context.check_cancelled, progress=context.report)
         self.tasks.start("scan", discover)
 
     def _choose_folder(self) -> None:
@@ -715,19 +773,26 @@ class ScrapeDialog(QDialog):
         queue = []
         for key in keys:
             draft = self.drafts.get(key)
-            if not draft or not draft.confirmed or draft.target.error:
+            if not draft or not draft.confirmed or self._draft_blocked(draft):
                 continue
             choices = self._choices.get(key, {})
             fields = self._selected_fields(key)
             explicit_metadata_only = self.mode == "douban" or choices.get("metadata_only", False)
             if (not explicit_metadata_only and (not draft.poster or "poster" not in fields)
-                    and (not draft.target.existing or draft.replace_identity)):
+                    and (not draft.target.existing or draft.replace_identity or draft.rebuild_nfo)):
                 self.status_label.setText("未选择可用海报；请明确勾选「仅保存元数据」，或选择海报后再保存。")
                 return
             metadata_only = explicit_metadata_only or "poster" not in fields
             if not fields:
                 self.status_label.setText("请至少选择一个写入字段。")
                 return
+            if draft.rebuild_nfo:
+                answer = QMessageBox.question(self, "备份并重建 NFO",
+                    f"将原样备份以下文件，再用已确认的电影信息重新生成 NFO：\n{draft.target.nfo_path}\n\n"
+                    "旧文件中的发布说明或不可解析内容不会混入新电影信息；原文件保存在同目录 .mml-backup-* 文件中。是否继续？",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
+                if answer != QMessageBox.StandardButton.Yes:
+                    return
             if draft.replace_identity:
                 douban = self.mode == "douban"
                 answer = QMessageBox.question(self, "确认替换电影身份",
@@ -802,6 +867,11 @@ class ScrapeDialog(QDialog):
         self._queue_cancelled = True
         self._write_queue.clear()
         self.tasks.cancel()
+        if self._scanning:
+            self._scanning = False
+            self.scan_progress.setRange(0, 1)
+            self.scan_progress.setValue(0)
+            self.scan_progress.setFormat("扫描已取消")
         self._preview = None
         self._preview_pending = False
         self.status_label.setText("已取消后续任务；正在等待当前请求 / 保存结束。已完成的保存会保留。")
@@ -830,10 +900,11 @@ class ScrapeDialog(QDialog):
         draft = self.drafts.get(self._active_key)
         writing = bool(self._write_active or self._write_queue)
         available = not writing and not self._closing
-        self.save_button.setEnabled(bool(draft and draft.confirmed and not draft.target.error and not self._preview and not self._preview_pending and available))
-        self.save_all_button.setEnabled(bool(any(d.confirmed and not d.target.error and key not in self._saved_keys for key, d in self.drafts.items()) and available))
-        self.confirm_button.setEnabled(bool(self._preview and not self._preview[0].target.error and not self._closing and not writing))
-        editable = bool(draft and draft.confirmed and not draft.target.error and available
+        self.save_button.setEnabled(bool(draft and draft.confirmed and not self._draft_blocked(draft) and not self._preview and not self._preview_pending and available))
+        self.save_all_button.setEnabled(bool(any(d.confirmed and not self._draft_blocked(d) and key not in self._saved_keys for key, d in self.drafts.items()) and available))
+        self.confirm_button.setEnabled(bool(self._preview and not self._draft_blocked(self._preview[0]) and not self._closing and not writing))
+        self.rebuild_check.setEnabled(available and self.mode != "douban")
+        editable = bool(draft and draft.confirmed and not self._draft_blocked(draft) and available
                         and not self._preview and not self._preview_pending and self.mode != "douban")
         self.title_edit.setEnabled(editable)
         self.plot_edit.setEnabled(editable)
@@ -855,6 +926,11 @@ class ScrapeDialog(QDialog):
             if self.mode == "full" and not self._closing:
                 self.scan()
         elif channel == "scan":
+            self._scanning = False
+            if self.scan_progress.maximum() == 0:
+                self.scan_progress.setRange(0, max(len(value), 1))
+                self.scan_progress.setValue(len(value) or 1)
+                self.scan_progress.setFormat(f"扫描完成：发现 {len(value)} 个视频")
             known = {_key(target): index for index, target in enumerate(self.targets)}
             reset = 0
             for target in value:
@@ -880,7 +956,7 @@ class ScrapeDialog(QDialog):
             warnings = [t.error for t in value if t.error]
             self.status_label.setText(f"扫描完成：发现 {len(value)} 项。" +
                                       (f"{reset} 项文件状态已变，需重新确认。" if reset else "") +
-                                      (" 警告：" + "；".join(warnings) if warnings else "无新片时可切换到已有电影。"))
+                                      (f" {len(warnings)} 项 NFO 需处理，选择条目查看原因或备份重建。" if warnings else "无新片时可切换到已有电影。"))
         elif channel == "search":
             self._show_candidates(value)
         elif channel == "preview":
@@ -892,7 +968,13 @@ class ScrapeDialog(QDialog):
             self._preview = (draft, metadata)
             self._render_draft(draft)
             self._set_state(key, "待确认")
-            self.status_label.setText("原 NFO 损坏：当前仅预览候选，修复后重新扫描才能保存。" if draft.target.error else "详情已取得。核对身份、评分、简介和海报后点击确认匹配。")
+            if draft.target.error:
+                message = "原 NFO 是下载说明或格式异常：可勾选备份重建后确认匹配。" if can_rebuild_nfo(draft.target) else "原 NFO 损坏或不可用：当前仅预览，请先解决文件读取或路径问题。"
+                if self.mode == "douban" and can_rebuild_nfo(draft.target):
+                    message = "仅豆瓣补分不能重建 NFO，请切换到完整刮削模式。"
+                self.status_label.setText(message)
+            else:
+                self.status_label.setText("详情已取得。核对身份、评分、简介和海报后点击确认匹配。")
         elif channel == "write" and self._write_active:
             job = self._write_active
             self._write_active = None
@@ -903,11 +985,17 @@ class ScrapeDialog(QDialog):
                 if original:
                     original.expected_files = deepcopy(payload.expected_files)
                     original.target = deepcopy(payload.target)
+                    original.rebuild_nfo = payload.rebuild_nfo
                 self._saved_keys.add(key)
                 for target in self.targets:
                     if _key(target) == key:
                         target.existing = True
                         target.nfo_stamp = payload.target.nfo_stamp
+                        target.nfo_fingerprint = payload.target.nfo_fingerprint
+                        target.version_captured = payload.target.version_captured
+                        target.error = payload.target.error
+                        target.error_kind = payload.target.error_kind
+                        target.error_detail = payload.target.error_detail
                 path = str(getattr(value, "nfo_path", "") or payload.target.nfo_path)
                 self.saved.emit([path])
                 self._set_state(key, "部分成功" if payload.warnings else "成功")
@@ -924,6 +1012,22 @@ class ScrapeDialog(QDialog):
 
     @pyqtSlot(str, int, object)
     def _on_progress(self, channel: str, generation: int, value: object) -> None:
+        if channel == "scan" and isinstance(value, ScanProgress):
+            self.scan_directory.setText(value.directory)
+            self.scan_directory.setCursorPosition(0)
+            self.scan_directory.setToolTip(value.directory)
+            self.scan_progress.setRange(0, value.total if value.total else 0)
+            if value.total:
+                self.scan_progress.setValue(value.current)
+            self.scan_progress.setFormat(f"{value.stage}：{value.current}/{value.total}，发现 {value.found} 个视频" if value.total else
+                                         f"{value.stage}：已扫描 {value.current} 个目录，发现 {value.found} 个视频")
+            if value.stage == "扫描完成":
+                self._scanning = False
+                if not value.total:
+                    self.scan_progress.setRange(0, 1)
+                    self.scan_progress.setValue(1)
+                    self.scan_progress.setFormat("扫描完成：未发现视频")
+            return
         if channel not in {"artwork-images", "candidate-images"}:
             return
         index, image, error = value
@@ -939,6 +1043,11 @@ class ScrapeDialog(QDialog):
 
     @pyqtSlot(str, int, str)
     def _on_error(self, channel: str, generation: int, message: str) -> None:
+        if channel == "scan":
+            self._scanning = False
+            self.scan_progress.setRange(0, 1)
+            self.scan_progress.setValue(0)
+            self.scan_progress.setFormat("扫描失败，可重试")
         if channel == "preview":
             self._preview_pending = False
         if channel == "write" and self._write_active:

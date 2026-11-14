@@ -16,7 +16,7 @@ from PIL import Image, UnidentifiedImageError
 from models.movie import Movie
 from parsers.nfo_parser import NFOParser
 from parsers.nfo_writer import _atomic_write, apply_fields
-from scraper.scrape_models import ScrapeDraft, ScrapeError, validate_target_version
+from scraper.scrape_models import ScrapeDraft, ScrapeError, can_rebuild_nfo, validate_target_version
 
 _LOCK = threading.RLock()
 SOURCES = {"tmdb", "imdb", "douban"}
@@ -155,8 +155,9 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                  poster_bytes: bytes | None = None) -> Movie:
     if not draft.confirmed:
         raise ScrapeError("请先确认电影匹配，再保存")
-    if draft.target.error:
-        raise ScrapeError(draft.target.error)
+    rebuilding = draft.rebuild_nfo and can_rebuild_nfo(draft.target)
+    if (draft.target.error or draft.target.error_kind) and not rebuilding:
+        raise ScrapeError(draft.target.error or draft.target.error_detail or "原 NFO 状态不允许保存")
     if not draft.target.video_path.is_file():
         raise ScrapeError("视频文件不存在或暂时无法访问")
     if not metadata_only and poster_bytes is None:
@@ -173,8 +174,8 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             if fingerprint(Path(filename)) != expected:
                 raise ScrapeError("文件已被其他应用改变，存在保存冲突，请重新加载")
         path = draft.target.nfo_path
-        root = _xml(path) if path.exists() else ET.Element("movie")
-        is_new = not path.exists()
+        is_new = rebuilding or not path.exists()
+        root = ET.Element("movie") if is_new else _xml(path)
         if draft.replace_identity:
             for child in list(root):
                 if child.tag in IDENTITY_TAGS or (child.tag == "uniqueid" and child.get("type", "").lower() in SOURCES):
@@ -184,7 +185,8 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
                     root.find("ratings").remove(child)
         if "tmdb" in fields.get("ratings", {}):
             _normalize_tmdb_rating(root)
-        old_poster = NFOParser._local_artwork(root, path.parent, "poster", poster_path(draft), path.parent / "poster.jpg")
+        old_poster = (NFOParser._local_artwork(root, path.parent, "poster", poster_path(draft), path.parent / "poster.jpg")
+                      if not is_new and not draft.replace_identity else "")
         if data is not None and (selected_fields is not None and "poster" not in selected_fields or old_poster and not overwrite and not draft.replace_identity):
             data = None
         fields = _filtered_fields(root, fields, overwrite or draft.replace_identity)
@@ -223,6 +225,12 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             for p, content in assets:
                 _atomic_write(p, content)
                 changed.append(p)
+            # 重新读取和版本刷新也属于提交；失败时不能留下半成功的重建。
+            movie = NFOParser.parse(str(path), include_user_rating=True)
+            if movie is None or not movie.video_path:
+                raise ScrapeError("保存后的 NFO 无法重新读取，请重新扫描")
+            stat = path.stat()
+            expected_files = {str(p): fingerprint(p) for p in (path, poster_path(draft))}
         except Exception as exc:
             failed = []
             for p in reversed(changed):
@@ -237,15 +245,16 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             if failed:
                 message = "保存失败，部分文件未能恢复，请使用同目录 .mml-backup 备份恢复：" + "、".join(failed)
             raise ScrapeError(message) from exc
-        movie = NFOParser.parse(str(path), include_user_rating=True)
-        if movie is None or not movie.video_path:
-            raise ScrapeError("NFO 已保存，但重新读取失败，请重新扫描")
         draft.target.existing = True
-        stat = path.stat()
         draft.target.nfo_stamp = (stat.st_mtime_ns, stat.st_size)
-        snapshot_files(draft)
+        draft.expected_files = expected_files
         draft.target.nfo_fingerprint = draft.expected_files[str(path)]
         draft.target.version_captured = True
+        if rebuilding:
+            reason = draft.target.error_detail or draft.target.error
+            draft.warnings = [warning for warning in draft.warnings if not reason or not warning.startswith(reason)]
+            draft.target.error = draft.target.error_kind = draft.target.error_detail = ""
+            draft.rebuild_nfo = False
         return movie
 
 
