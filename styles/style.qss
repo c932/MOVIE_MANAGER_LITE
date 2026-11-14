@@ -337,3 +337,97 @@ QPushButton:focus {
 /* =========================== 详情对话框特殊样式 =========================== */
 /* 播放按钮等特殊元素在各自文件中定义内联样式 */
 
+/* 桌面刮削工作台：仅作用于两个刮削窗口，主题由 QApplication 统一加载。 */
+QDialog#scrapeDialog, QDialog#scrapeSettingsDialog {
+    background-color: #F4F5F7;
+    font-family: "Microsoft YaHei", "Segoe UI";
+    font-size: 12px;
+    color: #1C1C1E;
+}
+QDialog#scrapeDialog QLabel#scrapeHeading,
+QDialog#scrapeSettingsDialog QLabel#scrapeHeading {
+    font-size: 20px;
+    font-weight: bold;
+}
+QDialog#scrapeDialog QLabel#scrapeSection {
+    font-size: 13px;
+    font-weight: bold;
+    padding: 4px 0;
+}
+QDialog#scrapeDialog QLabel#scrapeHint,
+QDialog#scrapeSettingsDialog QLabel#scrapeHint {
+    color: #63666C;
+    padding: 4px;
+}
+QDialog#scrapeDialog QLabel#scrapeWarning {
+    color: #9A4800;
+    background-color: #FFF3E3;
+}
+QDialog#scrapeDialog QLabel#scrapeStatus {
+    padding: 5px 8px;
+    color: #333333;
+}
+QDialog#scrapeDialog QScrollArea,
+QDialog#scrapeSettingsDialog QScrollArea {
+    border: none;
+    background-color: #FFFFFF;
+}
+QDialog#scrapeDialog QWidget#scrapeBody {
+    background-color: #FFFFFF;
+}
+QDialog#scrapeDialog QListWidget,
+QDialog#scrapeDialog QPlainTextEdit {
+    border: 1px solid #D0D3D8;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: #1C1C1E;
+    padding: 5px;
+}
+QDialog#scrapeDialog QListWidget::item {
+    padding: 7px 4px;
+    border-radius: 4px;
+}
+QDialog#scrapeDialog QListWidget::item:selected {
+    background-color: #E3F2FD;
+    color: #0051D5;
+}
+QDialog#scrapeDialog QLineEdit, QDialog#scrapeDialog QComboBox,
+QDialog#scrapeSettingsDialog QLineEdit, QDialog#scrapeSettingsDialog QComboBox,
+QDialog#scrapeSettingsDialog QSpinBox, QDialog#scrapeSettingsDialog QDoubleSpinBox {
+    min-height: 26px;
+    border: 1px solid #D0D3D8;
+    border-radius: 5px;
+    background-color: #FFFFFF;
+    padding: 2px 5px;
+}
+QDialog#scrapeDialog QPushButton, QDialog#scrapeSettingsDialog QPushButton {
+    min-height: 28px;
+    padding: 2px 10px;
+    border: 1px solid #D0D3D8;
+    border-radius: 6px;
+    background-color: #FFFFFF;
+    color: #333333;
+}
+QDialog#scrapeDialog QPushButton#scrapePrimary,
+QDialog#scrapeSettingsDialog QPushButton#scrapePrimary {
+    background-color: #007AFF;
+    border-color: #007AFF;
+    color: #FFFFFF;
+    font-weight: bold;
+}
+QDialog#scrapeDialog QPushButton:hover, QDialog#scrapeSettingsDialog QPushButton:hover {
+    border-color: #007AFF;
+}
+QDialog#scrapeDialog QPushButton:disabled, QDialog#scrapeSettingsDialog QPushButton:disabled,
+QDialog#scrapeDialog QPushButton#scrapePrimary:disabled,
+QDialog#scrapeSettingsDialog QPushButton#scrapePrimary:disabled {
+    color: #85898F;
+    background-color: #E7E9ED;
+    border-color: #D0D3D8;
+}
+QDialog#scrapeDialog QPushButton:focus, QDialog#scrapeSettingsDialog QPushButton:focus,
+QDialog#scrapeDialog QLineEdit:focus, QDialog#scrapeSettingsDialog QLineEdit:focus,
+QDialog#scrapeDialog QComboBox:focus, QDialog#scrapeSettingsDialog QComboBox:focus {
+    border: 2px solid #0051D5;
+}
+
