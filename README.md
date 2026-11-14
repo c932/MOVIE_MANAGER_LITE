@@ -23,7 +23,7 @@
 
 ### 刮削工作流
 
-![刮削工作流](docs/images/scraper.png)
+![刮削工作流](docs/images/desktop-scraping.png)
 
 ## Highlights
 
