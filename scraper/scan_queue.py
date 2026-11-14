@@ -27,6 +27,8 @@ def load_queue() -> list[VideoTarget]:
             for key in ('existing', 'version_captured'):
                 if key in data and type(data[key]) is not bool:
                     raise ValueError('无效版本状态')
+            if data.get('douban_complete') is not None and type(data['douban_complete']) is not bool:
+                raise ValueError('无效豆瓣状态')
             if data.get('nfo_fingerprint') is not None and not isinstance(data['nfo_fingerprint'], str):
                 raise ValueError('无效文件指纹')
             for key in ('video_path', 'nfo_path'):

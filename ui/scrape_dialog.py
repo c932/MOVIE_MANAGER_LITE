@@ -46,6 +46,14 @@ def _title_key(value: Any) -> str:
     return re.sub(r"[\W_]+", "", str(value or "").casefold())
 
 
+def _douban_complete(movie: Any) -> bool:
+    try:
+        score = float((getattr(movie, "ratings", {}) or {}).get("douban", 0))
+    except (TypeError, ValueError):
+        score = 0
+    return bool(0 < score <= 10 and str(getattr(movie, "douban_url", "") or "").strip())
+
+
 class ScrapeDialog(QDialog):
     """service 可注入；saved 只发送已经保存成功的 NFO 路径。"""
 
@@ -71,7 +79,8 @@ class ScrapeDialog(QDialog):
                 # stat 留给 service.build_draft，在后台捕获文件版本。
                 nfo = Path(movie.nfo_path)
                 video = Path(movie.video_path) if getattr(movie, "video_path", "") else nfo.with_suffix(".mkv")
-                self.targets.append(VideoTarget(video, nfo, movie.title, movie.year, existing=True))
+                self.targets.append(VideoTarget(video, nfo, movie.title, movie.year, existing=True,
+                                                douban_complete=_douban_complete(movie)))
         self.drafts: dict[str, ScrapeDraft] = {}
         self._confirmed_metadata: dict[str, list[Metadata]] = {}
         self._choices: dict[str, dict] = {}
@@ -422,6 +431,8 @@ class ScrapeDialog(QDialog):
                 continue
             if self.mode in {"existing", "douban"} and not target.existing:
                 continue
+            if self.mode == "douban" and target.douban_complete is True:
+                continue
             item = QListWidgetItem()
             item.setData(Qt.ItemDataRole.UserRole, target)
             self._label_target(item, target)
@@ -434,7 +445,10 @@ class ScrapeDialog(QDialog):
             self.target_list.setCurrentRow(selected_row)
         else:
             self._target_changed(None, None)
-            self.status_label.setText("暂无待处理新视频。扫描电影目录，或切换到已有电影。" if self.mode == "full" else "暂无已有电影，请从电影墙选择电影后打开。")
+            self.status_label.setText(
+                "暂无待处理新视频。扫描电影目录，或切换到已有电影。" if self.mode == "full" else
+                "没有缺少豆瓣评分或链接的电影。" if self.mode == "douban" else
+                "暂无已有电影，请从电影墙选择电影后打开。")
 
     def _label_target(self, item: QListWidgetItem, target: VideoTarget) -> None:
         state = self._states.get(_key(target), "原 NFO 损坏" if target.error else "待处理")
@@ -442,6 +456,8 @@ class ScrapeDialog(QDialog):
                  "unreadable": "NFO 无法读取", "path_conflict": "NFO 路径冲突"}
         if target.error_kind in kinds:
             state = kinds[target.error_kind] + (f"；{self._states[_key(target)]}" if _key(target) in self._states else "")
+        if self.mode == "douban" and not target.error and _key(target) not in self._states:
+            state = "缺少豆瓣评分或链接"
         item.setText(f"{target.title or target.video_path.stem} {target.year}\n{state}")
         item.setToolTip(f"视频：{target.video_path}\nNFO：{target.nfo_path}\n{target.error or state}\n{target.error_detail}")
 
@@ -1164,8 +1180,13 @@ class ScrapeDialog(QDialog):
                 self._persist_queue()
             elif value.get("success"):
                 self.saved.emit([str(payload.nfo_path)])
+                for target in self.targets:
+                    if _key(target) == key:
+                        target.douban_complete = True
                 self._set_state(key, "成功")
-                self.status_label.setText("豆瓣补全成功：" + str(value.get("message", "")))
+                success_text = "豆瓣补全成功：" + str(value.get("message", ""))
+                self._refresh_targets()
+                self.status_label.setText(success_text)
             else:
                 self._set_state(key, "待确认：" + str(value.get("message", "未取得唯一匹配")))
                 self.status_label.setText("豆瓣补全待确认：请选择该电影，在本窗口搜索豆瓣并手动确认候选。" + str(value.get("message", "")))

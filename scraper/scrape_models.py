@@ -55,6 +55,7 @@ class VideoTarget:
     version_captured: bool = False
     error_kind: str = ""
     error_detail: str = ""
+    douban_complete: bool | None = None
 
     def __post_init__(self) -> None:
         self.video_path = Path(self.video_path)

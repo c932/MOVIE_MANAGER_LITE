@@ -690,6 +690,44 @@ def test_douban_manual_save_overwrites_only_selected_douban_data(app, tmp_path, 
         window.close()
 
 
+def test_douban_mode_lists_only_movies_missing_score_or_link(app, tmp_path):
+    from ui.scrape_dialog import ScrapeDialog
+    complete = Movie(title="狮子王", video_path=str(tmp_path / "lion.mkv"), nfo_path=str(tmp_path / "lion.nfo"),
+                     ratings={"douban": 9.1, "imdb": 8.5}, douban_url="https://movie.douban.com/subject/1293174/")
+    missing = Movie(title="待补豆瓣", video_path=str(tmp_path / "missing.mkv"), nfo_path=str(tmp_path / "missing.nfo"),
+                    ratings={"imdb": 7.2}, douban_url="https://movie.douban.com/subject/1/")
+    missing_link = Movie(title="缺链接", video_path=str(tmp_path / "link.mkv"), nfo_path=str(tmp_path / "link.nfo"),
+                         ratings={"douban": 8.1}, douban_url="")
+    window = ScrapeDialog([complete, missing, missing_link], mode="douban", service=FakeService())
+    window.show()
+    try:
+        assert window.target_list.count() == 2
+        labels = [window.target_list.item(index).text() for index in range(2)]
+        assert any("待补豆瓣" in label for label in labels)
+        assert any("缺链接" in label for label in labels)
+        assert all("缺少豆瓣评分或链接" in label for label in labels)
+    finally:
+        window.close()
+
+
+def test_successful_douban_fill_removes_item_from_missing_queue(app, tmp_path):
+    from ui.scrape_dialog import ScrapeDialog
+    service = FakeService()
+    service.douban_only = lambda target: {"success": True, "message": "已补充", "ratings": {"douban": 8.2}, "douban_id": "2"}
+    movie = Movie(title="待补豆瓣", video_path=str(tmp_path / "missing.mkv"), nfo_path=str(tmp_path / "missing.nfo"))
+    window = ScrapeDialog([movie], mode="douban", service=service)
+    window.show()
+    try:
+        assert window.target_list.count() == 1
+        window.douban_button.click()
+        until(app, lambda: not window.tasks.busy)
+        assert window.target_list.count() == 0
+        assert "没有缺少豆瓣评分或链接" not in window.status_label.text()
+        assert "豆瓣补全成功" in window.status_label.text()
+    finally:
+        window.close()
+
+
 @pytest.mark.parametrize("existed", [True, False])
 def test_nfo_changed_during_real_service_details_is_rejected(app, tmp_path, monkeypatch, existed):
     from scraper.scrape_service import ScrapeService
