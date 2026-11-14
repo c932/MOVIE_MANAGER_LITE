@@ -1,4 +1,4 @@
-"""WP0 冒烟测试：两个服务都能按需创建并响应 health/system/jobs。"""
+"""WP0 冒烟测试：电影墙服务都能按需创建并响应 health/system/jobs。"""
 
 
 def test_movie_app_boots(service_data_dir):
@@ -23,17 +23,6 @@ def test_movie_app_boots(service_data_dir):
         assert r.status_code == 404
 
 
-def test_game_app_boots(service_data_dir):
-    from fastapi.testclient import TestClient
-    from game_service.main import create
-
-    with TestClient(create(data_dir=str(service_data_dir))) as client:
-        r = client.get("/api/game/health")
-        assert r.status_code == 200, r.text
-        assert r.json()["service"] == "game"
-
-        r = client.get("/api/game/system/info")
-        assert r.status_code == 200, r.text
 
 
 def test_job_lifecycle(service_data_dir):

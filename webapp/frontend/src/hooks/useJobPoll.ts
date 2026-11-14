@@ -1,6 +1,6 @@
 // 任务进度轮询 Hook — 后台任务进度条用
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { movieApi, gameApi } from '../api/client';
+import { movieApi } from '../api/client';
 import type { Job } from '../types/api';
 
 type JobsApi = {
@@ -56,4 +56,4 @@ export function useJobPoll(
   return { job, cancel, stop };
 }
 
-export { movieApi, gameApi };
+export { movieApi };

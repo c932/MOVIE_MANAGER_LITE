@@ -9,7 +9,6 @@ if str(PACKAGING_DIR) not in sys.path:
     sys.path.insert(0, str(PACKAGING_DIR))
 
 import msi_builder_common as builder
-from build_game_msi import GAME_CONFIG
 from build_msi import MOVIE_CONFIG
 
 
@@ -72,10 +71,10 @@ def test_msi_ids_are_ascii_deterministic_and_collision_resistant():
     assert first.replace("_", "").isalnum()
 
 
-def test_product_configs_keep_upgrade_chains_separate():
-    assert GAME_CONFIG.upgrade_code != MOVIE_CONFIG.upgrade_code
-    assert GAME_CONFIG.app_data_dir != MOVIE_CONFIG.app_data_dir
-    assert GAME_CONFIG.distribution_name != MOVIE_CONFIG.distribution_name
+def test_movie_product_keeps_its_upgrade_identity():
+    assert MOVIE_CONFIG.upgrade_code == "{6C4A8D5B-3F9E-4B1A-9A7C-E8D2F1034567}"
+    assert MOVIE_CONFIG.app_data_dir == "LocalMovieWall"
+    assert MOVIE_CONFIG.distribution_name == "LocalMovieWall"
 
 
 def test_build_creates_upgradeable_msi_with_full_payload(tmp_path):

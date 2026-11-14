@@ -1,7 +1,7 @@
 """
 网页版服务端只允许导入纯 Python 领域模块。
 
-守护测试：确保 models / parsers / utils / gamewall / scraper 的领域模块
+守护测试：确保 models / parsers / utils / scraper 的领域模块
 在导入时不会连带拉起 PyQt6（Ubuntu 服务器无 GUI 环境）。
 """
 import subprocess
@@ -19,17 +19,6 @@ DOMAIN_MODULES = [
     "utils.watch_history",
     "utils.favorite_manager",
     "utils.failed_movies_manager",
-    "gamewall.game_models",
-    "gamewall.game_cache",
-    "gamewall.name_utils",
-    "gamewall.excel_parser",
-    "gamewall.steam_client",
-    "gamewall.aaa_classifier",
-    "gamewall.llm_classifier",
-    "gamewall.llm_search",
-    "gamewall.rating_scrapers",
-    "gamewall.lnk_parser",
-    "gamewall.steamgrid_search",
     "scraper",
     "scraper.douban_cli",
     "scraper.douban_ranking",

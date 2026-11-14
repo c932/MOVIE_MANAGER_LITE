@@ -139,90 +139,11 @@ export const movieApi = {
     ),
 };
 
-// ── 游戏墙 ────────────────────────────────────────────
-export const gameApi = {
-  ...jobsApi('/api/game'),
-  list: () => request<GameListResponse>('/api/game/games'),
-  detail: (key: string) =>
-    request<GameListItem>(`/api/game/games/${encodeURIComponent(key)}`),
-  update: (key: string, fields: Record<string, unknown>) =>
-    request<GameListItem>(`/api/game/games/${encodeURIComponent(key)}`, {
-      method: 'PUT',
-      body: JSON.stringify(fields),
-    }),
-  setTier: (key: string, tier: Tier | null) =>
-    request<GameListItem>(`/api/game/games/${encodeURIComponent(key)}/tier`, {
-      method: 'PUT',
-      body: JSON.stringify({ tier }),
-    }),
-  coverUrl: (key: string, w: number, h: number, variant = 'grid') =>
-    `/api/game/games/${encodeURIComponent(key)}/cover?w=${w}&h=${h}&variant=${variant}`,
-  refreshCover: (key: string, variant = 'grid') =>
-    request<{ path: string }>(
-      `/api/game/games/${encodeURIComponent(key)}/cover/refresh`,
-      { method: 'POST', body: JSON.stringify({ variant }) },
-    ),
-  excelDiff: () =>
-    request<{ job_id: string }>('/api/game/excel/diff', { method: 'POST' }),
-  excelApply: () =>
-    request<{ job_id: string }>('/api/game/excel/apply', { method: 'POST' }),
-  enrich: (
-    scope: 'all' | 'new' | 'selected',
-    keys: string[] = [],
-    options: { steam: boolean; ratings: boolean } = { steam: true, ratings: true },
-  ) =>
-    request<{ job_id: string }>('/api/game/enrich', {
-      method: 'POST',
-      body: JSON.stringify({ scope, keys, options }),
-    }),
-  llmClassify: (scope: 'all' | 'new' | 'selected', keys: string[] = []) =>
-    request<{ job_id: string }>('/api/game/llm/classify', {
-      method: 'POST',
-      body: JSON.stringify({ scope, keys }),
-    }),
-  steamSearch: (q: string) =>
-    request<{ results: { appid: number; name: string; definitive: boolean }[] }>(
-      `/api/game/steam/search?q=${encodeURIComponent(q)}`,
-    ),
-  steamApply: (key: string, appid: number) =>
-    request<GameListItem>(`/api/game/steam/apply`, {
-      method: 'POST',
-      body: JSON.stringify({ key, appid }),
-    }),
-  llmMatch: (key: string) =>
-    request<{ game: GameListItem; appid: number; verified: boolean }>(
-      '/api/game/llm/match',
-      { method: 'POST', body: JSON.stringify({ key }) },
-    ),
-  llmPoster: (key: string) =>
-    request<GameListItem>(`/api/game/llm/poster`, {
-      method: 'POST',
-      body: JSON.stringify({ key }),
-    }),
-  scanInstalled: () =>
-    request<{ job_id: string }>('/api/game/scan-installed', {
-      method: 'POST',
-    }),
-  settings: () => request<GameSettings>('/api/game/settings'),
-  putSettings: (s: Partial<GameSettings>) =>
-    request<{ saved: boolean }>('/api/game/settings', {
-      method: 'PUT',
-      body: JSON.stringify(s),
-    }),
-  systemInfo: () =>
-    request<{ service: string; data_dir: string }>('/api/game/system/info'),
-};
-
-// re-export types for convenience
 import type {
   Job, MovieListItem, MovieListResponse, LibraryInfo, MovieSettings,
-  RankingResponse, NewMovieResponse, RankingItem, NewMovieItem,
-  GameListItem, GameListResponse, GameSettings, Tier, TierSource,
-  ExcelDiffResult, LlmVerdict, Actor, RankInfo,
+  RankingResponse, NewMovieResponse, RankingItem, NewMovieItem, Actor, RankInfo,
 } from '../types/api';
 export type {
   Job, MovieListItem, MovieListResponse, LibraryInfo, MovieSettings,
-  RankingResponse, NewMovieResponse, RankingItem, NewMovieItem,
-  GameListItem, GameListResponse, GameSettings, Tier, TierSource,
-  ExcelDiffResult, LlmVerdict, Actor, RankInfo,
+  RankingResponse, NewMovieResponse, RankingItem, NewMovieItem, Actor, RankInfo,
 };

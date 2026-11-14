@@ -1,5 +1,7 @@
 # Movie Manager Lite
 
+游戏墙已独立迁移至 `E:\My_Code\Local_Game_wall`，本仓库仅维护电影墙。
+
 一个面向本地/NAS 媒体库的电影海报墙应用，基于 PyQt6。  
 支持 NFO 解析、海报缓存、增量刷新、离线容错与刮削工作流，适合个人影库长期维护。
 

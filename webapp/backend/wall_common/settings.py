@@ -28,8 +28,8 @@ for _p in (str(REPO_ROOT), str(BACKEND_ROOT)):
 
 logger = logging.getLogger("wall_common.settings")
 
-SERVICES = ("movie", "game")
-_API_PREFIX = {"movie": "/api/movie", "game": "/api/game"}
+SERVICES = ("movie",)
+_API_PREFIX = {"movie": "/api/movie"}
 
 
 @dataclass(frozen=True)
@@ -48,8 +48,6 @@ class Settings:
 
 def _default_data_dir(service: str) -> Path:
     """与 utils/app_paths 的桌面版默认行为保持一致。"""
-    if service == "game":
-        return Path(os.environ.get("APPDATA", Path.home())) / "LocalGameWall" / "data"
     return REPO_ROOT / "data"
 
 

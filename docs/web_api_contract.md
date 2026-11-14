@@ -1,17 +1,16 @@
 # 网页版 API 契约
 
-电影墙、游戏墙 Web 版的前后端接口规范。**前端与两个后端模块均以此文档为准**，任何改动需同步更新本文档。
+电影墙 Web 版的前后端接口规范。**前端与电影后端模块均以此文档为准**，任何改动需同步更新本文档。
 
 ## 1. 总体约定
 
-- 两个独立 FastAPI 服务（与桌面版"两个进程"的结构一致）：
+- 独立的电影墙 FastAPI 服务：
 
   | 服务 | 路由前缀 | 默认端口 | 数据目录环境变量 |
   |---|---|---|---|
   | 电影墙 `movie_service` | `/api/movie` | 8010 | `MML_DATA_DIR`（默认仓库 `data/`） |
-  | 游戏墙 `game_service` | `/api/game` | 8011 | `MML_DATA_DIR`（默认 `%APPDATA%/LocalGameWall/data`） |
 
-- Nginx 托管前端静态资源并把 `/api/movie/*`、`/api/game/*` 反代到对应端口；Vite 开发服务器同样按此前缀代理。
+- Nginx 托管前端静态资源并把 `/api/movie/*` 反代到对应端口；Vite 开发服务器同样按此前缀代理。
 - **筛选、排序、分组全部在前端完成**：列表接口一次性返回全部元数据（不含图片字节），前端常驻内存。
 - 错误响应统一为 FastAPI 风格：`{"detail": "可读错误信息"}`，状态码 400/404/409/422/500。
 - 时间戳为 Unix 秒（float）；路径为**服务器本地路径**（数据已由迁移脚本从 UNC 改写为挂载点）。
@@ -191,100 +190,12 @@ PUT 接受同结构的任意子集。
 
 ---
 
-## 3. 游戏墙（/api/game）
-
-### 3.1 Game DTO
-
-`GameListItem`（列表，`GameDetail` 为超集）：
-
-```json
-{
-  "key": "艾尔登法环",                     // norm_key = normalize_name(raw_name)
-  "title_cn": "艾尔登法环", "title_en": "Elden Ring",
-  "raw_name": "艾尔登法环.Elden.Ring", "excel_row": 12,
-  "quark_link": "https://…", "size_text": "45.2 GB", "size_bytes": 4831838208000,
-  "version": "v1.09", "update_date": "2024-01-01", "release_date": "2022-02-25",
-  "aaa_excel_marked": false,
-  "steam_appid": 1245620, "steam_name": "ELDEN RING",
-  "developer": "FromSoftware", "publishers": ["FromSoftware"],
-  "platforms": ["PC"], "steam_categories": ["Souls-like", "…"],
-  "genres": ["动作", "角色扮演"], "description": "…",
-  "steam_positive_pct": 92, "steam_review_total": 987654,
-  "metacritic": 94, "ign_score": 9.5, "gamersky_score": 9.0,
-  "header_image": "https://cdn.akamai.steamstatic.com/…",
-  "installed": false, "installed_exe": "", "installed_source": "",
-  "tier": "3A",                            // 生效档位（manual > llm > excel > rule）
-  "is_aaa": true,
-  "tier_source": "rule",                   // manual | llm | excel | rule
-  "aaa_score": 78, "aaa_tier": "3A", "aaa_evidence": {…}, "aaa_rule_version": "4.0",
-  "aaa_manual_override": null,             // 3A|2A|精品小众|普通游戏|避坑|null
-  "aaa_llm_verdict": {"tier": "3A", "is_aaa": true, "confidence": 0.9,
-                       "score": 88, "reasoning": "…"},
-  "genres_cn": ["动作"],                   // 若实现则供前端直接展示，否则前端用 genres
-  "rating": 9.0,                           // get_rating_value()：ign/gamersky/steam 百分比归一
-  "rating_source": "gamersky",             // ign | gamersky | steam | ""
-  "has_cover": true,
-  "needs_enrichment": false
-}
-```
-
-> 字段以 `gamewall/game_models.py` 与 `game_cache.py` 实际结构为准，上表是**展示层归一化**结果；实现时在 `store.py` 做 dataclass → DTO 转换（`tier`/`is_aaa`/`rating`/`rating_source`/`has_cover`/`needs_enrichment` 均来自现有属性/方法）。
-
-### 3.2 端点
-
-| 方法 | 路径 | 请求 | 响应 | 说明 |
-|---|---|---|---|---|
-| GET | `/games` | — | `{"total":N,"games":[…],"cache_info":{"version":3,"excel_mtime":…}}` | 全量列表 |
-| GET | `/games/{key}` | — | `GameDetail`（key 需 URL 编码） | |
-| PUT | `/games/{key}` | 任意可编辑字段子集 | `GameDetail` | 「编辑简介与海报」：description、header_image、genres、scores 等；写缓存 |
-| PUT | `/games/{key}/tier` | `{"tier":"3A"\|null}` | `GameDetail` | 标记档位 / `null` 恢复自动判断 |
-| GET | `/games/{key}/cover?variant=grid` | — | `image/jpeg` | variant: `custom`（本地自定义封面）→ `grid`（Steam 竖版，服务器代理缓存）→ 都无则 404，前端画占位 |
-| POST | `/games/{key}/cover/refresh` | `{"variant":"grid"}` | `{"path":"…"}` | 强制重新拉取封面（跳过缓存） |
-| POST | `/games/excel/diff` | — | `{"job_id":"…"}` | kind=`excel.diff`；result: `{"added":[key…],"updated":[key…],"removed":[key…],"counts":{…},"excel_meta":{…}}` |
-| POST | `/games/excel/apply` | — | `{"job_id":"…"}` | kind=`excel.apply`；result 同上 + `{"total":N}`；应用后触发规则分类重算 |
-| POST | `/games/enrich` | `{"scope":"all"\|"new"\|"selected","keys":[…],"options":{"steam":true,"ratings":true}}` | `{"job_id":"…"}` | kind=`enrich`。stage: `steam` → `ratings`；result: `{"updated":N,"skipped":N,"failed":[{"key","message"}]}` |
-| POST | `/games/llm/classify` | `{"scope":…,"keys":[…]}` | `{"job_id":"…"}` | kind=`llm.classify`；result: `{"done":N,"failed":N}` |
-| GET | `/games/steam/search?q=` | — | `{"results":[{"appid":123,"name":"…","definitive":true}]}` | 同步（内部有限流） |
-| POST | `/games/steam/apply` | `{"key":"…","appid":1245620}` | `GameDetail` | 拉 appdetails+reviews 合并写缓存；同步（≤15s） |
-| POST | `/games/llm/match` | `{"key":"…"}` | `{"game":GameDetail,"appid":123,"verified":true}` | LLM 建议 + Steam 校验；同步（≤60s） |
-| POST | `/games/llm/poster` | `{"key":"…"}` | `GameDetail` | LLM 重新获取竖版海报（appdetails portrait 候选）；同步 |
-| POST | `/games/scan-installed` | — | `{"job_id":"…"}` | kind=`install.scan`；扫描 game_dirs 中的 exe/.lnk 匹配已安装；result `{"scanned":N,"matched":M}` |
-| GET | `/settings` | — | 见 3.3 | |
-| PUT | `/settings` | 子集 | `{"saved":true}` | |
-| GET | `/system/info` | — | `{"service":"game","data_dir":"…"}` | |
-| GET | `/health` | — | `{"status":"ok",…}` | |
-
-> 桌面版的「启动游戏 / 打开文件夹 / 打开下载链接」在 Web 端的处理：
-> 下载链接（`quark_link`）前端直接 `<a>` 打开；启动/打开目录无服务端等价物，
-> 前端从 DTO 取 `installed_exe` / `video_path` 展示「复制路径」，**不设接口**。
-
-### 3.3 设置（GET/PUT /settings）
-
-```json
-{
-  "excel_path": "/mnt/…/游戏清单.xlsx",
-  "game_dirs": ["/mnt/…"],
-  "poster_scale": 100,
-  "network_enabled": true,
-  "enable_enrichment": true,
-  "enable_gamersky_scraper": true,
-  "enable_ign_scraper": false,
-  "llm_enabled": true,
-  "llm_base_url": "https://…",
-  "llm_model": "…",
-  "llm_api_key_set": true,          // GET 只回布尔+掩码，绝不回明文
-  "llm_api_key": "sk-…"             // 仅 PUT 接受
-}
-```
-
----
-
 ## 4. 实现工程约定（后端）
 
-1. **导入顺序**：服务 `main.py` 第一时间初始化设置（游戏墙需先设 `APP_DIR_NAME_OVERRIDE`）；任何模块**不得在导入期**创建 `CacheManager`/`ConfigManager`/`GameCacheManager` 等有状态对象，必须放在路由处理函数内或 `lifespan` 中（保证测试可用不同数据目录建多个 app 实例）。
+1. **导入顺序**：服务 `main.py` 第一时间初始化设置；任何模块**不得在导入期**创建 `CacheManager`/`ConfigManager`/`GameCacheManager` 等有状态对象，必须放在路由处理函数内或 `lifespan` 中（保证测试可用不同数据目录建多个 app 实例）。
 2. **单例陷阱**：`ConfigManager` 是进程级单例。测试用 `tests/webapp/conftest.py` 的 `service_data_dir` 夹具（monkeypatch `utils.app_paths.DATA_DIR` + 重置单例），**严禁写真实 data/ 目录**。
 3. **线程安全**：FastAPI 默认线程池并发处理请求，对缓存文件的读写必须加锁（进程内 `threading.Lock`）；保存 JSON 用「临时文件 + replace」原子写。
-4. **复用优先**：领域逻辑一律复用仓库现有模块（`utils/`、`parsers/`、`gamewall/`、`scraper/`），服务层只做 HTTP 适配、任务编排、DTO 转换；禁止在服务层重写解析/抓取/分类逻辑。
+4. **复用优先**：领域逻辑一律复用仓库现有模块（`utils/`、`parsers/`、`scraper/`），服务层只做 HTTP 适配、任务编排、DTO 转换；禁止在服务层重写解析/抓取/分类逻辑。
 5. **长任务**：一律走 `wall_common.jobs.JobManager`，`unique=True` 防重复提交（同一时刻同 kind 只跑一个），任务体内定期 `ctx.check_cancelled()`。
 6. **图片**：一律走 `wall_common.images`（缩略图缓存、远程缓存、失效）。
 7. **测试**：新增测试放 `tests/webapp/`，用 FastAPI `TestClient`；不得依赖真实 NAS/外网（网络调用 monkeypatch）；`pytest -q` 必须全绿。
