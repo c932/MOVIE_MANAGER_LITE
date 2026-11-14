@@ -265,286 +265,6 @@ class HighResPosterBulkUpdater(QThread):
         self.finished_signal.emit(total, updated, skipped, failed)
 
 
-class _SingleScrapeWorker(QThread):
-    """单电影豆瓣刮削后台线程"""
-    finished_signal = pyqtSignal(dict)
-
-    def __init__(self, nfo_path, title, original_title="", year=""):
-        super().__init__()
-        self.nfo_path = nfo_path
-        self.title = title
-        self.original_title = original_title
-        self.year = year
-
-    def run(self):
-        from scraper.douban_cli import scrape_single_movie
-        try:
-            result = scrape_single_movie(
-                self.nfo_path, self.title,
-                self.original_title, self.year
-            )
-        except Exception as e:
-            result = {"success": False, "message": f"异常: {e}"}
-        self.finished_signal.emit(result)
-
-
-class _BatchScrapeWorker(QThread):
-    """批量豆瓣刮削后台线程"""
-    progress = pyqtSignal(int, int, str)   # current, total, message
-    finished_signal = pyqtSignal(list)      # list of result dicts
-
-    def __init__(self, movies):
-        super().__init__()
-        self.movies = movies
-        self._cancelled = False
-
-    def cancel(self):
-        self._cancelled = True
-
-    def run(self):
-        import time
-        from scraper.douban_cli import scrape_single_movie
-        results = []
-        total = len(self.movies)
-        for i, movie in enumerate(self.movies, 1):
-            if self._cancelled:
-                break
-            self.progress.emit(i, total, f"正在处理: {movie.title}")
-            try:
-                result = scrape_single_movie(
-                    movie.nfo_path, movie.title,
-                    getattr(movie, 'original_title', '') or '',
-                    movie.year or ''
-                )
-            except Exception as e:
-                result = {"success": False, "message": f"异常: {e}"}
-            result['movie'] = movie
-            results.append(result)
-            if i < total:
-                time.sleep(1.5)
-        self.finished_signal.emit(results)
-
-
-class _MovieSelectDialog(QDialog):
-    """多选电影对话框"""
-
-    def __init__(self, movies, parent=None):
-        super().__init__(parent)
-        self.movies = movies
-        self.selected_movies = []
-        self._init_ui()
-
-    def _init_ui(self):
-        from PyQt6.QtWidgets import (
-            QListWidget, QListWidgetItem, QInputDialog, QComboBox
-        )
-        from datetime import datetime
-        self.setWindowTitle("批量刮削豆瓣评分")
-        self.setMinimumSize(500, 600)
-        self.resize(550, 650)
-
-        layout = QVBoxLayout(self)
-        layout.setSpacing(8)
-
-        # 搜索框 + 排序
-        top_row = QHBoxLayout()
-        self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("输入关键词筛选电影...")
-        self.search_input.textChanged.connect(self._filter_movies)
-        top_row.addWidget(self.search_input, stretch=1)
-
-        self.sort_combo = QComboBox()
-        self.sort_combo.addItems([
-            "按标题排序",
-            "加入时间 ↓ 最新",
-            "加入时间 ↑ 最旧",
-        ])
-        self.sort_combo.currentIndexChanged.connect(self._sort_movies)
-        top_row.addWidget(self.sort_combo)
-        layout.addLayout(top_row)
-
-        # 筛选行
-        filter_row = QHBoxLayout()
-        from PyQt6.QtWidgets import QCheckBox
-        self.no_douban_cb = QCheckBox("仅显示无豆瓣评分")
-        self.no_douban_cb.toggled.connect(
-            lambda _: self._filter_movies(self.search_input.text())
-        )
-        filter_row.addWidget(self.no_douban_cb)
-        filter_row.addStretch()
-        layout.addLayout(filter_row)
-
-        # 电影列表
-        self.list_widget = QListWidget()
-        self._populate_list(self.movies)
-        layout.addWidget(self.list_widget, stretch=1)
-
-        # 统计
-        self.count_label = QLabel(
-            f"共 {len(self.movies)} 部电影，已选 0 部"
-        )
-        layout.addWidget(self.count_label)
-
-        # 按钮
-        btn_layout = QHBoxLayout()
-        select_all_btn = QPushButton("全选")
-        select_all_btn.clicked.connect(self._select_all)
-        deselect_btn = QPushButton("取消全选")
-        deselect_btn.clicked.connect(self._deselect_all)
-
-        self.start_btn = QPushButton("▶ 开始批量刮削")
-        self.start_btn.setEnabled(False)
-        self.start_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #007AFF; color: white;
-                border: none; border-radius: 6px; padding: 6px 18px;
-                font-weight: bold;
-            }
-            QPushButton:hover { background-color: #0056CC; }
-            QPushButton:disabled { background-color: #ADB5BD; }
-        """)
-        self.start_btn.clicked.connect(self._start_scrape)
-
-        btn_layout.addWidget(select_all_btn)
-        btn_layout.addWidget(deselect_btn)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.start_btn)
-        layout.addLayout(btn_layout)
-
-    def _populate_list(self, movies):
-        """填充列表"""
-        from PyQt6.QtWidgets import QListWidgetItem
-        from datetime import datetime
-        self.list_widget.clear()
-        for movie in movies:
-            added = getattr(movie, 'added_time', 0) or 0
-            if added > 0:
-                date_str = datetime.fromtimestamp(added).strftime(
-                    '%Y-%m-%d'
-                )
-            else:
-                date_str = '----'
-            item = QListWidgetItem(
-                f"{movie.title} ({movie.year or '?'})  [{date_str}]"
-            )
-            item.setFlags(
-                item.flags() | Qt.ItemFlag.ItemIsUserCheckable
-            )
-            item.setCheckState(Qt.CheckState.Unchecked)
-            item.setData(Qt.ItemDataRole.UserRole, movie)
-            self.list_widget.addItem(item)
-
-    def _get_selected(self):
-        selected = []
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                selected.append(item.data(Qt.ItemDataRole.UserRole))
-        return selected
-
-    def _select_all(self):
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if not item.isHidden():
-                item.setCheckState(Qt.CheckState.Checked)
-        self._update_count()
-
-    def _deselect_all(self):
-        for i in range(self.list_widget.count()):
-            self.list_widget.item(i).setCheckState(
-                Qt.CheckState.Unchecked
-            )
-        self._update_count()
-
-    def _filter_movies(self, text):
-        text = text.lower()
-        only_no_douban = self.no_douban_cb.isChecked()
-        visible = 0
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            movie = item.data(Qt.ItemDataRole.UserRole)
-            # 文本匹配
-            text_match = (not text
-                          or text in movie.title.lower()
-                          or text in (getattr(movie, 'original_title', '')
-                                      or '').lower())
-            # 无豆瓣评分筛选
-            douban_rating = getattr(movie, 'ratings', {}).get('douban')
-            douban_match = (
-                not only_no_douban
-                or not douban_rating
-                or str(douban_rating).strip() == ''
-            )
-            show = text_match and douban_match
-            item.setHidden(not show)
-            if show:
-                visible += 1
-        self.count_label.setText(
-            f"显示 {visible}/{self.list_widget.count()} 部"
-        )
-
-    def _sort_movies(self, index):
-        """按选中方式排序电影列表"""
-        # 收集当前所有条目（保留勾选状态）
-        checked_ids = set()
-        items_data = []
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            movie = item.data(Qt.ItemDataRole.UserRole)
-            is_checked = (
-                item.checkState() == Qt.CheckState.Checked
-            )
-            if is_checked:
-                checked_ids.add(id(movie))
-            items_data.append((movie, is_checked))
-
-        # 排序
-        if index == 0:  # 按标题
-            items_data.sort(key=lambda x: x[0].title)
-        elif index == 1:  # 加入时间↓最新
-            items_data.sort(
-                key=lambda x: getattr(x[0], 'added_time', 0) or 0,
-                reverse=True
-            )
-        elif index == 2:  # 加入时间↑最旧
-            items_data.sort(
-                key=lambda x: getattr(x[0], 'added_time', 0) or 0
-            )
-
-        # 重新填充（保留勾选状态）
-        sorted_movies = [m for m, _ in items_data]
-        self._populate_list(sorted_movies)
-
-        # 恢复勾选状态
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            movie = item.data(Qt.ItemDataRole.UserRole)
-            if id(movie) in checked_ids:
-                item.setCheckState(Qt.CheckState.Checked)
-
-        # 重新应用筛选
-        self._filter_movies(self.search_input.text())
-
-    def _update_count(self):
-        selected = self._get_selected()
-        total = self.list_widget.count()
-        self.count_label.setText(
-            f"共 {total} 部电影，已选 {len(selected)} 部"
-        )
-        self.start_btn.setEnabled(len(selected) > 0)
-
-    def _start_scrape(self):
-        self.selected_movies = self._get_selected()
-        if not self.selected_movies:
-            return
-        self.accept()
-
-    # override itemChanged to update count
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.list_widget.itemChanged.connect(self._update_count)
-
-
 class MainWindow(QMainWindow):
     """
     主窗口类 - 三栏布局
@@ -607,6 +327,14 @@ class MainWindow(QMainWindow):
         self._load_rank_lookup()  # 加载豆瓣Top250排名查询表（供角标使用）
     
     def closeEvent(self, event):
+        runner = getattr(self, '_scrape_refresh_runner', None)
+        if runner is not None and runner.busy:
+            if not getattr(self, '_scrape_close_pending', False):
+                self._scrape_close_pending = True
+                runner.idle.connect(self.close)
+                runner.cancel()
+            event.ignore()
+            return
         """窗口关闭事件，保存状态并清理线程"""
         # 停止扫描线程
         if hasattr(self, 'scanner') and self.scanner.isRunning():
@@ -1143,64 +871,89 @@ class MainWindow(QMainWindow):
         self.content_stack.setCurrentIndex(1)
     
     def _open_scrape_dialog(self):
-        """打开批量刮削对话框：多选电影 → 批量注入豆瓣评分"""
-        from PyQt6.QtWidgets import QProgressDialog
+        """空媒体库也可发现新视频；所有刮削操作进入统一工作台。"""
+        self._show_scrape_workbench()
 
-        movies = self._get_movies_for_dialog()
-        if not movies:
-            QMessageBox.warning(self, "提示", "没有可刮削的电影。")
-            return
-
-        # 过滤有 NFO 的电影
-        movies_with_nfo = [m for m in movies if m.nfo_path]
-        if not movies_with_nfo:
-            QMessageBox.warning(self, "提示", "当前没有电影含有 NFO 文件。")
-            return
-
-        # 弹出多选对话框
-        dialog = _MovieSelectDialog(movies_with_nfo, self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-
-        selected = dialog.selected_movies
-        if not selected:
-            return
-
-        # 开始批量刮削
-        worker = _BatchScrapeWorker(selected)
-        progress = QProgressDialog(
-            "准备中...", "取消", 0, len(selected), self
+    def _show_scrape_workbench(self, movies=None, mode="full"):
+        from ui.scrape_dialog import ScrapeDialog
+        dialog = ScrapeDialog(
+            movies=self._get_movies_for_dialog() if movies is None else movies,
+            parent=self, mode=mode,
         )
-        progress.setWindowTitle("批量刮削豆瓣评分")
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setMinimumDuration(0)
-        progress.setValue(0)
-        progress.canceled.connect(worker.cancel)
+        dialog.saved.connect(self._on_scrape_saved)
+        dialog.exec()
+        dialog.deleteLater()
 
-        def on_progress(current, total, msg):
-            progress.setValue(current)
-            progress.setLabelText(f"[{current}/{total}] {msg}")
+    def _on_scrape_saved(self, paths):
+        """仅重新载入已写入条目，不触发全库重扫/清理或丢失筛选。"""
+        pending = getattr(self, '_pending_scrape_paths', set())
+        pending.update(paths)
+        self._pending_scrape_paths = pending
+        self._drain_scrape_refresh_queue()
 
-        def on_finished(results):
-            progress.close()
-            success = sum(1 for r in results if r.get('success'))
-            failed = len(results) - success
-            QMessageBox.information(
-                self, "批量刮削完成",
-                f"总计 {len(results)} 部\n"
-                f"成功 {success} 部\n"
-                f"失败 {failed} 部"
-            )
-            # 刷新被更新的电影
-            if success > 0:
-                for r in results:
-                    if r.get('success'):
-                        self._refresh_movie_after_scrape(r['movie'])
+    def _drain_scrape_refresh_queue(self):
+        if not getattr(self, '_pending_scrape_paths', None):
+            return
+        if hasattr(self, 'scanner') and self.scanner.isRunning():
+            return  # on_scan_completed 会排空队列，避免扫描与新增互相覆盖。
+        from ui.scrape_tasks import TaskRunner
+        from parsers.nfo_parser import NFOParser
+        runner = getattr(self, '_scrape_refresh_runner', None)
+        if runner is None:
+            runner = TaskRunner(self)
+            runner.result.connect(self._on_scrape_refresh_result)
+            runner.error.connect(lambda channel, generation, message: self.status_label.setText('刮削后刷新失败：' + message))
+            runner.idle.connect(self._drain_scrape_refresh_queue)
+            self._scrape_refresh_runner = runner
+        if runner.busy:
+            return
+        paths = tuple(self._pending_scrape_paths)
+        self._pending_scrape_paths.clear()
+        def read_saved(context):
+            movies = []
+            for path in paths:
+                context.checkpoint()
+                movie = NFOParser.parse(path, include_user_rating=True)
+                if movie is not None and movie.video_path:
+                    movies.append(movie)
+            return movies
+        runner.start('read', read_saved)
 
-        worker.progress.connect(on_progress)
-        worker.finished_signal.connect(on_finished)
-        worker.start()
-        progress.exec()
+    def _on_scrape_refresh_result(self, channel, generation, value):
+        if channel != 'read':
+            return
+        by_path = {WatchHistoryManager.normalize_path(m.nfo_path): m for m in self.all_movies}
+        image_cache = ImageCache()
+        for updated in value:
+            key = WatchHistoryManager.normalize_path(updated.nfo_path)
+            old = by_path.get(key)
+            updated.watched = self.watch_history.is_watched(updated.nfo_path)
+            if old is not None:
+                updated.added_time = old.added_time
+            for image_path in {getattr(old, 'poster_path', ''), updated.poster_path} - {''}:
+                image_cache.remove(image_path)
+                if self._poster_cache_manager is not None:
+                    self._poster_cache_manager.invalidate_cache_for_path(image_path)
+            if old is not None:
+                for name, field_value in vars(updated).items():
+                    setattr(old, name, field_value)
+            else:
+                self.all_movies.append(updated)
+                by_path[key] = updated
+            for card in self._card_pool.values():
+                if card.movie.nfo_path == updated.nfo_path:
+                    card._poster_loaded = False
+                    card._poster_loading = False
+                    card._poster_fail_count = 0
+        self.generate_filter_options()
+        self.apply_filters()
+        current = getattr(self.detail_panel, 'current_movie', None)
+        if current is not None:
+            self.detail_panel.show_movie(current, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(current))
+        self.status_label.setText(f'已更新 {len(value)} 部电影，媒体库共 {len(self.all_movies)} 部')
+        snapshot = list(self.all_movies)
+        roots = self.config.get_movie_paths()
+        self._scrape_refresh_runner.start('cache', lambda context: self.cache_manager.save_cache(snapshot, roots))
 
     def _get_movies_for_dialog(self):
         """获取可用于对话框的电影列表，处理扫描中等边界情况"""
@@ -1715,6 +1468,8 @@ class MainWindow(QMainWindow):
         if not self.offline_cache_only:
             QTimer.singleShot(2000, self._start_online_background_update)
             self._schedule_idle_local_cache_cleanup(20000)
+
+        self._drain_scrape_refresh_queue()
 
     def _prune_stale_local_records(self):
         """按当前扫描结果清理本地数据库中的失效记录。"""
@@ -3023,6 +2778,7 @@ class MainWindow(QMainWindow):
         action_play = menu.addAction("▶ 播放")
         action_open_folder = menu.addAction("📁 打开所在文件夹")
         menu.addSeparator()
+        action_scrape_full = menu.addAction("🔍 搜索匹配 / 刮削电影")
         action_scrape_douban = menu.addAction("🟢 刮削豆瓣评分")
         menu.addSeparator()
         action_update_nfo = menu.addAction("📝 更新NFO文件")
@@ -3036,6 +2792,8 @@ class MainWindow(QMainWindow):
             self._menu_play_movie(movie)
         elif selected == action_open_folder:
             self._menu_open_movie_folder(movie)
+        elif selected == action_scrape_full:
+            self._show_scrape_workbench([movie])
         elif selected == action_scrape_douban:
             self._menu_scrape_douban_rating(movie)
         elif selected == action_update_nfo:
@@ -3079,50 +2837,8 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "打开失败", str(e))
 
     def _menu_scrape_douban_rating(self, movie: Movie):
-        """右键菜单：刮削单部电影的豆瓣评分和链接"""
-        from PyQt6.QtWidgets import QProgressDialog
-        from scraper.douban_cli import scrape_single_movie
-
-        if not movie.nfo_path:
-            QMessageBox.warning(self, "刮削失败", "当前电影缺少 NFO 路径。")
-            return
-        if not movie.title:
-            QMessageBox.warning(self, "刮削失败", "当前电影缺少标题。")
-            return
-
-        # 创建后台工作线程
-        worker = _SingleScrapeWorker(
-            movie.nfo_path, movie.title,
-            movie.original_title or "", movie.year or ""
-        )
-
-        # 创建进度对话框
-        dialog = QProgressDialog("正在搜索豆瓣...", "取消", 0, 0, self)
-        dialog.setWindowTitle("刮削豆瓣评分")
-        dialog.setWindowModality(Qt.WindowModality.WindowModal)
-        dialog.setMinimumDuration(0)
-        dialog.setValue(0)
-        dialog.setCancelButton(None)  # 不可取消
-        dialog.setAutoClose(False)
-        dialog.setAutoReset(False)
-
-        def on_finished(result):
-            dialog.close()
-            if result.get("success"):
-                QMessageBox.information(
-                    self, "刮削成功",
-                    f"《{movie.title}》\n\n{result['message']}"
-                )
-                # 重新解析 NFO 并刷新电影数据
-                self._refresh_movie_after_scrape(movie)
-            else:
-                QMessageBox.warning(
-                    self, "刮削失败", result.get("message", "未知错误")
-                )
-
-        worker.finished_signal.connect(on_finished)
-        worker.start()
-        dialog.exec()
+        """豆瓣快捷操作是统一工作台的预设，不再另建刮削线程。"""
+        self._show_scrape_workbench([movie], mode="douban")
 
     def _refresh_movie_after_scrape(self, movie: Movie):
         """刮削成功后重新解析 NFO 并刷新显示"""

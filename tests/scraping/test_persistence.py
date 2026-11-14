@@ -28,6 +28,7 @@ def test_new_movie_roundtrip_and_metadata_only_does_not_borrow_poster(tmp_path):
     from parsers.nfo_parser import NFOParser
     t = target(tmp_path)
     (tmp_path / "poster.jpg").write_bytes(picture())
+    (tmp_path / "fanart.jpg").write_bytes(picture())
     draft = ScrapeDraft(t, {"title": "新片", "year": "2024", "ratings": {"tmdb": 8.1, "imdb": 7.2, "douban": 8.5}}, confirmed=True)
     snapshot_files(draft)
     movie = commit_draft(draft, metadata_only=True)
@@ -35,6 +36,7 @@ def test_new_movie_roundtrip_and_metadata_only_does_not_borrow_poster(tmp_path):
     assert movie.title == "新片"
     assert movie.ratings == {"tmdb": 8.1, "imdb": 7.2, "douban": 8.5}
     assert movie.poster_path == ""
+    assert movie.fanart_path == ""
     assert NFOParser.parse(str(t.nfo_path)).poster_path == ""
 
 
@@ -144,3 +146,13 @@ def test_corrupt_poster_does_not_create_nfo(tmp_path):
     with pytest.raises(ScrapeError, match="有效海报"):
         commit_draft(draft, poster_bytes=b"<html>Access denied</html>")
     assert not t.nfo_path.exists()
+
+
+def test_overwrite_old_tmdb_alias_roundtrips_new_score(tmp_path):
+    from scraper.scrape_persistence import commit_draft, snapshot_files
+    t = target(tmp_path, '<movie><title>A</title><ratings><rating name="themoviedb"><value>9</value></rating></ratings></movie>')
+    draft = ScrapeDraft(t, {"ratings": {"tmdb": 6}}, confirmed=True)
+    snapshot_files(draft)
+    movie = commit_draft(draft, overwrite=True, metadata_only=True)
+    assert movie.rating == 6
+    assert len(ET.parse(t.nfo_path).getroot().findall("ratings/rating")) == 1

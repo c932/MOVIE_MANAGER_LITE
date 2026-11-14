@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 def run_douban_cli(*args: str, timeout: int = 30) -> Optional[dict | list]:
     """调用 douban-cli 并返回解析后的 JSON，失败返回 None"""
     npx_path = shutil.which("npx") or "npx"
-    cmd = [npx_path, "--yes", "@marvae24/douban-cli"] + list(args) + ["--json"]
+    cmd = [npx_path, "--yes", "@marvae24/douban-cli@0.7.0"] + list(args) + ["--json"]
     try:
         result = subprocess.run(
             cmd, capture_output=True, timeout=timeout,
@@ -48,50 +48,37 @@ def run_douban_cli(*args: str, timeout: int = 30) -> Optional[dict | list]:
 # ─────────────────── 搜索 ───────────────────
 
 
-def search_movie(keyword: str, year: str = "") -> Optional[dict]:
-    """
-    搜索电影，返回最佳匹配结果。
-
-    使用 douban-cli search <keyword> --json
-    自动筛选年份匹配（±1 年容差）。
-
-    Returns:
-        {"id": str, "title": str, "rating": str, "year": str} 或 None
-    """
+def search_movies(keyword: str, year: str = "") -> list[dict]:
+    """完整电影候选，保留暂无评分的新片；人工匹配使用该接口。"""
     results = run_douban_cli("search", keyword, timeout=20)
-    if not results or not isinstance(results, list):
-        return None
+    if not isinstance(results, list):
+        return []
+    return [dict(item) for item in results if isinstance(item, dict)
+            and item.get("id") and item.get("title") and item.get("type", "movie") == "movie"]
 
-    # 优先返回评分 > 0 且年份匹配的结果
-    for item in results:
-        if not isinstance(item, dict):
-            continue
-        item_year = item.get("year", "")
-        item_rating = item.get("rating", "0")
 
-        # 跳过评分为 0 的结果（通常是访谈、纪录片等附属条目）
+def search_movie(keyword: str, year: str = "") -> Optional[dict]:
+    """兼容自动补分：只有明确且唯一的片名/年份匹配才返回结果。"""
+    import math
+    import re
+    normalize = lambda text: re.sub(r"[\W_]+", "", str(text).casefold())
+    matches = []
+    for item in search_movies(keyword, year):
         try:
-            if float(item_rating) <= 0:
+            score = float(item.get("rating", 0))
+            if not math.isfinite(score) or not 0 < score <= 10:
                 continue
-        except (ValueError, TypeError):
+            if year and (not str(item.get("year", "")).isdigit() or abs(int(item["year"]) - int(year)) > 1):
+                continue
+        except (TypeError, ValueError):
             continue
-
-        # 年份匹配（±1 年容差）
-        if year:
-            try:
-                if abs(int(item_year) - int(year)) > 1:
-                    continue
-            except (ValueError, TypeError):
-                pass  # 年份格式异常时不验证
-
-        return {
-            "id": item.get("id", ""),
-            "title": item.get("title", ""),
-            "rating": item_rating,
-            "year": item_year,
-        }
-
-    return None
+        names = [item.get("title", ""), item.get("original_title", "")]
+        if normalize(keyword) not in [normalize(name) for name in names if name]:
+            continue
+        matches.append({"id": str(item["id"]), "title": item["title"],
+                        "rating": item["rating"], "year": item.get("year", "")})
+    unique = {item["id"]: item for item in matches}
+    return next(iter(unique.values())) if len(unique) == 1 else None
 
 
 # ─────────────────── 详情 ───────────────────
@@ -113,98 +100,19 @@ def get_movie_detail(douban_id: str) -> Optional[dict]:
 
 
 def inject_douban_to_nfo(nfo_path: str, douban_id: str, detail: dict) -> bool:
-    """
-    将豆瓣数据注入 NFO 文件。
-
-    - 写入/更新 <ratings><rating name="douban">
-    - 写入 <doubanid> 元素
-    - 写入 <doubanurl> 元素
-
-    Args:
-        nfo_path: NFO 文件路径
-        douban_id: 豆瓣电影 ID
-        detail: douban-cli movie 命令返回的详情 dict
-
-    Returns:
-        是否注入成功
-    """
+    """旧公开接口；实际字段合并和原子写盘与工作台共用。"""
+    from scraper.scrape_persistence import update_douban_nfo
     try:
-        tree = ET.parse(nfo_path)
-        root = tree.getroot()
-
-        # 提取评分
-        rating_str = detail.get("rating", "0")
-        try:
-            rating_value = float(rating_str)
-        except (ValueError, TypeError):
-            rating_value = 0.0
-
-        if rating_value <= 0:
-            logger.warning(f"豆瓣评分为 0，跳过注入: {nfo_path}")
-            return False
-
-        # === 写入/更新 ratings ===
-        ratings_elem = root.find('ratings')
-        if ratings_elem is None:
-            ratings_elem = ET.SubElement(root, 'ratings')
-
-        # 查找已有的 douban rating
-        douban_rating = None
-        for r in ratings_elem.findall('rating'):
-            if r.get('name') == 'douban':
-                douban_rating = r
-                break
-
-        if douban_rating is None:
-            douban_rating = ET.SubElement(ratings_elem, 'rating')
-            douban_rating.set('name', 'douban')
-            douban_rating.set('max', '10')
-            douban_rating.set('default', 'false')
-
-        # 更新 value
-        value_elem = douban_rating.find('value')
-        if value_elem is None:
-            value_elem = ET.SubElement(douban_rating, 'value')
-        value_elem.text = str(rating_value)
-
-        # 更新 votes（comment_count 作为投票数参考）
-        votes_elem = douban_rating.find('votes')
-        comment_count = detail.get("comment_count", 0)
-        if comment_count:
-            if votes_elem is None:
-                votes_elem = ET.SubElement(douban_rating, 'votes')
-            votes_elem.text = str(comment_count)
-
-        # === 写入 doubanid ===
-        doubanid_elem = root.find('doubanid')
-        if doubanid_elem is None:
-            doubanid_elem = ET.SubElement(root, 'doubanid')
-        doubanid_elem.text = douban_id
-
-        # === 写入 doubanurl ===
-        douban_url = f"https://movie.douban.com/subject/{douban_id}/"
-        doubanurl_elem = root.find('doubanurl')
-        if doubanurl_elem is None:
-            doubanurl_elem = ET.SubElement(root, 'doubanurl')
-        doubanurl_elem.text = douban_url
-
-        # === 保存 ===
-        _save_formatted_xml(tree, nfo_path)
-        logger.info(f"豆瓣数据注入成功: {nfo_path} -> {detail.get('title', '?')} ({rating_value})")
-        return True
-
-    except ET.ParseError as e:
-        logger.error(f"NFO XML 解析错误 [{nfo_path}]: {e}")
-        return False
-    except Exception as e:
-        logger.error(f"NFO 注入异常 [{nfo_path}]: {e}")
+        return update_douban_nfo(nfo_path, douban_id, detail)
+    except (OSError, ValueError, ET.ParseError):
+        logger.warning("豆瓣 NFO 更新失败，原文件保持不变")
         return False
 
 
 def _save_formatted_xml(tree: ET.ElementTree, file_path: str):
-    """保存格式化的 XML 文件"""
-    ET.indent(tree, space="  ")
-    tree.write(file_path, encoding='utf-8', xml_declaration=True)
+    """旧内部入口也统一使用原子替换。"""
+    from parsers.nfo_writer import write_tree
+    write_tree(tree, file_path)
 
 
 def read_nfo_movie_info(nfo_path: str) -> Optional[dict]:
@@ -264,59 +172,6 @@ def read_nfo_movie_info(nfo_path: str) -> Optional[dict]:
 
 def scrape_single_movie(nfo_path: str, title: str, original_title: str = "",
                         year: str = "") -> dict:
-    """
-    刮削单部电影的豆瓣评分和链接。
-
-    多级搜索策略：中文名 → 英文原名 → 简化标题
-    仅写入 NFO：评分 + doubanid + doubanurl，不修改其他数据。
-
-    Returns:
-        {"success": bool, "message": str, "rating": str, "douban_id": str}
-    """
-    import time
-
-    if not title:
-        return {"success": False, "message": "电影标题为空"}
-
-    # === 多级搜索策略 ===
-    search_result = search_movie(title, year)
-
-    if not search_result and original_title and original_title != title:
-        time.sleep(0.5)
-        search_result = search_movie(original_title, year)
-
-    if not search_result and (':' in title or '：' in title):
-        simple_title = title.replace('：', ':').split(':')[0].strip()
-        if simple_title and simple_title != title:
-            time.sleep(0.5)
-            search_result = search_movie(simple_title, year)
-
-    if not search_result and original_title and (':' in original_title or '：' in original_title):
-        simple_original = original_title.replace('：', ':').split(':')[0].strip()
-        if simple_original and simple_original != original_title:
-            time.sleep(0.5)
-            search_result = search_movie(simple_original, year)
-
-    if not search_result:
-        return {"success": False, "message": f"未找到豆瓣结果: {title} ({year})"}
-
-    douban_id = search_result['id']
-    matched_title = search_result.get('title', '')
-
-    # === 获取详情 ===
-    time.sleep(0.5)
-    detail = get_movie_detail(douban_id)
-    if not detail:
-        return {"success": False, "message": f"获取详情失败: {matched_title}"}
-
-    # === 注入 NFO（仅评分 + 链接） ===
-    if inject_douban_to_nfo(nfo_path, douban_id, detail):
-        rating_str = detail.get('rating', '?')
-        return {
-            "success": True,
-            "message": f"成功: {matched_title} - {rating_str}/10",
-            "rating": rating_str,
-            "douban_id": douban_id,
-        }
-    else:
-        return {"success": False, "message": "NFO 写入失败"}
+    """兼容单片/批量调用；委托统一刮削服务的豆瓣专用用例。"""
+    from scraper.scrape_service import scrape_douban_movie
+    return scrape_douban_movie(nfo_path, title, original_title, year)

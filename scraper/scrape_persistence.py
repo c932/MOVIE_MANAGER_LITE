@@ -159,6 +159,16 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             for child in list(root.findall("ratings/rating")):
                 if child.get("name", "").lower() in SOURCES | {"themoviedb"}:
                     root.find("ratings").remove(child)
+        if "tmdb" in fields.get("ratings", {}):
+            for alias in list(root.findall("ratings/rating[@name='themoviedb']")):
+                canonical = root.find("ratings/rating[@name='tmdb']")
+                if canonical is not None:
+                    root.find("ratings").remove(alias)
+                else:
+                    alias.set("name", "tmdb")
+        old_poster = NFOParser._local_artwork(root, path.parent, "poster", poster_path(draft), path.parent / "poster.jpg")
+        if data is not None and (selected_fields is not None and "poster" not in selected_fields or old_poster and not overwrite and not draft.replace_identity):
+            data = None
         fields = _filtered_fields(root, fields, overwrite or draft.replace_identity)
         apply_fields(root, fields)
         sync_ids(root, fields.get("uniqueids", {}))
@@ -177,7 +187,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
             _set_poster(root, poster_path(draft).name)
         elif is_new or draft.replace_identity:
             _set_poster(root, "")
-        if draft.replace_identity:
+        if is_new or draft.replace_identity:
             ET.SubElement(root, "fanart").text = ""
         ET.indent(root, space="  ")
         assets = [(poster_path(draft), data)] if data is not None else []
@@ -219,7 +229,7 @@ def commit_draft(draft: ScrapeDraft, selected_fields: set[str] | None = None,
         return movie
 
 
-def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict) -> bool:
+def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict, *, expected_fingerprint: str | None = None) -> bool:
     if not re.fullmatch(r"\d+", str(douban_id)):
         raise ScrapeError("豆瓣 ID 无效")
     score = validate_score(detail.get("rating"))
@@ -228,6 +238,8 @@ def update_douban_nfo(nfo_path: str, douban_id: str, detail: dict) -> bool:
     with _LOCK:
         path = Path(nfo_path)
         before = fingerprint(path)
+        if expected_fingerprint is not None and before != expected_fingerprint:
+            raise ScrapeError("NFO 在豆瓣请求期间已改变，请重新加载")
         root = _xml(path)
         apply_fields(root, {"ratings": {"douban": score}, "uniqueids": {"douban": str(douban_id)}})
         sync_ids(root, {"douban": str(douban_id)})

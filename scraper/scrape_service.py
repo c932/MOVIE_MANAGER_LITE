@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
+from pathlib import Path
 
 from models.movie import Movie
 from scraper.scrape_models import Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget
-from scraper.scrape_persistence import commit_draft, read_ids, snapshot_files, update_douban_nfo, validate_score
+from scraper.scrape_persistence import commit_draft, fingerprint, read_ids, snapshot_files, update_douban_nfo, validate_score
 from scraper.scrape_settings import ScrapeSettings
 
 
@@ -60,6 +62,7 @@ class ScrapeService:
             except OSError as exc:
                 raise ScrapeError("NFO 暂时无法访问，请重新加载") from exc
         draft = ScrapeDraft(target)
+        snapshot_files(draft)
         by_source = {m.source: m for m in metadata}
         identifiers: dict[str, str] = {}
         ratings = {}
@@ -93,7 +96,10 @@ class ScrapeService:
         draft.poster = draft.artwork[0] if draft.artwork else None
         if target.nfo_path.exists():
             try:
-                root = ET.parse(target.nfo_path).getroot()
+                content = target.nfo_path.read_bytes()
+                if hashlib.sha256(content).hexdigest() != draft.expected_files[str(target.nfo_path)]:
+                    raise ScrapeError("NFO 在生成草稿时已改变，请重新加载")
+                root = ET.fromstring(content)
                 if root.tag != "movie":
                     raise ET.ParseError("非电影 NFO")
             except (ET.ParseError, OSError) as exc:
@@ -102,16 +108,30 @@ class ScrapeService:
             common = set(old_ids) & set(identifiers)
             draft.replace_identity = any(old_ids[s] != identifiers[s] for s in common)
             if not common and root.findtext("title", "").strip() and draft.fields.get("title"):
-                draft.replace_identity = root.findtext("title").strip().casefold() != str(draft.fields["title"]).strip().casefold()
+                title_changed = root.findtext("title").strip().casefold() != str(draft.fields["title"]).strip().casefold()
+                old_year, new_year = root.findtext("year", "").strip(), str(draft.fields.get("year", "")).strip()
+                draft.replace_identity = title_changed or bool(old_year and new_year and old_year != new_year)
             if draft.replace_identity:
                 draft.warnings.append("电影身份发生变化：保存将替换旧片名、简介、演职员、站点 ID、外部评分和图片关联；保留用户评分、标签及观看收藏状态")
-        snapshot_files(draft)
+        if any(fingerprint(Path(path)) != expected for path, expected in draft.expected_files.items()):
+            raise ScrapeError("文件在生成草稿时已改变，请重新加载")
         return draft
 
     def save(self, draft: ScrapeDraft, selected_fields: set[str] | None = None,
              overwrite: bool = False, metadata_only: bool = False) -> Movie:
         if not draft.confirmed:
             raise ScrapeError("请先确认匹配，再保存")
+        wants_poster = bool(draft.poster) and (selected_fields is None or "poster" in selected_fields)
+        existing_poster = False
+        if draft.target.existing and not overwrite and not draft.replace_identity:
+            from parsers.nfo_parser import NFOParser
+            existing = NFOParser.parse(str(draft.target.nfo_path))
+            if existing and existing.poster_path:
+                existing_poster = True
+                wants_poster = False
+        if not draft.poster and not metadata_only and not existing_poster:
+            raise ScrapeError("请先选择海报，或明确选择仅保存元数据")
+        metadata_only = metadata_only or not wants_poster
         image = None
         if not metadata_only and draft.poster:
             from scraper.scrape_http import HttpClient
@@ -126,7 +146,9 @@ def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", yea
     """旧豆瓣补分的非交互门面；不依赖 TMDB/OMDb 凭据。"""
     from scraper import douban_cli as cli
     try:
-        root = ET.parse(nfo_path).getroot()
+        original = Path(nfo_path).read_bytes()
+        expected = hashlib.sha256(original).hexdigest()
+        root = ET.fromstring(original)
         if root.tag != "movie":
             raise ScrapeError("NFO 根元素不是 movie")
         ids = read_ids(root)
@@ -154,7 +176,7 @@ def scrape_douban_movie(nfo_path: str, title: str, original_title: str = "", yea
             return {"success": False, "message": "该电影暂无豆瓣评分，原 NFO 保持不变", "douban_id": douban_id}
         if score <= 0:
             return {"success": False, "message": "该电影暂无豆瓣评分，原 NFO 保持不变", "douban_id": douban_id}
-        if not update_douban_nfo(nfo_path, douban_id, detail):
+        if not update_douban_nfo(nfo_path, douban_id, detail, expected_fingerprint=expected):
             raise ScrapeError("豆瓣 NFO 更新失败")
         return {"success": True, "message": f"成功：{detail.get('title') or title} - {score}/10", "rating": str(score), "douban_id": douban_id}
     except (OSError, ET.ParseError, ScrapeError) as exc:

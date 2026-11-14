@@ -62,3 +62,60 @@ def test_no_douban_rating_leaves_old_nfo_untouched(tmp_path, monkeypatch):
     monkeypatch.setattr(cli, "get_movie_detail", lambda id: {"id": id, "rating": "-"})
     assert not ScrapeService().douban_only(t)["success"]
     assert t.nfo_path.read_text(encoding="utf-8") == old
+
+
+def test_same_title_different_year_and_source_requires_identity_replacement(tmp_path):
+    from scraper.scrape_service import ScrapeService
+    t = VideoTarget(tmp_path / "a.mp4", tmp_path / "a.nfo", existing=True)
+    t.video_path.touch()
+    t.nfo_path.write_text('<movie><title>King Kong</title><year>1933</year><uniqueid type="tmdb">1</uniqueid></movie>', encoding="utf-8")
+    draft = ScrapeService().build_draft(t, [Metadata("douban", "2", {"title": "King Kong", "year": "2005"}, {"douban": "2"})])
+    assert draft.replace_identity
+
+
+def test_external_identity_change_during_douban_request_is_not_overwritten(tmp_path, monkeypatch):
+    from scraper.scrape_service import ScrapeService
+    import scraper.douban_cli as cli
+    t = VideoTarget(tmp_path / "a.mp4", tmp_path / "a.nfo", "A", existing=True)
+    t.video_path.touch()
+    t.nfo_path.write_text('<movie><title>A</title><doubanid>111</doubanid></movie>', encoding="utf-8")
+    changed = '<movie><title>B</title><doubanid>222</doubanid></movie>'
+    def detail(id):
+        t.nfo_path.write_text(changed, encoding="utf-8")
+        return {"id": id, "title": "A", "rating": "8"}
+    monkeypatch.setattr(cli, "get_movie_detail", detail)
+    assert not ScrapeService().douban_only(t)["success"]
+    assert t.nfo_path.read_text(encoding="utf-8") == changed
+
+
+def test_default_fill_never_downloads_or_replaces_existing_poster(tmp_path, monkeypatch):
+    from scraper.scrape_service import ScrapeService
+    from scraper.scrape_models import Artwork
+    import scraper.scrape_http as http
+    t = VideoTarget(tmp_path / "a.mp4", tmp_path / "a.nfo", existing=True)
+    t.video_path.touch()
+    t.nfo_path.write_text('<movie><title>A</title></movie>', encoding="utf-8")
+    poster = tmp_path / "poster.jpg"
+    poster.write_bytes(b"original-poster")
+    data = Metadata("tmdb", "1", {"title": "A", "plot": "新简介"}, {"tmdb": "1"}, artwork=[Artwork("https://image.tmdb.org/t/p/a.jpg")])
+    service = ScrapeService()
+    draft = service.build_draft(t, [data])
+    draft.confirmed = True
+    monkeypatch.setattr(http.HttpClient, "get_bytes", lambda *a, **k: pytest.fail("补缺不应下载/替换已有海报"))
+    movie = service.save(draft, selected_fields={"plot"})
+    assert movie.plot == "新简介"
+    assert poster.read_bytes() == b"original-poster"
+
+
+def test_identity_read_and_snapshot_are_same_version(tmp_path, monkeypatch):
+    import scraper.scrape_service as module
+    t = VideoTarget(tmp_path / "a.mp4", tmp_path / "a.nfo", existing=True)
+    t.video_path.touch()
+    t.nfo_path.write_text('<movie><title>A</title><uniqueid type="tmdb">1</uniqueid></movie>', encoding="utf-8")
+    real = module.snapshot_files
+    def changed_snapshot(draft):
+        real(draft)
+        t.nfo_path.write_text('<movie><title>B</title><uniqueid type="tmdb">2</uniqueid></movie>', encoding="utf-8")
+    monkeypatch.setattr(module, "snapshot_files", changed_snapshot)
+    with pytest.raises(ScrapeError, match="改变|冲突"):
+        module.ScrapeService().build_draft(t, [Metadata("tmdb", "1", {"title": "A"}, {"tmdb": "1"})])
