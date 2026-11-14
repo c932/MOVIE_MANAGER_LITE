@@ -109,3 +109,87 @@ def test_non_movie_nfo_is_damaged_and_never_treated_as_missing(tmp_path):
     path.with_suffix('.nfo').write_text('<tvshow/>')
     target = discover_videos([tmp_path])[0]
     assert target.existing and target.error and target.nfo_stamp is not None
+
+
+def junction(link: Path, destination: Path) -> None:
+    import os
+    import subprocess
+    if os.name != 'nt':
+        pytest.skip('此回归需要真实 Windows junction')
+    subprocess.run(['cmd', '/c', 'mklink', '/J', str(link), str(destination)],
+                   check=True, capture_output=True)
+    assert link.is_dir() and link.resolve() == destination.resolve()
+    # Python 3.11 的 junction 不属于符号链接，不能依赖 is_symlink 排除。
+    assert not link.is_symlink()
+
+
+def test_windows_junction_cannot_escape_explicit_library_root(tmp_path):
+    from scraper.media_discovery import discover_videos
+    local = video(tmp_path, 'library/Inside.mkv')
+    outside = video(tmp_path, 'outside/Outside.mkv')
+    junction(local.parent / 'linked', outside.parent)
+    targets = discover_videos([local.parent])
+    assert [target.video_path for target in targets] == [local]
+
+
+def test_windows_junction_explicit_root_still_scans_and_deduplicates(tmp_path):
+    from scraper.media_discovery import discover_videos
+    local = video(tmp_path, 'library/Inside.mkv')
+    outside = video(tmp_path, 'outside/Outside.mkv')
+    link = local.parent / 'linked'
+    junction(link, outside.parent)
+    assert [target.video_path for target in discover_videos([link])] == [outside]
+    assert {target.video_path for target in discover_videos([local.parent, link, outside.parent])} == {local, outside}
+
+
+@pytest.mark.parametrize('existing', [False, True])
+@pytest.mark.parametrize('explicit_file', [False, True])
+@pytest.mark.parametrize('second_stem', ['Film', 'film'])
+def test_same_stem_videos_mark_nfo_conflict_and_cannot_save(tmp_path, existing, explicit_file, second_stem):
+    from scraper.media_discovery import discover_videos
+    from scraper.scrape_models import ScrapeDraft
+    from scraper.scrape_service import ScrapeService
+    a = video(tmp_path, 'Film.mkv')
+    b = video(tmp_path, f'{second_stem}.mp4')
+    other = video(tmp_path, 'Other.mkv')
+    nfo = a.with_suffix('.nfo')
+    original = b'<movie><title>Film</title></movie>'
+    if existing:
+        nfo.write_bytes(original)
+    targets = discover_videos([a] if explicit_file else [tmp_path])
+    conflicted = [target for target in targets if target.video_path in {a, b}]
+    assert len(conflicted) == (1 if explicit_file else 2)
+    for target in conflicted:
+        assert '冲突' in target.error and 'NFO' in target.error
+        with pytest.raises(ScrapeError, match='冲突'):
+            ScrapeService().save(ScrapeDraft(target, confirmed=True), metadata_only=True)
+    if not explicit_file:
+        assert not next(target for target in targets if target.video_path == other).error
+    if existing:
+        assert nfo.read_bytes() == original
+    else:
+        assert not nfo.exists()
+
+
+def test_same_stem_in_different_directories_has_no_conflict(tmp_path):
+    from scraper.media_discovery import discover_videos
+    video(tmp_path, 'one/Film.mkv')
+    video(tmp_path, 'two/Film.mp4')
+    targets = discover_videos([tmp_path])
+    assert len(targets) == 2 and not any(target.error for target in targets)
+
+
+def test_unknown_nfo_encoding_marks_one_bad_target_and_continues(tmp_path):
+    from scraper.media_discovery import discover_videos
+    bad = video(tmp_path, 'Bad.mkv')
+    good = video(tmp_path, 'Good.mp4')
+    nfo = bad.with_suffix('.nfo')
+    original = b'<?xml version="1.0" encoding="unknown-encoding"?><movie/>'
+    nfo.write_bytes(original)
+    targets = {target.video_path: target for target in discover_videos([tmp_path])}
+    assert set(targets) == {bad, good}
+    assert targets[bad].existing and 'NFO' in targets[bad].error
+    assert targets[bad].nfo_path == nfo
+    assert targets[bad].nfo_stamp == (nfo.stat().st_mtime_ns, len(original))
+    assert not targets[good].error and not targets[good].existing
+    assert nfo.read_bytes() == original

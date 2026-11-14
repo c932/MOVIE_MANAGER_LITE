@@ -305,3 +305,56 @@ def test_http_bytes_are_unmodified_and_declared_limits_enforced(monkeypatch):
         client.get_bytes('https://example.invalid/image', max_bytes=10)
     with pytest.raises(ScrapeError):
         client.get_bytes('https://example.invalid/image', max_bytes=10)
+
+
+@pytest.mark.parametrize('header_value', ['Bearer fixture\r\ntoken-tail', 'Bearer fixture-令牌-tail'])
+def test_http_actual_header_validation_errors_are_sanitized(monkeypatch, header_value):
+    import http.client
+    import urllib.request
+    from scraper.scrape_http import HttpClient, HttpError
+
+    class HeaderValidationOpener:
+        def open(self, request, timeout):
+            # putrequest/putheader exercise Py3.11 validation without opening a socket.
+            connection = http.client.HTTPConnection('unused.invalid')
+            try:
+                connection.putrequest('GET', '/')
+                connection.putheader('Authorization', request.get_header('Authorization'))
+            finally:
+                connection.close()
+            pytest.fail('invalid header unexpectedly accepted')
+
+    monkeypatch.setattr(urllib.request, 'build_opener', lambda *handlers: HeaderValidationOpener())
+    with pytest.raises(HttpError) as error:
+        HttpClient().get_bytes('https://example.invalid/', headers={'Authorization': header_value})
+    assert 'fixture' not in str(error.value)
+    assert 'tail' not in str(error.value)
+    assert error.value.__suppress_context__
+
+
+def test_http_request_construction_value_error_is_sanitized(monkeypatch):
+    import urllib.request
+    from scraper.scrape_http import HttpClient, HttpError
+
+    def invalid_request(*args, **kwargs):
+        raise ValueError('request fixture-sensitive-value')
+
+    monkeypatch.setattr(urllib.request, 'Request', invalid_request)
+    with pytest.raises(HttpError) as error:
+        HttpClient().get_bytes('https://example.invalid/')
+    assert 'fixture-sensitive-value' not in str(error.value)
+
+
+def test_http_query_encoding_error_is_sanitized():
+    from scraper.scrape_http import HttpClient, HttpError
+    with pytest.raises(HttpError) as error:
+        HttpClient().get_json('https://example.invalid/', {'apikey': 'fixture-\ud800-tail'})
+    assert 'fixture' not in str(error.value)
+
+
+def test_http_response_unicode_error_is_sanitized(monkeypatch):
+    from scraper.scrape_http import HttpClient, HttpError
+    transport(monkeypatch, [UnicodeDecodeError('ascii', b'fixture-\xff-tail', 8, 9, 'fixture-sensitive-value')])
+    with pytest.raises(HttpError) as error:
+        HttpClient().get_bytes('https://example.invalid/')
+    assert 'fixture' not in str(error.value)

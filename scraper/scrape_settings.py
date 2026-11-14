@@ -21,6 +21,13 @@ class ScrapeSettings:
     douban_delay: float = 1.5
 
     def validate(self) -> None:
+        for key, label in (("tmdb_api_key", "TMDB API Key"), ("tmdb_token", "TMDB 访问令牌"),
+                           ("omdb_api_key", "OMDb API Key"), ("language", "语言"), ("proxy", "代理")):
+            value = getattr(self, key)
+            if not isinstance(value, str):
+                raise ValueError(f"{label}必须是文本")
+            if any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in value):
+                raise ValueError(f"{label}不能包含控制字符")
         if not isinstance(self.timeout, int) or not 1 <= self.timeout <= 120:
             raise ValueError("请求超时应为 1–120 秒")
         if not isinstance(self.douban_delay, (int, float)) or not math.isfinite(self.douban_delay) or not 0 <= self.douban_delay <= 60:

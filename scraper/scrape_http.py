@@ -54,7 +54,10 @@ class HttpClient:
             raise HttpError('请求地址必须是有效的 HTTPS 地址')
         if max_bytes <= 0:
             raise HttpError('下载大小上限必须大于零')
-        request = urllib.request.Request(url, headers={'User-Agent': 'MovieManagerLite/1.0', **(headers or {})})
+        try:
+            request = urllib.request.Request(url, headers={'User-Agent': 'MovieManagerLite/1.0', **(headers or {})})
+        except (ValueError, UnicodeError):
+            raise HttpError('请求参数或编码无效，请检查地址及认证设置') from None
         for attempt in range(self.retries + 1):
             try:
                 with self._opener.open(request, timeout=self.settings.timeout) as response:
@@ -77,6 +80,8 @@ class HttpClient:
                     if declared is not None and len(data) != length:
                         raise HttpError('服务器响应不完整，请重试')
                     return data
+            except HttpError:
+                raise
             except urllib.error.HTTPError as exc:
                 status = exc.code
                 exc.close()
@@ -88,6 +93,8 @@ class HttpClient:
             except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
                 if attempt == self.retries:
                     raise HttpError('网络请求失败或超时，请检查网络与代理设置') from None
+            except (ValueError, UnicodeError):
+                raise HttpError('请求或响应编码无效，请检查地址及认证设置') from None
             time.sleep(min(0.1 * (2 ** attempt), 0.4))
         raise HttpError('网络请求失败')  # pragma: no cover
 
@@ -95,7 +102,10 @@ class HttpClient:
                  *, headers: Mapping[str, str] | None = None,
                  max_bytes: int = 2 * 1024 * 1024) -> dict | list:
         if params:
-            url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
+            try:
+                url += ('&' if '?' in url else '?') + urllib.parse.urlencode(params)
+            except (ValueError, UnicodeError):
+                raise HttpError('请求参数编码无效，请检查认证设置') from None
         data = self.get_bytes(url, max_bytes=max_bytes, headers=headers)
         try:
             result = json.loads(data)

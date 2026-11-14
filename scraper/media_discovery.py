@@ -74,12 +74,18 @@ def discover_videos(
                 raise ScrapeError(f'无法访问视频目录：{directory}') from None
         return siblings[directory]
 
-    def walk(path: Path) -> None:
+    def walk(path: Path, boundary: Path | None = None) -> None:
         cancelled()
         if excluded(path):
             return
         try:
             path = path.resolve(strict=True)
+            # Windows junction 在 Py3.11 下 is_symlink() 为 False，必须按
+            # 解析后的路径约束递归边界；显式根目录自身可以是联接或网络库。
+            if boundary is not None and not path.is_relative_to(boundary):
+                return
+            if boundary is None:
+                boundary = path if path.is_dir() else path.parent
             if path in visited:
                 return
             visited.add(path)
@@ -88,7 +94,7 @@ def discover_videos(
                     # 不递归目录符号链接，避免环和媒体库外的意外遍历。
                     if child.is_symlink() and child.is_dir():
                         continue
-                    walk(child)
+                    walk(child, boundary)
             elif path.is_file() and path.suffix.lower() in VIDEO_EXTENSIONS:
                 videos.add(path)
         except OSError:
@@ -100,11 +106,13 @@ def discover_videos(
     for video in sorted(videos, key=lambda p: str(p).casefold()):
         cancelled()
         files = entries(video.parent)
+        directory_videos = [p for p in files if p.suffix.lower() in VIDEO_EXTENSIONS
+                            and p.is_file() and not excluded(p)]
+        same_stem = sum(p.stem.casefold() == video.stem.casefold() for p in directory_videos)
         nfos = {p.name.casefold(): p for p in files if p.suffix.lower() == '.nfo'}
         nfo = nfos.get(video.with_suffix('.nfo').name.casefold())
         if nfo is None:
-            count = sum(p.suffix.lower() in VIDEO_EXTENSIONS and p.is_file() and not excluded(p) for p in files)
-            nfo = nfos.get('movie.nfo') if count == 1 else None
+            nfo = nfos.get('movie.nfo') if len(directory_videos) == 1 else None
         title, year = guess_title_year(video.name)
         if title.casefold() in {'movie', 'video', 'main'} or title.isdecimal():
             title, year = guess_title_year(video.parent.name)
@@ -119,7 +127,10 @@ def discover_videos(
                     raise ValueError('root')
                 target.title = root.findtext('title') or title
                 target.year = root.findtext('year') or year
-            except (ET.ParseError, ValueError, OSError):
+            except (ET.ParseError, ValueError, LookupError, OSError):
                 target.error = '原 NFO 损坏或无法读取，请先修复原文件'
+        if same_stem > 1:
+            conflict = 'NFO 路径冲突：同目录存在多个同名视频，请先区分视频文件名后再保存'
+            target.error = f'{target.error}；{conflict}' if target.error else conflict
         targets.append(target)
     return targets
