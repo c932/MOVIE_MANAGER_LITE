@@ -71,18 +71,17 @@ def _load_poster_with_cache(poster_path: str, target_width: int, target_height: 
 
     # 网络路径离线时 exists/stat 可能长时间阻塞，优先走跨尺寸缓存兜底。
     if _is_network_path(poster_path):
-        cached_pixmap = cache_manager.get_cached_pixmap(
-            poster_path, target_width, target_height, allow_cross_size_reuse=True
-        )
-        if cached_pixmap is not None:
-            logger.debug(f"从缓存加载详情页海报（网络路径跨尺寸复用）: {poster_path}")
-            return cached_pixmap
-        if poster_path not in _logged_missing_cache_paths:
-            _logged_missing_cache_paths.add(poster_path)
-            if is_offline_cache_only():
+        if is_offline_cache_only():
+            cached_pixmap = cache_manager.get_cached_pixmap(
+                poster_path, target_width, target_height, allow_cross_size_reuse=True
+            )
+            if cached_pixmap is not None:
+                logger.debug(f"从缓存加载详情页海报（网络路径跨尺寸复用）: {poster_path}")
+                return cached_pixmap
+            if poster_path not in _logged_missing_cache_paths:
+                _logged_missing_cache_paths.add(poster_path)
                 logger.warning(f"仅缓存模式：网络路径无缓存可用: {poster_path}")
-            else:
-                logger.warning(f"网络路径且无缓存可用: {poster_path}")
+        # 在线模式不在 UI 线程探测 NAS；交给后台读取原图并生成详情尺寸缓存。
         return QPixmap()
     
     # 2. 非阻塞策略：不在 UI 线程探测原图或解码大图，只做跨尺寸缓存复用。

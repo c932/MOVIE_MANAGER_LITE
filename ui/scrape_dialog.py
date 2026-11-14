@@ -533,6 +533,12 @@ class ScrapeDialog(QDialog):
         self._update_buttons()
 
     def _source_changed(self) -> None:
+        source = self.source_combo.currentData()
+        index = self.plot_source_combo.findData(source)
+        if index >= 0 and self.plot_source_combo.currentIndex() != index:
+            self.plot_source_combo.blockSignals(True)
+            self.plot_source_combo.setCurrentIndex(index)
+            self.plot_source_combo.blockSignals(False)
         self.clear_search(clear_query=False)
 
     def clear_search(self, checked=False, *, clear_query=True) -> None:

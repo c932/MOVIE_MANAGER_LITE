@@ -832,3 +832,11 @@ def test_real_service_saves_edited_title_and_respects_unselected_plot(app, tmp_p
         assert root.findtext("plot") == "原简介"
     finally:
         window.close()
+
+
+def test_search_source_sets_matching_default_plot_source(dialog, app):
+    window, _service = dialog
+    window.source_combo.setCurrentIndex(window.source_combo.findData("douban"))
+    assert window.plot_source_combo.currentData() == "douban"
+    window.source_combo.setCurrentIndex(window.source_combo.findData("tmdb"))
+    assert window.plot_source_combo.currentData() == "tmdb"

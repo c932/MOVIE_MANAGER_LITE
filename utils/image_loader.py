@@ -90,15 +90,14 @@ class ImageLoader(QThread):
 
             # 网络路径：离线时仅缓存；在线时允许读取网络原图并回填缓存。
             if _is_network_path(self.image_path):
-                cached_pixmap = cache_manager.get_cached_pixmap(
-                    self.image_path, self.target_width, self.target_height, allow_cross_size_reuse=True
-                )
-                if cached_pixmap is not None:
-                    self.image_loaded.emit(self.image_path, cached_pixmap)
-                    return
-
                 if offline_cache_only:
-                    self.image_loaded.emit(self.image_path, QPixmap())
+                    cached_pixmap = cache_manager.get_cached_pixmap(
+                        self.image_path, self.target_width, self.target_height, allow_cross_size_reuse=True
+                    )
+                    if cached_pixmap is not None:
+                        self.image_loaded.emit(self.image_path, cached_pixmap)
+                    else:
+                        self.image_loaded.emit(self.image_path, QPixmap())
                     return
 
                 # 在线模式：直接读取网络原图。
@@ -205,15 +204,13 @@ class BatchImageLoader(QThread):
 
                 # 网络路径：离线时仅缓存；在线时允许后台线程直接读原图并回填缓存。
                 if _is_network_path(image_path):
-                    cached_image = cache_manager.get_cached_image(
-                        image_path, target_width, target_height, allow_cross_size_reuse=True
-                    )
-                    if cached_image is not None:
-                        loaded_items.append((image_path, cached_image))
-                        continue
-
                     if offline_cache_only:
                         # 离线模式下不访问网络原图，避免阻塞。
+                        cached_image = cache_manager.get_cached_image(
+                            image_path, target_width, target_height, allow_cross_size_reuse=True
+                        )
+                        if cached_image is not None:
+                            loaded_items.append((image_path, cached_image))
                         continue
 
                     # 在线模式：允许直接读取网络原图。
