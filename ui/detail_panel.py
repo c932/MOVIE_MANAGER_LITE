@@ -514,6 +514,7 @@ class MovieDetailPanel(QWidget):
         logo_files = {
             'imdb': 'IMDB.png',
             'themoviedb': 'TMDB.jpg',
+            'tmdb': 'TMDB.jpg',
             'douban': '豆瓣.png',
         }
         

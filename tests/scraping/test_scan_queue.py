@@ -96,6 +96,60 @@ def test_open_folder_targets_clicked_video_parent(app, tmp_path, monkeypatch):
 from tests.scraping.test_scrape_dialog import app
 
 
+def test_rescan_keeps_complete_douban_movies_out_of_queue(app, tmp_path):
+    from parsers.nfo_parser import NFOParser
+    from scraper.scrape_service import ScrapeService
+    from scraper.scrape_settings import ScrapeSettings
+    from scraper.scan_queue import load_queue
+    from tests.scraping.test_scrape_dialog import until
+    from ui.scrape_dialog import ScrapeDialog
+    for name, score, link in [('完整', '9.1', '<uniqueid type="douban">1293174</uniqueid>'),
+                              ('缺评分', '0', '<doubanurl>https://movie.douban.com/subject/1/</doubanurl>'),
+                              ('缺链接', '8.1', '')]:
+        (tmp_path / f'{name}.mkv').touch()
+        (tmp_path / f'{name}.nfo').write_text(
+            f'<movie><title>{name}</title><ratings><rating name="douban"><value>{score}</value></rating></ratings>{link}</movie>',
+            encoding='utf-8')
+    movies = [NFOParser.parse(str(p)) for p in tmp_path.glob('*.nfo')]
+    window = ScrapeDialog(movies, service=ScrapeService(ScrapeSettings()))
+    window.show()
+    try:
+        until(app, lambda: not window.tasks.busy)
+        window.scan(paths=[str(tmp_path)])
+        until(app, lambda: not window.tasks.busy)
+        window.mode_combo.setCurrentIndex(window.mode_combo.findData('douban'))
+        assert window.target_list.count() == 2
+        labels = [window.target_list.item(i).text() for i in range(2)]
+        assert all('完整' not in label for label in labels)
+        assert next(t for t in window.targets if t.title == '完整').douban_complete is True
+        assert next(t for t in load_queue() if t.title == '完整').douban_complete is True
+        # 外部修改 NFO 后重新扫描，也必须发现新缺失，不能沿用旧状态。
+        nfo = tmp_path / '完整.nfo'
+        nfo.write_text('<movie><title>完整</title></movie>', encoding='utf-8')
+        window.mode_combo.setCurrentIndex(window.mode_combo.findData('full'))
+        window.scan(paths=[str(tmp_path)])
+        until(app, lambda: not window.tasks.busy)
+        window.mode_combo.setCurrentIndex(window.mode_combo.findData('douban'))
+        assert window.target_list.count() == 3
+    finally:
+        window.close()
+
+
+@pytest.mark.parametrize('link', [
+    '<doubanurl>https://movie.douban.com/subject/1/</doubanurl>',
+    '<url>https://movie.douban.com/subject/1/</url>',
+    '<uniqueid type="douban">1</uniqueid>',
+])
+@pytest.mark.parametrize('score,expected', [('9.1', True), ('0', False), ('NaN', False), ('11', False)])
+def test_discovery_douban_completeness_uses_library_nfo_rules(tmp_path, link, score, expected):
+    from scraper.media_discovery import discover_videos
+    (tmp_path / 'film.mkv').touch()
+    (tmp_path / 'film.nfo').write_text(
+        f'<movie><title>电影</title><ratings><rating name="douban"><value>{score}</value></rating></ratings>{link}</movie>',
+        encoding='utf-8')
+    assert discover_videos([tmp_path])[0].douban_complete is expected
+
+
 def test_slow_restore_merged_with_new_scan_is_saved(app, tmp_path, monkeypatch):
     import threading
     import scraper.scan_queue as queue

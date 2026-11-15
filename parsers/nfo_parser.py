@@ -117,23 +117,7 @@ class NFOParser:
                 movie.tmdb_id = tmdb_elem.text.strip()
             
             # 豆瓣URL（支持多种NFO格式）
-            douban_url = ''
-            # 1. 尝试 <doubanurl> 标签
-            douban_url_elem = root.find('doubanurl')
-            if douban_url_elem is not None and douban_url_elem.text:
-                douban_url = douban_url_elem.text.strip()
-            # 2. 尝试 <url> 标签（含豆瓣链接）
-            if not douban_url:
-                url_elem = root.find('url')
-                if url_elem is not None and url_elem.text and 'douban.com' in url_elem.text:
-                    douban_url = url_elem.text.strip()
-            # 3. 尝试从 <uniqueid type="douban"> 构造URL
-            if not douban_url:
-                douban_id_elem = root.find("uniqueid[@type='douban']")
-                if douban_id_elem is not None and douban_id_elem.text:
-                    douban_url = f"https://movie.douban.com/subject/{douban_id_elem.text.strip()}/"
-            if douban_url:
-                movie.douban_url = douban_url
+            movie.douban_url = NFOParser.extract_douban_url(root)
             
             # === 提取导演 ===
             for director in root.findall('director'):
@@ -246,6 +230,27 @@ class NFOParser:
         child = element.find(tag)
         return child.text.strip() if child is not None and child.text else ""
     
+    @staticmethod
+    def extract_douban_url(root: ET.Element) -> str:
+        """媒体库与目录扫描共用的豆瓣链接提取规则。"""
+        url = (root.findtext('doubanurl') or '').strip()
+        if not url:
+            generic = (root.findtext('url') or '').strip()
+            if 'douban.com' in generic:
+                url = generic
+        if not url:
+            identity = (root.findtext("uniqueid[@type='douban']") or '').strip()
+            if identity:
+                url = f'https://movie.douban.com/subject/{identity}/'
+        return url
+
+    @staticmethod
+    def has_complete_douban(root: ET.Element) -> bool:
+        """基于已读取的 XML 判断豆瓣评分和链接，无需再次访问 NFO。"""
+        info = NFOParser._extract_rating(root) or {}
+        score = info.get('all_ratings', {}).get('douban', 0)
+        return bool(0 < score <= 10 and NFOParser.extract_douban_url(root))
+
     @staticmethod
     def _extract_rating(root: ET.Element, *, include_user_rating: bool = False) -> Optional[dict]:
         """

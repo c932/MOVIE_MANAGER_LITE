@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 from typing import Callable, Iterable
+from parsers.nfo_parser import NFOParser
 
 from .nfo_inspection import inspect_nfo
 from .scrape_models import ScanProgress, ScrapeError, VideoTarget
@@ -137,6 +138,7 @@ def discover_videos(
             if root is not None:
                 target.title = root.findtext('title') or title
                 target.year = root.findtext('year') or year
+                target.douban_complete = NFOParser.has_complete_douban(root)
         if same_stem > 1:
             conflict = 'NFO 路径冲突：同目录存在多个同名视频，请先区分视频文件名后再保存'
             target.error = f'{target.error}；{conflict}' if target.error else conflict

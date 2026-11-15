@@ -3,6 +3,18 @@ from PyQt6.QtGui import QImage, QPixmap
 from tests.scraping.test_scrape_dialog import app
 
 
+def test_new_and_tmm_tmdb_ratings_use_same_image_logo(app):
+    from ui.detail_panel import MovieDetailPanel
+    panel = MovieDetailPanel()
+    try:
+        new_logo = panel._create_rating_logo('tmdb')
+        old_logo = panel._create_rating_logo('themoviedb')
+        assert not new_logo.pixmap().isNull()
+        assert new_logo.pixmap().toImage() == old_logo.pixmap().toImage()
+    finally:
+        panel.close()
+
+
 def test_detail_online_network_poster_does_not_reuse_wall_thumbnail(app, monkeypatch):
     from ui import detail_panel
     calls = []
