@@ -891,8 +891,8 @@ class MainWindow(QMainWindow):
         self._show_scrape_workbench()
 
     def _show_scrape_workbench(self, movies=None, mode="full"):
-        from ui.scrape_dialog import ScrapeDialog
-        dialog = ScrapeDialog(
+        from ui.scrape_manager import ScrapeManagerDialog
+        dialog = ScrapeManagerDialog(
             movies=self._get_movies_for_dialog() if movies is None else movies,
             parent=self, mode=mode,
         )

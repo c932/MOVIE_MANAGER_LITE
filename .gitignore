@@ -54,6 +54,8 @@ data/failed_movies.json
 data/config.json
 data/movie_cache.json
 data/scrape_config.json
+data/scrape_queue.json
+data/scrape_management.json
 data/douban_cookies.pkl
 data/douban_ranking_cache.json
 data/new_movie_cache.json

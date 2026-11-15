@@ -431,3 +431,137 @@ QDialog#scrapeDialog QComboBox:focus, QDialog#scrapeSettingsDialog QComboBox:foc
     border: 2px solid #0051D5;
 }
 
+/* 独立资料管理区域：只作用于刮削管理、搜索、编辑，电影墙不受影响。 */
+QDialog#scrapeManager, QDialog#scrapeSearchDialog, QDialog#metadataEditor {
+    background: #F3F4F5;
+    color: #25313B;
+    font-family: "Microsoft YaHei", "Segoe UI";
+    font-size: 12px;
+}
+QDialog#scrapeManager QWidget#managementToolbar {
+    background: #30343A;
+}
+QDialog#scrapeManager QPushButton, QDialog#scrapeManager QToolButton,
+QDialog#scrapeSearchDialog QPushButton, QDialog#metadataEditor QPushButton {
+    background: #FFFFFF;
+    color: #25313B;
+    border: 1px solid #BFC7CE;
+    border-radius: 3px;
+    padding: 5px 12px;
+    min-height: 24px;
+}
+QDialog#scrapeManager QWidget#managementToolbar QPushButton {
+    background: #3E444C;
+    color: #F7F9FB;
+    border: 1px solid #535D68;
+    padding: 7px 14px;
+}
+QDialog#scrapeManager QPushButton:hover, QDialog#scrapeManager QToolButton:hover,
+QDialog#scrapeSearchDialog QPushButton:hover, QDialog#metadataEditor QPushButton:hover {
+    border-color: #2473B8;
+    background: #E7F1FA;
+    color: #174F7D;
+}
+QDialog#scrapeManager QPushButton:disabled, QDialog#scrapeSearchDialog QPushButton:disabled,
+QDialog#metadataEditor QPushButton:disabled {
+    background: #E4E7EB;
+    color: #7C848D;
+    border-color: #CDD3D9;
+}
+QDialog#scrapeManager QLineEdit, QDialog#scrapeManager QComboBox,
+QDialog#scrapeSearchDialog QLineEdit, QDialog#scrapeSearchDialog QComboBox,
+QDialog#metadataEditor QLineEdit, QDialog#metadataEditor QSpinBox {
+    background: #FFFFFF;
+    color: #25313B;
+    border: 1px solid #BFC7CE;
+    border-radius: 2px;
+    min-height: 25px;
+    padding: 2px 5px;
+}
+QDialog#scrapeManager QLineEdit:focus, QDialog#scrapeManager QComboBox:focus,
+QDialog#scrapeSearchDialog QLineEdit:focus, QDialog#metadataEditor QLineEdit:focus,
+QDialog#scrapeSearchDialog QPushButton:focus, QDialog#metadataEditor QPushButton:focus,
+QDialog#scrapeManager QPushButton:focus {
+    border: 2px solid #2473B8;
+}
+QDialog#scrapeManager QTableView, QDialog#scrapeSearchDialog QTableWidget,
+QDialog#metadataEditor QTableWidget {
+    background: #FFFFFF;
+    alternate-background-color: #F4F6F8;
+    color: #25313B;
+    gridline-color: #DDE2E7;
+    border: 1px solid #CFD6DD;
+    selection-background-color: #D5E7F5;
+    selection-color: #133D5E;
+    font-size: 12px;
+}
+QDialog#scrapeManager QHeaderView::section,
+QDialog#scrapeSearchDialog QHeaderView::section,
+QDialog#metadataEditor QHeaderView::section {
+    background: #E9EDF0;
+    color: #52606B;
+    border: none;
+    border-right: 1px solid #CFD6DD;
+    border-bottom: 1px solid #CFD6DD;
+    padding: 6px 5px;
+    font-size: 12px;
+}
+QDialog#scrapeManager QWidget#managementInspector {
+    background: #FFFFFF;
+}
+QDialog#scrapeManager QLabel#managementMovieTitle {
+    font-size: 21px;
+    font-weight: bold;
+    padding: 2px 0 4px 0;
+}
+QDialog#scrapeManager QLabel#managementScore {
+    font-size: 21px;
+    font-weight: bold;
+    padding: 4px;
+}
+QDialog#scrapeManager QLabel#managementPoster, QDialog#scrapeSearchDialog QLabel#managementPoster,
+QDialog#metadataEditor QLabel#managementPoster {
+    background: #E7EBEF;
+    color: #788591;
+    border: 1px solid #D4DBE2;
+}
+QDialog#scrapeManager QTextBrowser, QDialog#scrapeManager QPlainTextEdit,
+QDialog#scrapeSearchDialog QPlainTextEdit, QDialog#metadataEditor QPlainTextEdit {
+    background: #FFFFFF;
+    border: 1px solid #DBE1E7;
+    border-radius: 2px;
+    color: #344653;
+    padding: 7px;
+}
+QDialog#scrapeManager QWidget#managementFooter {
+    background: #E9EDF0;
+    border-top: 1px solid #D0D7DF;
+}
+QDialog#scrapeManager QTabBar::tab, QDialog#scrapeSearchDialog QTabBar::tab,
+QDialog#metadataEditor QTabBar::tab {
+    background: #E5E9ED;
+    color: #566371;
+    padding: 7px 14px;
+    border: 1px solid #D1D8DF;
+}
+QDialog#scrapeManager QTabBar::tab:selected, QDialog#scrapeSearchDialog QTabBar::tab:selected,
+QDialog#metadataEditor QTabBar::tab:selected {
+    background: #FFFFFF;
+    color: #155D98;
+    border-bottom: 2px solid #2473B8;
+}
+QDialog#scrapeManager QSplitter::handle, QDialog#scrapeSearchDialog QSplitter::handle {
+    background: #CFD6DD;
+    width: 5px;
+}
+QDialog#scrapeSearchDialog QPushButton#scrapePrimary, QDialog#metadataEditor QPushButton#scrapePrimary {
+    background: #2473B8;
+    color: #FFFFFF;
+    border-color: #2473B8;
+}
+QDialog#scrapeSearchDialog QPushButton#scrapePrimary:disabled, QDialog#metadataEditor QPushButton#scrapePrimary:disabled {
+    background: #D8DFE6;
+    color: #7C848D;
+    border-color: #CDD3D9;
+}
+

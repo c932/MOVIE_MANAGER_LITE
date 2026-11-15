@@ -59,7 +59,7 @@ class ScrapeDialog(QDialog):
 
     saved = pyqtSignal(list)
 
-    def __init__(self, movies=None, parent=None, mode='full', service=None):
+    def __init__(self, movies=None, parent=None, mode='full', service=None, *, restore_queue=True):
         super().__init__(parent)
         self.setObjectName("scrapeDialog")
         self.setWindowTitle("电影刮削工作台")
@@ -114,8 +114,11 @@ class ScrapeDialog(QDialog):
             QTimer.singleShot(0, self._initialize_service)
         else:
             self._configure_sources()
-        from scraper.scan_queue import load_queue
-        self.tasks.start("queue-load", lambda context: load_queue())
+        if restore_queue:
+            from scraper.scan_queue import load_queue
+            self.tasks.start("queue-load", lambda context: load_queue())
+        else:
+            self._queue_loaded = True
 
     def sizeHint(self) -> QSize:
         return QSize(1000, 680)

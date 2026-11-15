@@ -46,7 +46,7 @@ class MovieTableModel(QAbstractTableModel):
                 return f'检测到 {row.subtitle_count} 组字幕（NFO 内嵌轨 + 同名外挂）；' + ('NFO 已记录内嵌字幕' if row.subtitle_known else '内嵌字幕未知，未探测视频流')
             if col in (7, 8) and row.inferred_tech:
                 return '部分技术参数根据文件名推测，未探测视频流'
-            return row.message or row.target.error or '缺少：' + '、'.join(row.missing) if row.missing else '现有资料齐全'
+            return row.message or row.target.error or ('缺少：' + '、'.join(row.missing) if row.missing else '现有资料齐全')
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return int(Qt.AlignmentFlag.AlignVCenter | (Qt.AlignmentFlag.AlignLeft if col in (0, 3, 12, 13) else Qt.AlignmentFlag.AlignHCenter))
         if role == Qt.ItemDataRole.ForegroundRole:

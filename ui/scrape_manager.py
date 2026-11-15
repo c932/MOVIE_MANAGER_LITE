@@ -73,8 +73,10 @@ class ScrapeManagerDialog(QDialog):
                 warnings.append(str(exc))
             for row in seed:
                 if row.key in known:
-                    known[row.key].movie = row.movie
-                    known[row.key].metadata_valid = True
+                    # 显式扫描/保存读回的资料优先，避免电影墙旧缓存覆盖新快照。
+                    if not known[row.key].checked_at:
+                        known[row.key].movie = row.movie
+                        known[row.key].metadata_valid = True
                 else:
                     known[row.key] = row
             return list(known.values()), state, self.service or ScrapeService(), warnings, can_persist
@@ -94,7 +96,7 @@ class ScrapeManagerDialog(QDialog):
         self.folder_button = QPushButton('选择目录…')
         self.folder_button.clicked.connect(self._choose_folder)
         bar.addWidget(self.folder_button)
-        self.search_button = QPushButton('搜索&刮削')
+        self.search_button = QPushButton('搜索&&刮削')
         self.search_button.clicked.connect(self.open_search)
         self.search_button.setToolTip('为选中电影搜索候选，人工确认并刮削')
         bar.addWidget(self.search_button)
@@ -156,7 +158,7 @@ class ScrapeManagerDialog(QDialog):
         self.table.verticalHeader().hide()
         self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        for i, width in enumerate([190, 58, 96, 280, 62, 62, 62, 78, 78, 52, 52, 54, 125, 220]):
+        for i, width in enumerate([155, 50, 88, 220, 55, 55, 55, 68, 65, 46, 46, 48, 114, 200]):
             self.table.setColumnWidth(i, width)
         self.table.setMinimumWidth(480)
         self.table.selectionModel().selectionChanged.connect(self._selection)
@@ -283,14 +285,18 @@ class ScrapeManagerDialog(QDialog):
         if channel == 'restore':
             rows, state, self.service, warnings, self._can_persist = value
             self._loaded = True
-            if state.get('header'):
-                self.table.horizontalHeader().restoreState(QByteArray.fromHex(state['header'].encode()))
             if state.get('splitter'):
                 self.splitter.restoreState(QByteArray.fromHex(state['splitter'].encode()))
             self.query.setText(state.get('query', ''))
             mode = self._initial_mode if self._initial_mode in {'douban', 'existing', 'new'} else state.get('filter', 'all')
             self.filter_combo.setCurrentIndex(max(0, self.filter_combo.findData(mode)))
             self._set_rows(rows)
+            # 控件获得完整祖先 QSS 后会重新初始化表头；此时再应用列宽。
+            if state.get('header'):
+                self.table.horizontalHeader().restoreState(QByteArray.fromHex(state['header'].encode()))
+            else:
+                for i, width in enumerate([155, 50, 88, 220, 55, 55, 55, 68, 65, 46, 46, 48, 114, 200]):
+                    self.table.setColumnWidth(i, width)
             self._filter_changed()
             for i, action in enumerate(self.columns_button.menu().actions()):
                 action.setChecked(not self.table.isColumnHidden(i))
@@ -373,7 +379,7 @@ class ScrapeManagerDialog(QDialog):
             self.tasks.start('queue-save', persist)
             return
         self._selection()
-        if self._closing and not self.inspector.tasks.busy:
+        if self._closing and not self.inspector.tasks.busy and self._child is None:
             QDialog.done(self, 0)
 
     def _child_saved(self, paths):
@@ -395,6 +401,7 @@ class ScrapeManagerDialog(QDialog):
         dialog.exec()
         self._child = None
         dialog.deleteLater()
+        self._idle()
 
     def _child_failed(self, path, message):
         for row in self.model.rows:
@@ -417,6 +424,7 @@ class ScrapeManagerDialog(QDialog):
         dialog.exec()
         self._child = None
         dialog.deleteLater()
+        self._idle()
 
     def open_settings(self):
         if self._child is not None:
@@ -451,7 +459,7 @@ class ScrapeManagerDialog(QDialog):
         menu.exec(self.table.viewport().mapToGlobal(point))
 
     def cancel_tasks(self):
-        self.tasks.cancel()
+        self.tasks.cancel(protect={'refresh'})
         self.status_label.setText('已取消后续任务，正在等待当前操作结束；已有列表和已保存结果会保留。')
         if self.scan_progress.isVisible():
             self.scan_progress.setRange(0, 1)
@@ -462,7 +470,7 @@ class ScrapeManagerDialog(QDialog):
         if not self._closing:
             self._closing = True
             self._persist_pending = self._loaded and self._can_persist
-            self.tasks.cancel()
+            self.tasks.cancel(protect={'refresh'})
             self.inspector.tasks.cancel()
             if self._child:
                 self._child.reject()

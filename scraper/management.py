@@ -99,6 +99,8 @@ def row_from_movie(movie: Movie) -> ManagementRow:
 def inspect_target(target: VideoTarget) -> ManagementRow:
     """仅在后台执行：扫描实际文件状态，保留未检测与不存在的区别。"""
     target = copy.deepcopy(target)
+    if target.error_kind != 'path_conflict':
+        target.error = target.error_kind = target.error_detail = ''
     target.existing = target.nfo_path.is_file()
     root = inspect_nfo(target) if target.existing else None
     movie = NFOParser.parse(str(target.nfo_path), include_user_rating=True) if root is not None else None
@@ -224,10 +226,26 @@ def save_edit(snapshot: EditSnapshot, changes: dict, *, votes: dict | None = Non
         raise ScrapeError('评分人数必须是非负整数')
     image = jpeg_bytes(poster_data) if poster_data is not None else None
     root = copy.deepcopy(snapshot.root)
-    if 'ratings' in changes:
+    if 'tmdb' in changes.get('ratings', {}) or 'tmdb' in (votes or {}):
         _normalize_tmdb_rating(root)
     apply_fields(root, changes)
-    sync_ids(root, changes.get('uniqueids', {}))
+    if 'set_name' in changes and not changes['set_name']:
+        for node in list(root.findall('set')):
+            root.remove(node)
+    sync_ids(root, {k: v for k, v in changes.get('uniqueids', {}).items() if v})
+    for source, value in changes.get('uniqueids', {}).items():
+        if value:
+            continue
+        for node in list(root.findall('uniqueid')):
+            if node.get('type', '').casefold() == source:
+                root.remove(node)
+        for tag in {'douban': ('doubanid', 'doubanurl'), 'imdb': ('id',), 'tmdb': ('tmdbid', 'tmdbId')}.get(source, ()):
+            for node in list(root.findall(tag)):
+                root.remove(node)
+        if source == 'douban':
+            for node in list(root.findall('url')):
+                if 'douban.com' in (node.text or ''):
+                    root.remove(node)
     for source, count in (votes or {}).items():
         node = root.find(f"ratings/rating[@name='{source}']")
         if node is not None:

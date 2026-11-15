@@ -84,12 +84,14 @@ class TaskRunner(QObject):
         thread.start()
         return generation
 
-    def cancel(self) -> None:
+    def cancel(self, *, protect: set[str] | None = None) -> None:
+        protected = {"write", "settings-save", "queue-load", "queue-save"} | (protect or set())
         for channel in tuple(self._generations):
-            if channel not in {"write", "settings-save", "queue-load", "queue-save"}:
+            if channel not in protected:
                 self.invalidate(channel)
         for thread in self._threads:
-            thread.context.cancelled.set()
+            if thread.channel not in (protect or set()):
+                thread.context.cancelled.set()
 
     @pyqtSlot(str, int, object)
     def _result(self, channel: str, generation: int, value: object) -> None:

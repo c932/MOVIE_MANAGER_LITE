@@ -113,10 +113,10 @@ class MovieInspector(QWidget):
             def load(context):
                 from utils.poster_cache_manager import PosterCacheManager
                 from utils.network_mode import is_offline_cache_only
-                from utils.image_loader import _load_and_scale_image
+                from utils.image_loader import _load_and_scale_image, _is_network_path
                 cache = PosterCacheManager()
                 image = cache.get_cached_image(path, 280, 420)
-                if image is None and not is_offline_cache_only():
+                if image is None and (not is_offline_cache_only() or not _is_network_path(path)):
                     context.checkpoint()
                     original = _load_and_scale_image(path, 280, 420)
                     if not original.isNull():

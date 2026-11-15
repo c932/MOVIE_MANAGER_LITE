@@ -65,3 +65,53 @@ def test_edit_detects_external_changes_and_noop_creates_no_backup(tmp_path):
     with pytest.raises(ValueError, match='改变|变化'):
         save_edit(snapshot, {'title': '不能覆盖'})
     assert '外部修改' in nfo.read_text(encoding='utf-8')
+
+
+def test_edit_clears_legacy_identity_and_vote_only_edit_updates_alias(tmp_path):
+    from scraper.management import load_edit, save_edit
+    nfo = movie_files(tmp_path)
+    root = ET.parse(nfo).getroot()
+    ET.SubElement(root, 'doubanurl').text = 'https://movie.douban.com/subject/1/'
+    ET.SubElement(root, 'url').text = 'https://movie.douban.com/subject/1/'
+    ET.SubElement(root, 'uniqueid', {'type': 'douban'}).text = '1'
+    nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
+    save_edit(load_edit(str(nfo)), {'uniqueids': {'douban': ''}}, votes={'tmdb': 456})
+    root = ET.parse(nfo).getroot()
+    assert root.find('doubanurl') is None and root.find('url') is None
+    assert root.find("uniqueid[@type='douban']") is None
+    assert root.findtext("ratings/rating[@name='tmdb']/votes") == '456'
+
+
+def test_edit_image_failure_rolls_back_original_files(tmp_path, monkeypatch):
+    from PIL import Image
+    import io
+    import scraper.management as management
+    nfo = movie_files(tmp_path)
+    snapshot = management.load_edit(str(nfo))
+    original = nfo.read_bytes()
+    output = io.BytesIO()
+    Image.new('RGB', (20, 30), 'red').save(output, format='JPEG')
+    real = management._atomic_write
+    def fail(path, payload):
+        if path == nfo:
+            raise OSError('模拟写 NFO 失败')
+        real(path, payload)
+    monkeypatch.setattr(management, '_atomic_write', fail)
+    with pytest.raises(ValueError, match='保存失败'):
+        management.save_edit(snapshot, {'title': '不能写入'}, poster_data=output.getvalue())
+    assert nfo.read_bytes() == original
+    assert not snapshot.poster_path.exists()
+
+
+def test_reinspected_rebuilt_nfo_drops_resolved_error_and_can_clear_legacy_set(tmp_path):
+    from scraper.management import inspect_target, load_edit, save_edit
+    from scraper.scrape_models import VideoTarget
+    nfo = movie_files(tmp_path)
+    target = VideoTarget(nfo.with_suffix('.mkv'), nfo, error='原 NFO 是说明', error_kind='not_metadata', error_detail='旧错误')
+    row = inspect_target(target)
+    assert not row.target.error and row.state != '失败'
+    root = ET.parse(nfo).getroot()
+    ET.SubElement(root, 'set').text = '旧系列'
+    nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
+    updated = save_edit(load_edit(str(nfo)), {'set_name': ''})
+    assert updated.set_name == ''
