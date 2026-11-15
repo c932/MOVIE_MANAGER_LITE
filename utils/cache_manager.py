@@ -167,6 +167,8 @@ class CacheManager:
             'hdr_type': movie.hdr_type,
             'video_codec': movie.video_codec,
             'audio_codec': movie.audio_codec,
+            'video_width': movie.video_width,
+            'video_height': movie.video_height,
             
             # 外部链接和ID
             'imdb_id': movie.imdb_id,
@@ -222,6 +224,8 @@ class CacheManager:
             hdr_type=data.get('hdr_type', ''),
             video_codec=data.get('video_codec', ''),
             audio_codec=data.get('audio_codec', ''),
+            video_width=data.get('video_width', 0),
+            video_height=data.get('video_height', 0),
             
             # 外部链接和ID
             imdb_id=data.get('imdb_id', ''),

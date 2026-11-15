@@ -23,6 +23,7 @@ from scraper.scrape_persistence import (
     ensure_writable_file, fingerprint, jpeg_bytes, read_ids, sync_ids, validate_score,
 )
 from utils.app_paths import resolve_data_file
+from utils.video_technical import normalize_movie_technical
 
 
 def path_key(path: str | Path) -> str:
@@ -131,16 +132,9 @@ def inspect_target(target: VideoTarget) -> ManagementRow:
     # VobSub 的 .idx/.sub 为一组。
     row.subtitle_count = len(embedded) + len({p.with_suffix('').name.casefold() for p in external})
     row.subtitle_known = bool(embedded)  # 只有 NFO 记录才知道内嵌字幕；无轨信息不等于没有。
-    if not movie.resolution:
-        match = re.search(r'(?i)(4320p|2160p|1440p|1080p|720p|480p|[248]k)', target.video_path.name)
-        if match:
-            movie.resolution = match.group(1).upper() if match.group(1).lower().endswith('k') else match.group(1).lower()
-            row.inferred_tech = True
-    if not movie.hdr_type:
-        match = re.search(r'(?i)(HDR10\+?|Dolby[ ._-]?Vision|DoVi|HDR)', target.video_path.name)
-        if match:
-            movie.hdr_type = match.group(1).upper()
-            row.inferred_tech = True
+    before = movie.resolution, movie.hdr_type
+    normalize_movie_technical(movie)
+    row.inferred_tech = before != (movie.resolution, movie.hdr_type)
     target.douban_complete = not row.douban_missing if valid else False
     return row
 

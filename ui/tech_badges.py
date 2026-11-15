@@ -41,4 +41,4 @@ class TechBadges(QWidget):
                 label.setText(badge.title)
             self.row.addWidget(label)
         self.row.addStretch()
-        self.setVisible(bool(resolution or hdr_type))
+        # 可见性由父布局管理。详情页创建时尚无父窗口，提前 show 会闪现顶层小窗。

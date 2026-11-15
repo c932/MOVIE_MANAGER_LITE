@@ -52,6 +52,8 @@ class Movie:
     hdr_type: str = ""  # 如 dolbyvision, HDR10
     video_codec: str = ""  # 如 HEVC
     audio_codec: str = ""  # 如 TrueHD, DTS-HD
+    video_width: int = 0  # 0 表示未知，不代表标清；保留尺寸用于校验缓存中的分辨率。
+    video_height: int = 0
     
     # 外部链接和ID
     imdb_id: str = ""  # IMDb ID
@@ -70,6 +72,8 @@ class Movie:
     def __post_init__(self):
         """初始化后处理，确保数据类型正确"""
         self.countries = localize_countries(self.countries)
+        from utils.video_technical import normalize_movie_technical
+        normalize_movie_technical(self)
         if isinstance(self.rating, str):
             try:
                 self.rating = float(self.rating)

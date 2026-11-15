@@ -56,6 +56,23 @@ location / {
 在项目根目录运行 `scripts/dev-web.bat`。前端默认端口 5173，仅代理 `/api/movie`；开发数据使用临时目录，避免改动真实库。
 # NUC 实际部署（3.4.0）
 
+## 3.5.2 零尺寸误判与桌面闪窗
+
+桌面图标组件构造时提前setVisible造成瞬时顶层窗，已删除该主动显示调用，回归覆盖“未加入布局不显示、加入可见父布局后正常显示”。Windows安装包升级至3.5.2，保留指定ICO与既有升级标识；不代安装。
+
+《挽救计划》原NFO为width=0/height=0，旧解析器错误返回SD，图标又把泛SD显示为480P。现在无效尺寸按未知处理，缺项从文件名2160p/DV/HDR补全，实际正数尺寸仍优先，且保存在缓存。只含泛SD时不再套480P图标。该片真实视频经ffprobe只读核实为3840×2160，线上API已显示4K及Dolby Vision / HDR。
+
+已核对共享库42条可疑既有记录并修正技术字段：4K 9部、1080p 32部、720p 1部，NFO均可读，0并发冲突。仅修改resolution/hdr_type/video_width/video_height；SQLite备份在 `/mnt/data/AI/movie-wall-data/backups/library-technical-20261115-194154-587182.sqlite3`，核对及执行报告分别为 `/tmp/mml-technical-audit-3.5.2.json` 和 `/tmp/mml-technical-applied-3.5.2.json`。NAS原文件保持原样。
+
+修复命令默认仅核对，显式--apply才备份并更改共享库：
+
+```bash
+.venv/bin/python scripts/repair_technical_metadata.py /mnt/data/AI/movie-wall-data --report /tmp/technical-audit.json
+.venv/bin/python scripts/repair_technical_metadata.py /mnt/data/AI/movie-wall-data --report /tmp/technical-applied.json --apply
+```
+
+本机同步设置仍为仅上传；保持用户同步方向。安装新版后读取已有缓存即可从明确文件名纠正旧SD标签，无需下载整库或扫描NAS。
+
 ## 3.5.1 网页滚动与播放修复
 
 本轮只更新网页和API，Windows客户端3.5.0继续可用。海报墙虚拟渲染可见行，移除逐卡片和整墙背景模糊，详情以原生dialog加两帧后的 transform/opacity 过渡打开。客户端实测详情API约17–30ms，问题主要在1333张卡片与整墙重复渲染。

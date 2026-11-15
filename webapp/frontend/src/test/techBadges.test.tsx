@@ -9,6 +9,7 @@ describe('共享视频格式图标', () => {
     expect(technologyBadges('', 'DV').map(b => b.key)).toEqual(['dolbyvision']);
     expect(technologyBadges('576p','SDR').map(b => b.file)).toEqual([undefined,undefined]);
     expect(technologyBadges()).toEqual([]);
+    expect(technologyBadges('SD')[0].file).toBeUndefined();
   });
   it('海报和详情采用同一资源，保留原始格式说明', () => {
     const {rerender} = render(<TechBadges resolution="4K" hdrType="HDR10+" compact />);

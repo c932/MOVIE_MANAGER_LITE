@@ -22,6 +22,7 @@ def test_dynamic_range_and_combined_formats(hdr, keys):
 def test_unknown_values_are_not_misrepresented():
     assert media_badges() == []
     assert [(b.title, b.file) for b in media_badges('576p', 'SDR')] == [('576p',''),('SDR','')]
+    assert media_badges('SD')[0].file == ''  # 未知标清不能声称一定是480P。
 
 
 @pytest.mark.parametrize('width,height,key', [(7680,4320,'8k'), (3840,1600,'4k'), (2560,1440,'2k'),
@@ -59,3 +60,21 @@ def test_qt_card_refresh_and_detail_share_icons(monkeypatch, tmp_path):
     assert [label.property('badgeKey') for label in labels] == ['1080p','hdr']
     card.close()
     detail.close()
+
+
+def test_detail_badges_never_show_as_an_independent_window(monkeypatch, tmp_path):
+    monkeypatch.setenv('QT_QPA_PLATFORM', 'offscreen')
+    monkeypatch.setenv('MML_DATA_DIR', str(tmp_path))
+    from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout
+    from ui.tech_badges import TechBadges
+    app = QApplication.instance() or QApplication([])
+    parent = QWidget()
+    layout = QVBoxLayout(parent)
+    parent.show()
+    badges = TechBadges('4K','HDR')
+    assert not badges.isVisible(), '尚未加入布局的组件不得显示为顶层小窗'
+    layout.addWidget(badges)
+    app.processEvents()
+    assert badges.parentWidget() is parent and badges.isVisible()
+    assert not badges.isWindow()
+    parent.close()

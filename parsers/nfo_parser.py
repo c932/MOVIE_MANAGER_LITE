@@ -9,6 +9,7 @@ import logging
 
 from models.movie import Movie, Actor
 from utils.countries import localize_countries
+from utils.video_technical import resolution_from_dimensions, normalize_movie_technical, technical_from_filename
 
 logger = logging.getLogger(__name__)
 
@@ -140,16 +141,22 @@ class NFOParser:
                 streamdetails = fileinfo.find('streamdetails')
                 if streamdetails is not None:
                     # 视频流信息
-                    video = streamdetails.find('video')
+                    videos = streamdetails.findall('video')
+                    def pixels(element):
+                        try:
+                            return max(0,int(element.findtext('width','0'))) * max(0,int(element.findtext('height','0')))
+                        except (ValueError, TypeError):
+                            return 0
+                    video = max(videos, key=pixels) if videos else None
                     if video is not None:
                         # 分辨率
                         width = NFOParser._get_text(video, 'width')
                         height = NFOParser._get_text(video, 'height')
-                        if width and height:
-                            try:
-                                movie.resolution = NFOParser._determine_resolution(int(width), int(height))
-                            except (ValueError, TypeError):
-                                logger.warning(f"无法解析分辨率: width={width}, height={height}")
+                        movie.resolution = resolution_from_dimensions(width, height)
+                        if movie.resolution:
+                            movie.video_width, movie.video_height = int(width), int(height)
+                        else:
+                            movie.resolution = technical_from_filename(NFOParser._get_text(video, 'resolution'))[0]
                         
                         # HDR 类型
                         movie.hdr_type = NFOParser._get_text(video, 'hdrtype')
@@ -180,6 +187,8 @@ class NFOParser:
                     match = videos[0]
                 if match is not None:
                     movie.video_path = str(match)
+
+            normalize_movie_technical(movie)
             
             # === 绑定本地资产（海报和背景图）===
             # 支持两种命名方式：
@@ -304,18 +313,7 @@ class NFOParser:
     @staticmethod
     def _determine_resolution(width: int, height: int) -> str:
         """根据宽高判断分辨率等级"""
-        if width >= 7680 or height >= 4320:
-            return "8K"
-        elif width >= 3840 or height >= 2160:
-            return "4K"
-        elif width >= 2048 or height >= 1440:
-            return "2K"
-        elif width >= 1920 or height >= 1080:
-            return "1080p"
-        elif width >= 1280 or height >= 720:
-            return "720p"
-        else:
-            return "SD"
+        return resolution_from_dimensions(width, height)
     
     @staticmethod
     def update_user_rating(nfo_path: str, rating: float) -> bool:
