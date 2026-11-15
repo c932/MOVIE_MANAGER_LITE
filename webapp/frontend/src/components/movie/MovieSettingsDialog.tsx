@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { MovieSettings } from '../../types/api';
+import { Modal } from '../Modal';
 
 interface Props {
   open: boolean;
@@ -11,12 +12,16 @@ interface Props {
 export function MovieSettingsDialog({ open, onClose }: Props) {
   const [settings, setSettings] = useState<MovieSettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (open) movieApi.settings().then(setSettings);
+    let active = true;
+    if (open) movieApi.settings().then(value => { if (active) setSettings(value); }).catch(e => { if (active) setError((e as Error).message); });
+    return () => { active = false; };
   }, [open]);
 
-  if (!open || !settings) return null;
+  if (!open) return null;
+  if (!settings) return <Modal title="后端设置" onClose={onClose}><p role={error ? 'alert' : 'status'}>{error || '正在读取后端设置…'}</p></Modal>;
 
   const save = async () => {
     setSaving(true);
@@ -24,7 +29,7 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
       await movieApi.putSettings(settings);
       onClose();
     } catch (e) {
-      alert((e as Error).message);
+      setError((e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -37,12 +42,9 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="w-full max-w-lg rounded-2xl bg-ink-800 p-6 shadow-2xl ring-1 ring-ink-700"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="mb-4 text-lg font-semibold text-ink-50">设置</h2>
+    <Modal title="后端设置" onClose={() => !saving && onClose()}>
+        <p className="mb-4 text-sm text-ink-300">网页直接使用 NUC 共享数据库，无需另外开启同步。桌面端在媒体库设置中选择同步方向。NAS 挂载路径需要在 NUC 配置后填写，保存不会自动重扫。</p>
+        {error && <p role="alert" className="mb-3 text-red-400">{error}</p>}
 
         <div className="space-y-4">
           {/* 媒体库路径 */}
@@ -153,7 +155,6 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
             {saving ? '保存中…' : '保存'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

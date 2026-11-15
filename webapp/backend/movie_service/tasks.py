@@ -94,8 +94,10 @@ def run_library_refresh(store: MovieStore, ctx: JobContext, *, force: bool = Fal
     else:
         # 扫描结果为空（目录不可达等）时不清库，避免误删用户本地记录
         ctx.log("本次扫描未发现任何电影，跳过失效记录清理")
+        removed = 0
 
-    store.replace_all(movies)
+    if movies:
+        store.replace_all(movies)
 
     duration = round(time.time() - started, 2)
     message = f"刷新完成：新增 {added}，移除 {removed}，未变化 {unchanged}，共 {len(movies)} 部"

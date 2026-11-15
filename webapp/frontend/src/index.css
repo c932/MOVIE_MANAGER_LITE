@@ -5,6 +5,8 @@
 @layer base {
   :root {
     color-scheme: dark;
+    scrollbar-color: #2a2a2e transparent;
+    scrollbar-width: thin;
   }
 
   html,
@@ -18,6 +20,10 @@
     @apply bg-ink-900 text-ink-50 font-sans antialiased;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; animation: none !important; }
   }
 
   /* 滚动条 — 暗色细线 */

@@ -1,0 +1,19 @@
+[Unit]
+Description=Shared Movie Wall API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=manfred
+WorkingDirectory=/home/manfred/ai-local/services/movie-wall
+Environment=PYTHONPATH=/home/manfred/ai-local/services/movie-wall:/home/manfred/ai-local/services/movie-wall/webapp/backend
+Environment=MML_DATA_DIR=/mnt/data/AI/movie-wall-data
+ExecStart=/home/manfred/ai-local/services/movie-wall/.venv/bin/uvicorn movie_service.main:app --host 127.0.0.1 --port 8010
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target

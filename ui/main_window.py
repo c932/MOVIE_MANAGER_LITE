@@ -341,8 +341,19 @@ class MainWindow(QMainWindow):
         
         self.start_scan()
         self._load_rank_lookup()  # 加载豆瓣Top250排名查询表（供角标使用）
+        from ui.library_sync_controller import LibrarySyncController
+        self._library_sync = LibrarySyncController(self)
     
     def closeEvent(self, event):
+        sync = getattr(self, '_library_sync', None)
+        if sync is not None:
+            sync.timer.stop()
+            if sync.runner.busy:
+                if not getattr(self, '_sync_close_pending', False):
+                    self._sync_close_pending = True
+                    sync.runner.idle.connect(self.close)
+                event.ignore()
+                return
         runner = getattr(self, '_scrape_refresh_runner', None)
         if runner is not None and runner.busy:
             if not getattr(self, '_scrape_close_pending', False):
@@ -1403,11 +1414,15 @@ class MainWindow(QMainWindow):
                 self._restore_last_opened_movie()
 
                 # 在线时启动后台更新任务（更新 mtime + 预热海报缓存）
-                if not self.offline_cache_only:
+                if not self.offline_cache_only and not self.config.get_value('library_sync', {}).get('enabled'):
                     QTimer.singleShot(2000, self._start_online_background_update)
                     self._schedule_idle_local_cache_cleanup(20000)
                 return
         
+        if not force_rescan and self.config.get_value('library_sync', {}).get('enabled'):
+            self.status_label.setText('正在等待下载共享电影库，无需扫描 NAS')
+            self.progress_bar.setVisible(False)
+            return
         # 缓存加载失败或强制扫描，执行正常扫描
         logger.info("启动媒体库扫描...")
         
@@ -2644,6 +2659,10 @@ class MainWindow(QMainWindow):
         """打开媒体库设置对话框"""
         dialog = SettingsDialog(self)
         dialog.settings_updated.connect(self.on_settings_updated)
+        dialog.sync_settings_updated.connect(self._library_sync.configure)
+        dialog.sync_requested.connect(self._library_sync.configure)
+        dialog.sync_requested.connect(self._library_sync.synchronize)
+        self._library_sync.message.connect(dialog.sync_status.setText)
         dialog.exec()
     
     def refresh_library(self):
@@ -3004,11 +3023,12 @@ class MainWindow(QMainWindow):
 
     def _menu_delete_movie_local_only(self, movie: Movie):
         """右键菜单：仅从本地数据库移除电影，不删除服务器文件"""
+        sync_hint = '\n\n已开启共享同步：此处仅删除本机记录，下次下载可能重新出现。删除共享记录请使用网页电影菜单。' if self.config.get_value('library_sync', {}).get('enabled') else ''
         reply = QMessageBox.question(
             self,
             "确认删除",
             f"确定要从本地数据库删除《{movie.title}》吗？\n\n"
-            f"此操作不会删除服务器上的电影文件，仅移除本地缓存与列表记录。",
+            f"此操作不会删除服务器上的电影文件，仅移除本地缓存与列表记录。{sync_hint}",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
         )

@@ -269,6 +269,9 @@ def get_poster(
     movie = require_movie(store, movie_id)
 
     source = _poster_source(movie)
+    shared = st.data_dir / 'shared_posters' / f'{movie_id}.jpg'
+    if shared.is_file():
+        source = str(shared)
     if not source:
         raise HTTPException(status_code=404, detail="该电影没有海报")
     if not Path(source).is_file():
@@ -290,6 +293,9 @@ def invalidate_poster(request: Request, movie_id: str) -> Dict[str, int]:
     store = get_store(request)
     movie = require_movie(store, movie_id)
     source = _poster_source(movie)
+    shared = st.data_dir / 'shared_posters' / f'{movie_id}.jpg'
+    if shared.is_file():
+        source = str(shared)
     if not source:
         return {"removed": 0}
     return {"removed": invalidate(source, st.image_cache_dir)}

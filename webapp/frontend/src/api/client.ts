@@ -134,7 +134,7 @@ export const movieApi = {
     }),
   proxyImageUrl: (url: string) => `/api/movie/proxy/image?url=${encodeURIComponent(url)}`,
   systemInfo: () =>
-    request<{ service: string; node: boolean; npx: boolean; data_dir: string }>(
+    request<{ service: string; node: boolean; npx: boolean; data_dir: string; source_available: boolean; sync: boolean }>(
       '/api/movie/system/info',
     ),
 };

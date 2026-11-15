@@ -20,7 +20,7 @@ MOVIE_CONFIG = ProductConfig(
     output_prefix="本地电影墙",
     menu_folder="LocalMovieWall",
     shortcut_prefix="MovieWall",
-    default_version="3.3.2",
+    default_version="3.4.0",
 )
 
 
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--version",
         default=MOVIE_CONFIG.default_version,
-        help="Version string, e.g. 3.3.2",
+        help="Version string, e.g. 3.4.0",
     )
     args = parser.parse_args()
     try:

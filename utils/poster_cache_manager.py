@@ -430,7 +430,8 @@ class PosterCacheManager:
         self.flush_index()
         return all(results)
 
-    def save_to_cache_from_image(self, image_path: str, width: int, height: int, image: QImage) -> bool:
+    def save_to_cache_from_image(self, image_path: str, width: int, height: int, image: QImage,
+                                 *, probe_source: bool = True) -> bool:
         """
         线程安全版本：将 QImage 保存到缓存（可在后台线程调用）。
         QPixmap.save() 不是线程安全的，后台线程必须用此方法。
@@ -445,7 +446,7 @@ class PosterCacheManager:
 
             should_flush = False
             with self._lock:
-                original_mtime = self._get_original_mtime(image_path)
+                original_mtime = self._get_original_mtime(image_path) if probe_source else None
                 if "entries" not in self._cache_index:
                     self._cache_index["entries"] = {}
                 self._cache_index["entries"][cache_key] = {

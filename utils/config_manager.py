@@ -103,8 +103,8 @@ class ConfigManager:
         """
         try:
             config_file = resolve_data_file("config.json") if config_path is None else Path(config_path)
-            with open(config_file, 'w', encoding='utf-8') as f:
-                json.dump(self._config, f, indent=2, ensure_ascii=False)
+            from utils.library_sync import atomic_json
+            atomic_json(config_file, self._config)
             logger.info(f"配置已保存: {config_file}")
         except Exception as e:
             logger.error(f"保存配置失败: {e}")

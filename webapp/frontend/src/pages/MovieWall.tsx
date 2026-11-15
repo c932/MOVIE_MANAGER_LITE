@@ -1,295 +1,110 @@
-// 电影墙主页面 — 三栏布局复刻桌面版
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { movieApi } from '../api/client';
 import { useJobPoll } from '../hooks/useJobPoll';
 import { JobProgress } from '../components/JobProgress';
+import { Modal } from '../components/Modal';
 import { MovieCard } from '../components/movie/MovieCard';
 import { MovieDetail } from '../components/movie/MovieDetail';
 import { MovieFilterSidebar } from '../components/movie/MovieFilterSidebar';
 import { MovieSettingsDialog } from '../components/movie/MovieSettingsDialog';
+import { LibraryBrowseDialog } from '../components/movie/LibraryBrowseDialog';
 import { useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
 
 export default function MovieWall() {
   const store = useMovieStore();
-  const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
-  const [scrapeJobId, setScrapeJobId] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    movie: MovieListItem;
-    x: number;
-    y: number;
-  } | null>(null);
-
-  // 加载数据
+  const [browse, setBrowse] = useState<'series' | 'top250' | 'nowplaying' | null>(null);
+  const [sourceAvailable, setSourceAvailable] = useState(false);
+  const [sidebar, setSidebar] = useState(false);
+  const [detail, setDetail] = useState<MovieListItem | null>(null);
+  const [properties, setProperties] = useState<MovieListItem | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [posterVersion, setPosterVersion] = useState(0);
+  const [series, setSeries] = useState('');
+  const [context, setContext] = useState<{ movie: MovieListItem; x: number; y: number } | null>(null);
+  const load = store.load;
   useEffect(() => {
-    store.load();
-  }, []);
-
-  // 刷新进度
-  const { job: refreshJob } = useJobPoll(
-    movieApi,
-    refreshJobId,
-    800,
-    useCallback(() => {
-      store.load();
-      setRefreshJobId(null);
-    }, [store]),
-  );
-
-  // 刮削进度
-  const { job: scrapeJob } = useJobPoll(
-    movieApi,
-    scrapeJobId,
-    800,
-    useCallback(() => {
-      store.load();
-      setScrapeJobId(null);
-    }, [store]),
-  );
-
-  const movies = store.filtered();
-  const selectedMovie = useMemo(
-    () => store.movies.find((m) => m.id === store.selectedId) || null,
-    [store.movies, store.selectedId],
-  );
-
-  const posterW = 200;
-  const posterH = 300;
-  const gridRef = useRef<HTMLDivElement>(null);
-
-  const handleRefresh = async () => {
-    const { job_id } = await movieApi.refresh(false);
-    setRefreshJobId(job_id);
+    load();
+    movieApi.systemInfo().then(info => setSourceAvailable(info.source_available)).catch(e => setMessage((e as Error).message));
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+  useEffect(() => {
+    let active = true;
+    if (!store.selectedId) return;
+    movieApi.detail(store.selectedId).then(movie => { if (active) setDetail(movie); })
+      .catch(e => { if (active) setMessage((e as Error).message); });
+    return () => { active = false; };
+  }, [store.selectedId, store.movies]);
+  const { job } = useJobPoll(movieApi, jobId, 800, useCallback(() => { load(); setJobId(null); }, [load]));
+  const run = async (work: () => Promise<void>) => {
+    setBusy(true); setMessage(''); setContext(null);
+    try { await work(); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); }
   };
-
-  const handleScrape = async () => {
-    if (!selectedMovie) {
-      if (!movies.length) return;
-      const ids = movies.slice(0, 5).map((m) => m.id);
-      const { job_id } = await movieApi.scrape(ids);
-      setScrapeJobId(job_id);
-    } else {
-      const { job_id } = await movieApi.scrape([selectedMovie.id]);
-      setScrapeJobId(job_id);
-    }
+  const updated = (movie: MovieListItem) => { store.updateMovie(movie); setDetail(movie); };
+  const selected = (movie: MovieListItem) => { store.selectMovie(movie.id); setContext(null); };
+  const refreshPoster = async (movie: MovieListItem) => {
+    await movieApi.invalidatePoster(movie.id); setPosterVersion(value => value + 1); setMessage('已刷新后端海报副本');
   };
-
-  const handleSelect = (movie: MovieListItem) => {
-    store.selectMovie(movie.id);
-    setContextMenu(null);
-  };
-
-  const handleContextMenu = (movie: MovieListItem, x: number, y: number) => {
-    setContextMenu({ movie, x, y });
-  };
-
-  const handleUpdate = (movie: MovieListItem) => {
-    store.updateMovie(movie);
-  };
-
-  const handleDelete = (id: string) => {
-    store.removeMovie(id);
-    setContextMenu(null);
-  };
-
-  const handleSeriesClick = (setName: string) => {
-    // TODO: series view
-    alert(`系列: ${setName}`);
-  };
-
-  const handleReparse = async (id: string) => {
-    try {
-      const updated = await movieApi.reparse(id);
-      store.updateMovie(updated);
-    } catch (e) {
-      alert((e as Error).message);
-    }
-  };
-
-  const handleEditFields = (movie: MovieListItem) => {
-    // TODO: fields editor modal
-    alert(`编辑属性: ${movie.title}`);
-  };
-
-  const job = refreshJob || scrapeJob;
-
-  return (
-    <div className="flex h-screen overflow-hidden">
-      {/* 左侧筛选 */}
-      <aside className="flex w-64 shrink-0 flex-col border-r divider bg-ink-900">
-        <div className="flex items-center justify-between border-b divider px-3 py-2">
-          <span className="text-sm font-semibold text-ink-50">电影墙</span>
-          <span className="text-2xs text-ink-400">{movies.length} 部</span>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          <MovieFilterSidebar />
-        </div>
-      </aside>
-
-      {/* 右侧主区域 */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        {/* 工具栏 */}
-        <div className="flex shrink-0 items-center gap-2 border-b divider bg-ink-850 px-3 py-2">
-          {/* 排序 */}
-          {(
-            [
-              ['default', '默认'],
-              ['rating', '评分'],
-              ['release', '上映'],
-              ['added', '加入'],
-              ['random', '随机'],
-            ] as [string, string][]
-          ).map(([mode, label]) => (
-            <button
-              key={mode}
-              className={`btn ${store.sortMode === mode ? 'btn-active' : ''}`}
-              onClick={() => store.setSortMode(mode as typeof store.sortMode)}
-            >
-              {label}
-            </button>
-          ))}
-
-          <div className="h-5 w-px bg-ink-700" />
-
-          {/* 海报缩放 */}
-          <span className="text-2xs text-ink-400">缩放</span>
-          <input
-            type="range"
-            min={50}
-            max={200}
-            value={store.posterScale}
-            onChange={(e) => store.setPosterScale(parseInt(e.target.value))}
-            className="w-20 accent-cinema-500"
-          />
-
-          <div className="h-5 w-px bg-ink-700" />
-
-          <button className="btn" onClick={handleRefresh} title="增量刷新">
-            🔄 刷新
-          </button>
-          <button className="btn" onClick={handleScrape} title="刮削豆瓣评分">
-            🔍 刮削
-          </button>
-          <button className="btn" onClick={() => setSettingsOpen(true)} title="设置">
-            ⚙ 设置
-          </button>
-
-          {/* 任务进度 */}
-          <div className="ml-auto">
-            <JobProgress
-              job={job}
-              onCancel={() => {
-                movieApi.cancel(job?.id || '');
-              }}
-              accent="cinema"
-            />
-          </div>
-        </div>
-
-        {/* 详情面板 + 海报墙 */}
-        <div className="flex min-h-0 flex-1 flex-col">
-          {/* 上方详情 */}
-          <div className="shrink-0 border-b divider" style={{ maxHeight: '45vh' }}>
-            <MovieDetail
-              movie={selectedMovie}
-              onUpdated={handleUpdate}
-              onDeleted={handleDelete}
-              onSeriesClick={handleSeriesClick}
-              onRefreshPoster={() => {
-                /* handled inside detail */
-              }}
-              onEditFields={handleEditFields}
-            />
-          </div>
-
-          {/* 下方海报墙 */}
-          <div className="flex min-h-0 flex-1 overflow-y-auto">
-            <div
-              ref={gridRef}
-              className="flex flex-wrap content-start gap-3 p-3"
-            >
-              {movies.map((movie) => (
-                <MovieCard
-                  key={movie.id}
-                  movie={movie}
-                  width={posterW}
-                  height={posterH}
-                  scale={store.posterScale}
-                  selected={movie.id === store.selectedId}
-                  onSelect={handleSelect}
-                  onContextMenu={handleContextMenu}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* 右键菜单 */}
-      {contextMenu && (
-        <div
-          className="fixed z-50 min-w-[10rem] rounded-lg border border-ink-700 bg-ink-800 py-1 shadow-2xl ring-1 ring-black/40"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onMouseLeave={() => setContextMenu(null)}
-        >
-          <MenuItem onClick={() => store.selectMovie(contextMenu.movie.id)}>
-            查看详情
-          </MenuItem>
-          <MenuItem onClick={() => handleReparse(contextMenu.movie.id)}>
-            📝 更新 NFO
-          </MenuItem>
-          <MenuItem onClick={() => handleEditFields(contextMenu.movie)}>
-            📝 属性
-          </MenuItem>
-          <div className="my-1 border-t divider" />
-          <MenuItem onClick={() => handleUpdate(contextMenu.movie)}>
-            🖼 更新海报
-          </MenuItem>
-          <MenuItem
-            onClick={() => {
-              navigator.clipboard.writeText(contextMenu.movie.video_path || '');
-              setContextMenu(null);
-            }}
-          >
-            📁 复制路径
-          </MenuItem>
-          <div className="my-1 border-t divider" />
-          <MenuItem onClick={() => handleDelete(contextMenu.movie.id)} className="text-red-400">
-            🗑 删除本地记录
-          </MenuItem>
-        </div>
-      )}
-
-      {/* 点击空白关闭菜单 */}
-      {contextMenu && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setContextMenu(null)}
-        />
-      )}
-
-      {/* 设置对话框 */}
-      <MovieSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
-    </div>
-  );
+  const movies = store.filtered().filter(movie => !series || movie.set_name === series);
+  return <div className="flex h-dvh overflow-hidden">
+    <aside className={`${sidebar ? 'fixed inset-y-0 left-0 z-30 flex' : 'hidden'} w-60 shrink-0 flex-col border-r divider bg-ink-900 md:static md:flex`}>
+      <div className="flex items-center justify-between border-b divider p-3"><strong>电影墙</strong><button className="btn md:hidden" onClick={() => setSidebar(false)}>关闭筛选</button></div>
+      <div className="flex-1 overflow-y-auto"><MovieFilterSidebar /></div>
+    </aside>
+    <main className="flex min-w-0 flex-1 flex-col">
+      <header className="flex shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2">
+        <button className="btn md:hidden" onClick={() => setSidebar(true)}>筛选</button>
+        {([['default', '默认'], ['rating', '评分↓'], ['release', '上映时间↓'], ['added', '加入时间↓'], ['random', '随机']] as const).map(([mode, label]) =>
+          <button key={mode} className={`btn ${store.sortMode === mode ? 'btn-active' : ''}`} onClick={() => store.setSortMode(mode)}>{label}</button>)}
+        <label className="flex items-center gap-2 px-2 text-xs text-ink-300">海报缩放<input aria-label="海报缩放" type="range" min="50" max="130" value={store.posterScale} onChange={e => store.setPosterScale(Number(e.target.value))} className="w-20" /></label>
+        <button className="btn" onClick={() => setBrowse('series')}>系列电影</button>
+        <button className="btn" onClick={() => setBrowse('top250')}>榜单对比</button>
+        <button className="btn" onClick={() => setBrowse('nowplaying')}>新片推荐</button>
+        <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}>刷新数据库</button>
+        <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? 'NUC 尚未挂载 NAS，当前无需扫描即可浏览共享电影库' : '扫描已挂载的电影目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}>扫描 NAS</button>
+        <button className="btn" onClick={() => setSettingsOpen(true)}>设置</button>
+        <JobProgress job={job} accent="cinema" onCancel={() => { if (job) movieApi.cancel(job.id).catch(e => setMessage((e as Error).message)); }} />
+      </header>
+      <div className="flex items-center justify-between gap-3 border-b divider px-3 py-2 text-xs text-ink-300">
+        <span>NUC 共享电影库 · 共 {store.movies.length} 部 {series && ` / ${series}`}</span>
+        {series && <button className="btn" onClick={() => setSeries('')}>退出系列筛选</button>}
+        <span>{sourceAvailable ? 'NAS 已连接' : 'NAS 未挂载 · 使用已同步资料和海报'}</span>
+      </div>
+      {(message || store.error) && <div role={store.error ? 'alert' : 'status'} className="flex items-center justify-between gap-2 border-b divider px-3 py-2 text-sm"><span>{store.error || message}</span><button className="btn" onClick={() => { setMessage(''); if (store.error) load(); }}>{store.error ? '重试' : '关闭'}</button></div>}
+      {detail && detail.id === store.selectedId ? <div className="max-h-[46dvh] shrink-0 overflow-auto border-b divider"><MovieDetail key={detail.id} movie={detail} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={setSeries} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /></div>
+        : store.selectedId && <p role="status" className="p-3 text-xs text-ink-300">正在读取完整电影资料…</p>}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {store.loading && !store.movies.length && <p role="status" className="p-8">正在读取共享电影库…</p>}
+        {!store.loading && !movies.length && <div className="p-10 text-center text-ink-300"><p>{store.movies.length ? '没有符合条件的电影，请调整搜索或筛选。' : '共享电影库为空。请在桌面设置中开启后端同步，选择仅上传导入已有电影库。'}</p>{!!store.movies.length && <button className="btn mt-3" onClick={() => { store.resetFilters(); setSeries(''); }}>清除筛选</button>}</div>}
+        <div className="flex flex-wrap content-start gap-3 p-3">{movies.map(movie => <MovieCard key={`${movie.id}-${posterVersion}`} movie={movie} width={200} height={300} scale={store.posterScale} selected={movie.id === store.selectedId} onSelect={selected} onContextMenu={(movie, x, y) => setContext({ movie, x: Math.min(x, window.innerWidth - 220), y: Math.min(y, window.innerHeight - 320) })} />)}</div>
+      </div>
+      <footer className="shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>
+    </main>
+    {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
+      <MenuItem onClick={() => selected(context.movie)}>查看完整详情</MenuItem>
+      <MenuItem onClick={() => { setProperties(context.movie); setContext(null); }}>属性</MenuItem>
+      <MenuItem onClick={() => run(async () => { updated(await movieApi.setWatched(context.movie.id, !context.movie.watched)); })}>{context.movie.watched ? '标为未观看' : '标为已观看'}</MenuItem>
+      <MenuItem onClick={() => run(async () => { updated(await movieApi.setFavorite(context.movie.id, !context.movie.favorite)); })}>{context.movie.favorite ? '取消收藏' : '收藏'}</MenuItem>
+      <MenuItem onClick={() => run(() => refreshPoster(context.movie))}>刷新后端海报</MenuItem>
+      <MenuItem disabled={!sourceAvailable} onClick={() => run(async () => { updated(await movieApi.reparse(context.movie.id)); })}>从 NAS 更新 NFO</MenuItem>
+      <MenuItem onClick={() => run(async () => { if (!navigator.clipboard) throw new Error('当前浏览器不允许复制，请在属性中选中文件路径复制'); await navigator.clipboard.writeText(context.movie.video_path); setMessage('已复制视频路径'); })}>复制视频路径</MenuItem>
+      <MenuItem onClick={() => { setDeleteId(context.movie.id); setContext(null); }}>从共享数据库删除…</MenuItem>
+    </div></>}
+    {properties && <Modal title={`电影属性 · ${properties.title}`} onClose={() => setProperties(null)}>
+      <p className="mb-4 text-sm text-ink-300">NUC 尚未挂载 NAS。当前可查看共享资料，观看、收藏和个人评分可在详情中修改；编辑源 NFO 需要后续接入 NAS。</p>
+      <dl className="space-y-3 break-all text-sm">{Object.entries({ 标题: properties.title, 原名: properties.original_title, 年份: properties.year, 上映日期: properties.premiered, 系列: properties.set_name, 国家地区: properties.countries.join(' / '), 导演: properties.directors.join(' / '), 类型: properties.genres.join(' / '), 视频: properties.video_path, NFO: properties.nfo_path, 海报: properties.poster_path, 分辨率: properties.resolution, HDR: properties.hdr_type }).map(([key, value]) => <div key={key}><dt className="text-ink-400">{key}</dt><dd className="select-text">{value || '未记录'}</dd></div>)}</dl>
+    </Modal>}
+    {deleteId && <Modal title="从共享数据库删除" onClose={() => !busy && setDeleteId(null)}><p>删除「{store.movies.find(movie => movie.id === deleteId)?.title}」的共享记录？同步下载的客户端也会收到删除；不会删除 NAS 上的文件。</p><div className="mt-5 flex justify-end gap-2"><button className="btn" disabled={busy} onClick={() => setDeleteId(null)}>取消</button><button className="btn bg-red-900/50" disabled={busy} onClick={() => run(async () => { await movieApi.delete(deleteId); store.removeMovie(deleteId); setDeleteId(null); setMessage('已从共享数据库删除'); })}>确认删除记录</button></div></Modal>}
+    {browse && <LibraryBrowseDialog movies={store.movies} initial={browse} onSelect={store.selectMovie} onClose={() => setBrowse(null)} />}
+    <MovieSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+  </div>;
 }
 
-function MenuItem({
-  children,
-  onClick,
-  className = '',
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  className?: string;
-}) {
-  return (
-    <button
-      className={`flex w-full items-center px-3 py-1.5 text-left text-xs text-ink-200 hover:bg-ink-700 ${className}`}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
+function MenuItem({ children, onClick, disabled = false }: { children: React.ReactNode; onClick: () => void; disabled?: boolean }) {
+  return <button role="menuitem" disabled={disabled} className="flex w-full items-center rounded px-3 py-2 text-left text-sm hover:bg-ink-700 disabled:cursor-not-allowed disabled:opacity-40" onClick={onClick} title={disabled ? '需要先在 NUC 挂载 NAS' : undefined}>{children}</button>;
 }

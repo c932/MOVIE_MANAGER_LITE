@@ -40,8 +40,8 @@ class CacheManager:
                 'movies': [self._serialize_movie(movie) for movie in movies]
             }
             
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            from utils.library_sync import atomic_json
+            atomic_json(self.cache_file, cache_data)
             
             logger.info(f"成功保存缓存: {len(movies)} 部电影 -> {self.cache_file}")
             return True
@@ -177,6 +177,7 @@ class CacheManager:
             'video_path': movie.video_path,
             'nfo_path': movie.nfo_path,
             'poster_path': movie.poster_path,
+            'fanart_path': movie.fanart_path,
 
             # 加入时间
             'added_time': getattr(movie, 'added_time', 0.0),
@@ -231,6 +232,7 @@ class CacheManager:
             video_path=data.get('video_path', ''),
             nfo_path=data.get('nfo_path', ''),
             poster_path=data.get('poster_path', ''),
+            fanart_path=data.get('fanart_path', ''),
 
             # 加入时间
             added_time=data.get('added_time', 0.0),

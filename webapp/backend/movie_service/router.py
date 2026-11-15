@@ -18,21 +18,28 @@ from fastapi import APIRouter, Request
 from .routes_fetch import router as fetch_router
 from .routes_library import router as library_router
 from .routes_movies import router as movies_router
+from .routes_sync import router as sync_router
 
 router = APIRouter(tags=["movie"])
 
 router.include_router(movies_router)
 router.include_router(library_router)
 router.include_router(fetch_router)
+router.include_router(sync_router)
 
 
 @router.get("/system/info")
 def system_info(request: Request) -> Dict[str, Any]:
     """服务端能力自检（Node 可用性决定豆瓣刮削是否可用）。"""
     st = request.app.state.settings
+    from pathlib import Path
+    from .deps import get_store
+    paths = get_store(request).movie_paths()
     return {
         "service": "movie",
         "node": shutil.which("node") is not None,
         "npx": shutil.which("npx") is not None,
         "data_dir": str(st.data_dir),
+        "source_available": bool(paths) and all(Path(path).is_dir() for path in paths),
+        "sync": True,
     }

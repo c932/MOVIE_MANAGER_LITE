@@ -1,0 +1,13 @@
+http://movie.nuc.local {
+    @assets path /assets/* /logo/*
+    header @assets Cache-Control "public, max-age=86400"
+    handle /api/movie/* {
+        reverse_proxy 127.0.0.1:8010
+    }
+    handle {
+        root * /mnt/data/AI/movie-wall-web
+        header Cache-Control "no-cache"
+        try_files {path} /index.html
+        file_server
+    }
+}

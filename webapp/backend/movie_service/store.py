@@ -10,7 +10,6 @@
 """
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import threading
@@ -25,6 +24,7 @@ from utils.failed_movies_manager import FailedMoviesManager
 from utils.favorite_manager import FavoriteManager
 from utils.watch_history import WatchHistoryManager
 from wall_common.settings import Settings
+from utils.library_sync import LibraryDatabase, movie_key
 
 logger = logging.getLogger("movie_service.store")
 
@@ -41,8 +41,7 @@ NEW_MOVIE_CACHE_NAME = "new_movie_cache.json"
 
 def movie_id(nfo_path: str) -> str:
     """契约 2.1：id = sha1(normalize_path(nfo_path))[:16]。"""
-    normalized = WatchHistoryManager.normalize_path(nfo_path)
-    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:16]
+    return movie_key(nfo_path)
 
 
 def normalize(nfo_path: str) -> str:
@@ -195,6 +194,8 @@ class MovieStore:
         self._movies: List[Movie] = []
         self._by_id: Dict[str, Movie] = {}
         self._loaded = False
+        self.database = LibraryDatabase(data_dir / 'library.sqlite3')
+        self._db_revision = -1
 
     # ── 配置 ──────────────────────────────────────────────
     def config(self) -> ConfigManager:
@@ -215,11 +216,22 @@ class MovieStore:
     def ensure_loaded(self) -> None:
         """首次访问时从 movie_cache.json 载入（路径不匹配/不存在则为空列表）。"""
         with self.lock:
-            if self._loaded:
+            if self._loaded and self.database.info()['revision'] == self._db_revision:
                 return
-            movies = self._cache.load_cache(self.movie_paths()) or []
+            snapshot = self.database.snapshot()
+            if snapshot['revision']:
+                records = [item['data'] for item in snapshot['records'] if not item['deleted']]
+                movies = [self._cache._deserialize_movie(item) for item in records]
+                self.watch.watched_movies = {self.watch.normalize_path(item['nfo_path']) for item in records if item.get('watched')}
+                self.fav.favorites = {self.fav.normalize_path(item['nfo_path']) for item in records if item.get('_favorite')}
+            else:
+                movies = self._cache.load_cache(self.movie_paths()) or []
+                if movies:
+                    self.database.replace({movie_id(movie.nfo_path): self.sync_record(movie) for movie in movies})
+                    snapshot = self.database.snapshot()
             self._set_movies(movies)
             self._loaded = True
+            self._db_revision = snapshot['revision']
             logger.info("电影缓存已载入: %d 部", len(movies))
 
     def snapshot(self) -> List[Movie]:
@@ -247,6 +259,8 @@ class MovieStore:
     def save_cache(self) -> None:
         """把当前电影列表原子写回 movie_cache.json。"""
         with self.lock:
+            self.database.replace({movie_id(movie.nfo_path): self.sync_record(movie) for movie in self._movies})
+            self._db_revision = self.database.info()['revision']
             paths = self.movie_paths()
             tmp = self.cache_file.parent / f".{self.cache_file.name}.tmp"
             helper = CacheManager(cache_file=str(tmp))
@@ -258,6 +272,12 @@ class MovieStore:
                     pass
                 raise IOError("电影缓存写入失败")
             os.replace(tmp, self.cache_file)
+
+    def sync_record(self, movie: Movie) -> dict:
+        data = self._cache._serialize_movie(movie)
+        data['watched'] = self.watch.is_watched(movie.nfo_path)
+        data['_favorite'] = self.fav.is_favorite(movie.nfo_path)
+        return data
 
     def replace_all(self, movies: List[Movie]) -> None:
         """整表替换（扫描任务完成后调用）并落盘。"""
@@ -313,12 +333,16 @@ class MovieStore:
         if not (0.0 <= float(rating) <= 10.0):
             raise ValueError("评分必须在 0-10 之间")
         with self.lock:
-            if not movie.nfo_path:
-                raise OSError("当前电影缺少 NFO 路径")
-            if not NFOParser.update_user_rating(movie.nfo_path, float(rating)):
-                raise OSError("写入 NFO 用户评分失败")
-            if self.reparse(movie) is None:
-                raise OSError("评分已写入，但重新解析 NFO 失败")
+            # 个人评分属于共享资料，不依赖 NAS 在线；源 NFO 编辑由明确操作触发。
+            try:
+                has_source = bool(movie.nfo_path) and Path(movie.nfo_path).is_file()
+            except OSError:
+                has_source = False
+            if has_source:
+                if not NFOParser.update_user_rating(movie.nfo_path, float(rating)):
+                    raise OSError('写入 NFO 用户评分失败')
+            movie.ratings['user'] = float(rating)
+            self.save_cache()
 
     def remove(self, movie: Movie) -> None:
         """仅删本地记录：缓存 + 观看历史 + 收藏 + 失败记录（不动媒体文件）。"""

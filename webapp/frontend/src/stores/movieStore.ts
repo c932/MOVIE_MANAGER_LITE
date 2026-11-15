@@ -96,25 +96,25 @@ export const useMovieStore = create<MovieStore>((set, get) => ({
   toggleGenre: (g) =>
     set((s) => {
       const next = new Set(s.selectedGenres);
-      next.has(g) ? next.delete(g) : next.add(g);
+      if (next.has(g)) next.delete(g); else next.add(g);
       return { selectedGenres: next };
     }),
   toggleCountry: (c) =>
     set((s) => {
       const next = new Set(s.selectedCountries);
-      next.has(c) ? next.delete(c) : next.add(c);
+      if (next.has(c)) next.delete(c); else next.add(c);
       return { selectedCountries: next };
     }),
   toggleYear: (y) =>
     set((s) => {
       const next = new Set(s.selectedYears);
-      next.has(y) ? next.delete(y) : next.add(y);
+      if (next.has(y)) next.delete(y); else next.add(y);
       return { selectedYears: next };
     }),
   toggleTag: (t) =>
     set((s) => {
       const next = new Set(s.selectedTags);
-      next.has(t) ? next.delete(t) : next.add(t);
+      if (next.has(t)) next.delete(t); else next.add(t);
       return { selectedTags: next };
     }),
   setMinRating: (r) => set({ minRating: r }),

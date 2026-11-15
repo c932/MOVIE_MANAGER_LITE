@@ -200,3 +200,22 @@ PUT 接受同结构的任意子集。
 6. **图片**：一律走 `wall_common.images`（缩略图缓存、远程缓存、失效）。
 7. **测试**：新增测试放 `tests/webapp/`，用 FastAPI `TestClient`；不得依赖真实 NAS/外网（网络调用 monkeypatch）；`pytest -q` 必须全绿。
 8. **不改动桌面版行为**：允许给现有模块加**可选参数/提取纯函数**，但不得改变既有默认行为与签名语义。
+# 3.4.0 共享电影库补充
+
+NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网页版和桌面同步使用同一个 `library.sqlite3`，不是两套独立缓存。
+
+同步 ID 为 `sha1(ntpath.normpath(nfo_path).casefold())[:16]`；UNC 大小写、斜杠在 Windows/Linux 上结果相同。保留原始路径作为媒体标识，NAS 未挂载时不改写为虚构的 Linux 路径。
+
+| 接口 | 行为 |
+| --- | --- |
+| GET `/api/movie/sync/changes?since=0` | 返回 `{server_id,revision,records:[{id,data,revision,deleted}]}`。以单事务快照的全局版本作为下一次游标；初次下载从 0 开始，墓碑也返回。 |
+| POST `/api/movie/sync/push` | `{server_id,changes:[{id,base:null或完整原资料,data:变更字段,deleted:false}]}`。base 为空仅允许创建，不覆盖已有资料；按字段比较 base 与当前服务端，冲突字段保留服务端。返回 accepted、conflicts（id/fields/data）、revision、server_id。服务端实例不符返回 409。 |
+| GET `/api/movie/sync/assets` | `{movie_id:sha256}` 海报清单。 |
+| GET `/api/movie/sync/assets/{id}` | 后端海报副本，即使 NAS 离线仍可读取。 |
+| PUT `/api/movie/sync/assets/{id}` | 原始图片字节，最大 8 MB/2500 万像素；验证图片并原子保存。更新已有海报需 If-Match=旧 sha256，冲突 409，保留原图。 |
+
+`data` 是桌面 CacheManager 的完整电影字段，另加 `_favorite:bool`；`watched`、`ratings.user` 一并同步。拒绝配置/凭据等未知字段、无效类型、非有限数值/非法评分及不匹配的 NFO 标识。删记录需要 `deleted:true` 和完整 base，不接受无基线的全库覆盖。
+
+桌面仅上传不应用服务端资料，仅下载只发 GET（包括海报），双向先上传变更再增量下载。缓存丢失不代表删除共享库：不从缺失记录自动推导墓碑，下载可从本机同步基线恢复；显式删除协议由调用方提交。电影墙原有“仅本地数据库”删除维持本机语义，下次下载可能重新出现；网页“从共享数据库删除”形成服务器墓碑并同步到其他客户端。均不删除媒体文件。
+
+观看、收藏、个人评分修改产生新资料版本。个人评分没有可读 NAS NFO 时保存在共享库；NFO 可读时兼容原有写回。海报读取优先使用后端已保存副本。`/system/info` 新增 `sync:true` 与 `source_available:bool`，网页据此禁用源文件操作。NAS 挂载与完整源扫描/刮削编辑/播放按用户确认后续接入，本轮交付同步和浏览。

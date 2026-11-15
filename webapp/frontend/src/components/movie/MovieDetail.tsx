@@ -22,6 +22,12 @@ export function MovieDetail({
 }: Props) {
   const [posterVersion, setPosterVersion] = useState(0);
   const [ratingInput, setRatingInput] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const run = async (action: () => Promise<void>) => {
+    setBusy(true); setError('');
+    try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
 
   if (!movie) {
     return (
@@ -34,7 +40,7 @@ export function MovieDetail({
   const posterW = 280;
   const posterH = 420;
   const posterUrl = movie.has_poster
-    ? `${movieApi.posterUrl(movie.id, posterW, posterH, 'cover')}?v=${posterVersion}`
+    ? `${movieApi.posterUrl(movie.id, posterW, posterH, 'contain')}&v=${posterVersion}`
     : null;
 
   const toggleWatched = async () => {
@@ -49,7 +55,7 @@ export function MovieDetail({
 
   const submitRating = async () => {
     const r = parseFloat(ratingInput);
-    if (isNaN(r) || r < 0 || r > 10) return;
+    if (isNaN(r) || r < 0 || r > 10) { setError('请输入 0–10 分'); return; }
     const updated = await movieApi.setRating(movie.id, r);
     onUpdated(updated);
     setRatingInput('');
@@ -62,9 +68,6 @@ export function MovieDetail({
   };
 
   const handleDelete = async () => {
-    if (!confirm(`确认删除本地记录「${movie.title}」？\n（仅删除数据库记录，不删除媒体文件）`))
-      return;
-    await movieApi.delete(movie.id);
     onDeleted(movie.id);
   };
 
@@ -84,7 +87,7 @@ export function MovieDetail({
   }
 
   return (
-    <div className="flex h-full gap-5 overflow-y-auto p-4">
+    <div className="flex h-full gap-4 overflow-y-auto p-4 max-sm:flex-col">
       {/* 左：海报 */}
       <div className="shrink-0">
         {posterUrl ? (
@@ -92,7 +95,7 @@ export function MovieDetail({
             src={posterUrl}
             alt={movie.title}
             className="rounded-lg shadow-2xl ring-1 ring-ink-700"
-            style={{ width: posterW, height: posterH }}
+            style={{ width: 'min(28vw, 220px)', aspectRatio: '2/3', objectFit: 'contain' }}
             draggable={false}
           />
         ) : (
@@ -107,6 +110,7 @@ export function MovieDetail({
 
       {/* 右：信息 */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {error && <p role="alert" className="text-red-400">{error}</p>}
         {/* 标题 */}
         <div>
           <h2 className="text-xl font-semibold text-ink-50">{movie.title}</h2>
@@ -138,7 +142,7 @@ export function MovieDetail({
                 key={r.label}
                 className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-3 py-1.5"
               >
-                <span className="text-2xs text-ink-300">{r.label}</span>
+                {['TMDB', 'IMDb', '豆瓣'].includes(r.label) ? <img className="h-5 w-14 object-contain" alt={r.label} src={`/logo/${r.label === '豆瓣' ? 'douban.png' : r.label === 'IMDb' ? 'imdb.png' : 'tmdb.jpg'}`} /> : <span className="text-2xs text-ink-300">{r.label}</span>}
                 <span className="font-mono text-sm font-semibold text-gold">
                   {r.value.toFixed(1)}
                 </span>
@@ -214,13 +218,13 @@ export function MovieDetail({
         <div className="mt-auto flex flex-wrap gap-2 border-t divider pt-3">
           <button
             className={`btn ${movie.watched ? 'btn-active' : ''}`}
-            onClick={toggleWatched}
+            onClick={() => run(toggleWatched)} disabled={busy}
           >
             {movie.watched ? '✓ 已观看' : '○ 标记观看'}
           </button>
           <button
             className={`btn ${movie.favorite ? 'btn-active text-gold' : ''}`}
-            onClick={toggleFavorite}
+            onClick={() => run(toggleFavorite)} disabled={busy}
           >
             {movie.favorite ? '★ 已收藏' : '☆ 收藏'}
           </button>
@@ -236,14 +240,14 @@ export function MovieDetail({
               placeholder={movie.user_rating > 0 ? movie.user_rating.toFixed(1) : '评分'}
               value={ratingInput}
               onChange={(e) => setRatingInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submitRating()}
+              aria-label="我的评分" onKeyDown={(e) => e.key === 'Enter' && run(submitRating)}
             />
-            <button className="btn" onClick={submitRating} title="0-10 分">
+            <button className="btn" disabled={busy} onClick={() => run(submitRating)} title="0-10 分">
               评分
             </button>
           </div>
 
-          <button className="btn" onClick={handleRefreshPoster} title="清理缓存重新加载">
+          <button className="btn" disabled={busy} onClick={() => run(handleRefreshPoster)} title="刷新后端保存的海报副本">
             🖼 更新海报
           </button>
           <button className="btn" onClick={() => onEditFields(movie)}>
@@ -266,6 +270,7 @@ export function MovieDetail({
             🗑 删除
           </button>
         </div>
+        <p className="break-all text-xs text-ink-400">文件：{movie.video_path || '未记录'}</p>
       </div>
     </div>
   );

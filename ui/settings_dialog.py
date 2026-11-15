@@ -8,7 +8,8 @@ from typing import List
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
     QPushButton, QListWidget, QListWidgetItem,
-    QFileDialog, QMessageBox, QWidget, QFrame
+    QFileDialog, QMessageBox, QWidget, QFrame, QGroupBox, QFormLayout,
+    QCheckBox, QLineEdit, QComboBox, QSpinBox
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon, QCursor
@@ -26,6 +27,8 @@ class SettingsDialog(QDialog):
     
     # 信号：配置已更新（需要重新扫描）
     settings_updated = pyqtSignal()
+    sync_settings_updated = pyqtSignal()
+    sync_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,7 +40,7 @@ class SettingsDialog(QDialog):
     def init_ui(self):
         """初始化 UI"""
         self.setWindowTitle("⚙️ 媒体库设置")
-        self.setMinimumSize(700, 500)
+        self.setMinimumSize(760, 750)
         self.setModal(True)
         
         # 主布局
@@ -45,6 +48,37 @@ class SettingsDialog(QDialog):
         main_layout.setContentsMargins(30, 30, 30, 30)
         main_layout.setSpacing(20)
         
+        from utils.sync_client import sync_settings
+        sync = sync_settings(self.config.get_value('library_sync', {}))
+        group = QGroupBox('共享电影数据库（NUC）')
+        form = QFormLayout(group)
+        self.sync_enabled = QCheckBox('开启后端数据库同步，保留本机离线副本')
+        self.sync_enabled.setChecked(sync['enabled'])
+        self.sync_url = QLineEdit(sync['url'])
+        self.sync_url.setPlaceholderText('http://movie.nuc.local')
+        self.sync_mode = QComboBox()
+        for text, value in [('仅下载（后端 → 本机）', 'download'), ('仅上传（本机 → 后端）', 'upload'), ('双向同步', 'both')]:
+            self.sync_mode.addItem(text, value)
+        self.sync_mode.setCurrentIndex(self.sync_mode.findData(sync['mode']))
+        self.sync_interval = QSpinBox()
+        self.sync_interval.setRange(30, 3600)
+        self.sync_interval.setSuffix(' 秒')
+        self.sync_interval.setValue(sync['interval'])
+        form.addRow(self.sync_enabled)
+        form.addRow('后端地址', self.sync_url)
+        form.addRow('同步方式', self.sync_mode)
+        form.addRow('自动同步间隔', self.sync_interval)
+        hint = QLabel('开启后启动时自动同步。仅下载不会上传资料；冲突保留服务器版本。海报一同同步，无需重扫 NAS。')
+        hint.setWordWrap(True)
+        form.addRow(hint)
+        self.sync_now = QPushButton('保存同步设置并立即同步')
+        self.sync_now.clicked.connect(self._sync_now)
+        form.addRow(self.sync_now)
+        self.sync_status = QLabel('同步默认关闭；首次可用仅上传导入已有电影库。')
+        self.sync_status.setWordWrap(True)
+        form.addRow(self.sync_status)
+        main_layout.addWidget(group)
+
         # === 标题区域 ===
         title_label = QLabel("📁 电影目录管理")
         title_label.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
@@ -188,7 +222,7 @@ class SettingsDialog(QDialog):
         cancel_button.clicked.connect(self.reject)
         
         # 保存并扫描按钮
-        save_button = QPushButton("💾 保存并重新扫描")
+        save_button = QPushButton("💾 保存设置")
         save_button.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
         save_button.setFixedHeight(50)
         save_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -313,6 +347,8 @@ class SettingsDialog(QDialog):
         """保存设置并通知主窗口重新扫描"""
         try:
             # 更新配置管理器
+            changed = self.config.get_movie_paths() != self.movie_paths
+            self._save_sync()
             self.config.set_movie_paths(self.movie_paths)
             
             # 保存到 config.json
@@ -321,7 +357,9 @@ class SettingsDialog(QDialog):
             logger.info(f"媒体库设置已保存，共 {len(self.movie_paths)} 个目录")
             
             # 发射信号通知主窗口
-            self.settings_updated.emit()
+            if changed:
+                self.settings_updated.emit()
+            self.sync_settings_updated.emit()
             
             # 关闭对话框
             self.accept()
@@ -333,3 +371,17 @@ class SettingsDialog(QDialog):
                 "保存失败",
                 f"无法保存设置：{str(e)}"
             )
+
+    def _save_sync(self):
+        from utils.sync_client import sync_settings
+        value = sync_settings({'enabled': self.sync_enabled.isChecked(), 'url': self.sync_url.text(),
+                               'mode': self.sync_mode.currentData(), 'interval': self.sync_interval.value()})
+        self.config.set_value('library_sync', value)
+
+    def _sync_now(self):
+        try:
+            self._save_sync()
+            self.config.save_config()
+            self.sync_requested.emit()
+        except ValueError as exc:
+            self.sync_status.setText(str(exc))
