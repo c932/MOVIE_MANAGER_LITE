@@ -202,6 +202,21 @@ PUT 接受同结构的任意子集。
 8. **不改动桌面版行为**：允许给现有模块加**可选参数/提取纯函数**，但不得改变既有默认行为与签名语义。
 # 3.4.0 共享电影库补充
 
+## 3.4.1 NAS 设置与扫描
+
+- GET `/nas`：`{available,connections,libraries,detail?}`，connection 包含 host/share/username/domain/port/vers、connected、mounted、read_only、has_password，不返回密码。
+- POST `/nas/shares`：NASConfig（host、port=445、username、password、domain、share 可空、vers=3.0、guest=false），提交后台登录/共享列表任务，返回 job_id；完成结果 `{shares,message}`。
+- POST `/nas/connect`：相同配置，share 必填；后台只读挂载，完成结果为公开 connection。已存账户密码留空复用；成功后密码仅存 NUC root 私有配置，接口不回传。
+- POST `/nas/{id}/disconnect`：后台正常断开，不强制卸载；扫描/连接任务期间返回 409，原凭据保留供重新连接。
+- GET `/nas/{id}/directories?path=相对路径`：返回 path 和 directories（name/path）；拒绝越出共享、绝对路径及符号链接逃逸。
+- PUT `/nas/libraries`：`{libraries:[{connection_id,path}]}`，仅接受已连接共享中的目录，返回 `{saved,movie_paths}`。保存不扫描，NAS 密码不会进入 config.json 或同步记录。
+
+`/system/info` 增加 nas_configured；source_available 在所选 NAS 连接均可用时为 true。扫描仍使用 `/library/refresh`，从物理挂载目录读取后转回原始 UNC 标识，保留范围外电影、已观看、个人评分与增量加入时间；不可达或读取中断保留共享库。NAS 海报复制到后端离线副本；NFO 重新读取和原始 XML GET 支持 NAS 路径映射。默认只读，未开放源文件编辑。
+
+`/system/info` 另返回 nas_connected、nas_connected_count、nas_library_count，区分“共享连接成功”与“已配置扫描范围”。连接成功但未选择媒体库时，nas_connected=true、nas_library_count=0、source_available=false，前端提示选择媒体库，而不是“NAS 未挂载”。
+
+评分校验修正：TMDB/IMDb/豆瓣/user 限定为 0–10；其他来源保留原始有限非负值，兼容 TMM 的烂番茄百分制，不将 91 错判非法。不合法记录的 422 提示包含电影与具体字段。
+
 NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网页版和桌面同步使用同一个 `library.sqlite3`，不是两套独立缓存。
 
 同步 ID 为 `sha1(ntpath.normpath(nfo_path).casefold())[:16]`；UNC 大小写、斜杠在 Windows/Linux 上结果相同。保留原始路径作为媒体标识，NAS 未挂载时不改写为虚构的 Linux 路径。

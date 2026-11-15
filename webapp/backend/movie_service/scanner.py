@@ -43,6 +43,7 @@ def collect_nfo_files(
             logger.warning("黑名单正则非法，已忽略 %r: %s", pattern, exc)
 
     nfo_files: List[Path] = []
+    seen: set[Path] = set()
     for movie_path in movie_paths or []:
         if check_cancelled:
             check_cancelled()
@@ -62,11 +63,13 @@ def collect_nfo_files(
                 if any(pattern.match(item.name) for pattern in compiled):
                     logger.debug("跳过黑名单文件: %s", item.name)
                     continue
-                nfo_files.append(item)
+                if item not in seen:
+                    seen.add(item)
+                    nfo_files.append(item)
         except PermissionError:
-            logger.warning("无权限访问目录: %s", movie_path)
+            raise RuntimeError('没有权限完整扫描目录，保留原有电影库：' + str(movie_path))
         except OSError as exc:
-            logger.error("扫描目录时出错 [%s]: %s", movie_path, exc)
+            raise RuntimeError('扫描目录中断，保留原有电影库：' + str(movie_path)) from exc
 
     return nfo_files
 

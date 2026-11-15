@@ -269,6 +269,8 @@ def get_poster(
     movie = require_movie(store, movie_id)
 
     source = _poster_source(movie)
+    from .nas import NASPaths
+    source = NASPaths(st.data_dir).source(source) if source else ''
     shared = st.data_dir / 'shared_posters' / f'{movie_id}.jpg'
     if shared.is_file():
         source = str(shared)
@@ -293,12 +295,25 @@ def invalidate_poster(request: Request, movie_id: str) -> Dict[str, int]:
     store = get_store(request)
     movie = require_movie(store, movie_id)
     source = _poster_source(movie)
+    from .nas import NASPaths
+    source = NASPaths(st.data_dir).source(source) if source else ''
+    refreshed = False
+    try:
+        if source and source != movie.poster_path and Path(source).is_file():
+            from .media_assets import cache_source_poster
+            refreshed = cache_source_poster(st.data_dir, movie_id, source, force=True)
+    except (OSError, ValueError):
+        pass  # NAS 离线时保留已有共享副本。
+    original_source = source
     shared = st.data_dir / 'shared_posters' / f'{movie_id}.jpg'
     if shared.is_file():
         source = str(shared)
     if not source:
         return {"removed": 0}
-    return {"removed": invalidate(source, st.image_cache_dir)}
+    removed = invalidate(source, st.image_cache_dir)
+    if original_source and original_source != source:
+        removed += invalidate(original_source, st.image_cache_dir)
+    return {"removed": removed, "source_refreshed": refreshed}
 
 
 # ─────────────────── NFO 读写 ───────────────────
@@ -311,7 +326,8 @@ def get_nfo(request: Request, movie_id: str) -> Dict[str, str]:
     movie = require_movie(store, movie_id)
     if not movie.nfo_path:
         raise HTTPException(status_code=404, detail="该电影没有 NFO 路径")
-    path = Path(movie.nfo_path)
+    from .nas import NASPaths
+    path = Path(NASPaths(store.settings.data_dir).source(movie.nfo_path))
     if not path.is_file():
         raise HTTPException(status_code=404, detail="NFO 文件不存在")
     try:

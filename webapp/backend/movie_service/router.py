@@ -19,6 +19,7 @@ from .routes_fetch import router as fetch_router
 from .routes_library import router as library_router
 from .routes_movies import router as movies_router
 from .routes_sync import router as sync_router
+from .routes_nas import router as nas_router
 
 router = APIRouter(tags=["movie"])
 
@@ -26,6 +27,7 @@ router.include_router(movies_router)
 router.include_router(library_router)
 router.include_router(fetch_router)
 router.include_router(sync_router)
+router.include_router(nas_router)
 
 
 @router.get("/system/info")
@@ -35,11 +37,26 @@ def system_info(request: Request) -> Dict[str, Any]:
     from pathlib import Path
     from .deps import get_store
     paths = get_store(request).movie_paths()
+    connected = set()
+    try:
+        from .nas import NASManager
+        nas = NASManager(st.data_dir).status()
+        connected = {item['id'] for item in nas['connections'] if item['connected']}
+        nas_libraries = nas['libraries']
+        nas_ready = bool(nas_libraries) and all(item['connection_id'] in connected for item in nas_libraries)
+    except ValueError:
+        from utils.library_sync import read_json
+        nas_libraries = read_json(st.data_dir / 'nas_libraries.json', {}).get('libraries', [])
+        nas_ready = False
     return {
         "service": "movie",
         "node": shutil.which("node") is not None,
         "npx": shutil.which("npx") is not None,
         "data_dir": str(st.data_dir),
-        "source_available": bool(paths) and all(Path(path).is_dir() for path in paths),
+        "source_available": nas_ready if nas_libraries else bool(paths) and all(Path(path).is_dir() for path in paths),
+        "nas_configured": bool(nas_libraries),
+        "nas_connected": bool(connected),
+        "nas_connected_count": len(connected),
+        "nas_library_count": len(nas_libraries),
         "sync": True,
     }

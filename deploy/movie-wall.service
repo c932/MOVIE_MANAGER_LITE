@@ -1,7 +1,7 @@
 [Unit]
 Description=Shared Movie Wall API
-After=network-online.target
-Wants=network-online.target
+After=network-online.target movie-wall-nas-helper.service
+Wants=network-online.target movie-wall-nas-helper.service
 
 [Service]
 Type=simple

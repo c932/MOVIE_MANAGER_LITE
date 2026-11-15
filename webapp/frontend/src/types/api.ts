@@ -96,6 +96,18 @@ export interface MovieSettings {
   poster_scale: number;
 }
 
+export interface NASConfig {
+  host: string; port: number; username: string; password: string;
+  domain: string; share: string; vers: string; guest: boolean;
+}
+export interface NASConnection extends Omit<NASConfig, 'password'> {
+  id: string; connected: boolean; mounted: boolean; enabled: boolean;
+  has_password: boolean; read_only: boolean; error: string;
+}
+export interface NASLibrary { connection_id: string; path: string; label?: string }
+export interface NASStatus { available: boolean; connections: NASConnection[]; libraries: NASLibrary[]; detail?: string }
+export interface NASDirectories { path: string; directories: { name: string; path: string }[] }
+
 export interface RankingItem {
   rank: number;
   title: string;

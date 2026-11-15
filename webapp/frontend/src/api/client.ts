@@ -53,6 +53,12 @@ export const jobsApi = (prefix: string) => ({
 
 // ── 电影墙 ────────────────────────────────────────────
 export const movieApi = {
+  nasStatus: () => request<NASStatus>('/api/movie/nas'),
+  nasShares: (config: NASConfig) => request<{job_id: string}>('/api/movie/nas/shares', {method: 'POST', body: JSON.stringify(config)}),
+  nasConnect: (config: NASConfig) => request<{job_id: string}>('/api/movie/nas/connect', {method: 'POST', body: JSON.stringify(config)}),
+  nasDisconnect: (id: string) => request<{job_id: string}>(`/api/movie/nas/${id}/disconnect`, {method: 'POST'}),
+  nasDirectories: (id: string, path = '') => request<NASDirectories>(`/api/movie/nas/${id}/directories?path=${encodeURIComponent(path)}`),
+  nasLibraries: (libraries: NASLibrary[]) => request<{saved: boolean; movie_paths: string[]}>('/api/movie/nas/libraries', {method: 'PUT', body: JSON.stringify({libraries})}),
   ...jobsApi('/api/movie'),
   list: () => request<MovieListResponse>('/api/movie/movies'),
   detail: (id: string) => request<MovieListItem>(`/api/movie/movies/${id}`),
@@ -134,12 +140,13 @@ export const movieApi = {
     }),
   proxyImageUrl: (url: string) => `/api/movie/proxy/image?url=${encodeURIComponent(url)}`,
   systemInfo: () =>
-    request<{ service: string; node: boolean; npx: boolean; data_dir: string; source_available: boolean; sync: boolean }>(
+    request<{ service: string; node: boolean; npx: boolean; data_dir: string; source_available: boolean; nas_connected: boolean; nas_configured: boolean; nas_library_count: number; sync: boolean }>(
       '/api/movie/system/info',
     ),
 };
 
 import type {
+  NASConfig, NASStatus, NASLibrary, NASDirectories,
   Job, MovieListItem, MovieListResponse, LibraryInfo, MovieSettings,
   RankingResponse, NewMovieResponse, RankingItem, NewMovieItem, Actor, RankInfo,
 } from '../types/api';

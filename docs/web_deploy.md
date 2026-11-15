@@ -56,6 +56,20 @@ location / {
 在项目根目录运行 `scripts/dev-web.bat`。前端默认端口 5173，仅代理 `/api/movie`；开发数据使用临时目录，避免改动真实库。
 # NUC 实际部署（3.4.0）
 
+## 3.4.1 NAS 连接已上线
+
+网页设置 → NAS 登录与媒体库：填写 IP（默认 192.168.50.100）、用户名和密码 → 测试登录并列出共享 → 选择或手动输入共享名 → 保存登录并连接共享 → 浏览子目录/添加共享根目录 → 保存媒体库目录 → 关闭设置 → 扫描 NAS。账号密码由用户在网页输入，本次不获取、不猜测真实 NAS 密码。
+
+NUC 已安装 cifs-utils/smbclient。Root 所有的 `/usr/local/libexec/movie-wall-nas-helper.py` 由 `movie-wall-nas-helper.service` 开机启动，管理固定 `/mnt/movie-wall-nas/<id>` 只读挂载。Web 应用保留 NoNewPrivileges，通过 `/run/movie-wall-nas/control.sock` 调用白名单操作；目录 root:manfred 0750、socket 0660，持久凭据 `/var/lib/movie-wall-nas/connections.json` 为 root:root 0600。每次命令用临时 0600 凭据文件，执行后删除，不把密码放在命令行或回传。禁止任意挂载点、shell 命令和路径越界。NAS 版本默认 SMB 3.0，可选 3.1.1/2.1/2.0，不启用 SMB1。使用过的启用连接重启恢复。
+
+部署助手：代码上传后执行 `sh deploy/install-nas-helper.sh`，再重启 movie-wall。服务不可用时 NAS 设置明确报错并允许刷新状态。更改用户名/密码前需正常断开已有连接。NAS 未连接仍可浏览共享数据库和已缓存海报；恢复连接后可扫描新 NFO，源编辑尚未开放。
+
+真实验收使用 NUC 临时 SMB 服务，仅监听 127.0.0.1:1445，随机测试账户与独立 `/tmp/mml-nas-e2e-data`，从未使用真实 NAS 账户。已验证真实登录/共享列表、CIFS 只读挂载及拒绝写入、目录选择、UNC 身份稳定与范围外电影保留、NFO/海报读取、断开后海报及数据库保留。测试连接已移除、临时服务已停止；真实 NAS 等用户在网页填写密码后连接。浏览器工具仍无法确认 Windows 当前 URL，未完成自动点击交互验收。
+
+用户已自行在网页连接真实 NAS：movie 与 Movie Series 均 connected=true；只读目录列表分别可读取 23/67 个文件夹。当前尚未保存媒体库目录，扫描按钮按设计保持禁用。状态栏已修复为“NAS 已连接 · 尚未选择并保存媒体库目录”；可分别点击“将整个共享加入媒体库”，再点“保存媒体库目录”，或先选择具体子目录。服务不会擅自选择根目录或启动全库扫描。
+
+本次同步错误根因：TMM 的 tomatometerallcritics=91 被按十分制拒绝，现已按来源校验。服务器日志已看到原客户端后续 `/sync/push` 连续返回 200。既有客户端直接重试即可；另提供 3.4.1 MSI。
+
 - 地址：`http://movie.nuc.local` → `192.168.50.157`；.2 dnsmasq 与 .3 AdGuardHome 仅新增该域名解析，原配置各有 `movie-wall-时间戳.bak`。
 - 代码：`/home/manfred/ai-local/services/movie-wall`，Python 3.11 独立 `.venv`。
 - 数据：`/mnt/data/AI/movie-wall-data/library.sqlite3`；海报：同目录 `shared_posters/`。SQLite WAL 和版本库在重启后保留。JSON 仅用于兼容及已有缓存，不作为共享库事实来源。

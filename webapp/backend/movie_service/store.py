@@ -292,9 +292,12 @@ class MovieStore:
         重新解析 NFO 并替换缓存中的对象（保留 added_time），落盘后返回新对象。
         解析失败返回 None（原对象不动）。
         """
-        updated = parse_nfo(movie.nfo_path) if movie.nfo_path else None
+        from .nas import NASPaths
+        mapper = NASPaths(self.settings.data_dir)
+        updated = parse_nfo(mapper.source(movie.nfo_path)) if movie.nfo_path else None
         if updated is None:
             return None
+        mapper.movie(updated)
         with self.lock:
             if not updated.added_time:
                 updated.added_time = float(movie.added_time or 0.0)

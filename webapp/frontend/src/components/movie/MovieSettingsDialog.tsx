@@ -3,13 +3,15 @@ import { useEffect, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { MovieSettings } from '../../types/api';
 import { Modal } from '../Modal';
+import { NASSettingsPanel } from './NASSettingsPanel';
 
 interface Props {
   open: boolean;
   onClose: () => void;
+  onNasChanged?: () => void;
 }
 
-export function MovieSettingsDialog({ open, onClose }: Props) {
+export function MovieSettingsDialog({ open, onClose, onNasChanged }: Props) {
   const [settings, setSettings] = useState<MovieSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -43,13 +45,14 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
 
   return (
     <Modal title="后端设置" onClose={() => !saving && onClose()}>
-        <p className="mb-4 text-sm text-ink-300">网页直接使用 NUC 共享数据库，无需另外开启同步。桌面端在媒体库设置中选择同步方向。NAS 挂载路径需要在 NUC 配置后填写，保存不会自动重扫。</p>
+        <p className="mb-4 text-sm text-ink-300">网页直接使用共享数据库。NAS 登录与媒体库目录在下方分别保存；连接后关闭设置，点击“扫描 NAS”开始扫描。</p>
         {error && <p role="alert" className="mb-3 text-red-400">{error}</p>}
+        <NASSettingsPanel onPathsChanged={paths => setSettings(value => value ? {...value, movie_paths: paths} : value)} onChanged={() => onNasChanged?.()} />
 
         <div className="space-y-4">
           {/* 媒体库路径 */}
-          <div>
-            <label className="mb-1.5 block text-xs text-ink-300">媒体库路径</label>
+          <details>
+            <summary className="mb-2 cursor-pointer text-sm text-ink-300">高级：NUC 本地媒体目录</summary>
             {settings.movie_paths.map((p, i) => (
               <div key={i} className="mb-1.5 flex gap-2">
                 <input
@@ -78,7 +81,7 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
             >
               + 添加路径
             </button>
-          </div>
+          </details>
 
           {/* 黑名单 */}
           <div>
@@ -152,7 +155,7 @@ export function MovieSettingsDialog({ open, onClose }: Props) {
             取消
           </button>
           <button className="btn btn-primary" onClick={save} disabled={saving}>
-            {saving ? '保存中…' : '保存'}
+            {saving ? '保存中…' : '保存显示与过滤设置'}
           </button>
         </div>
     </Modal>

@@ -17,6 +17,8 @@ export default function MovieWall() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [browse, setBrowse] = useState<'series' | 'top250' | 'nowplaying' | null>(null);
   const [sourceAvailable, setSourceAvailable] = useState(false);
+  const [nasConnected, setNasConnected] = useState(false);
+  const [sourceLabel, setSourceLabel] = useState('正在检查 NAS 连接状态…');
   const [sidebar, setSidebar] = useState(false);
   const [detail, setDetail] = useState<MovieListItem | null>(null);
   const [properties, setProperties] = useState<MovieListItem | null>(null);
@@ -27,12 +29,17 @@ export default function MovieWall() {
   const [series, setSeries] = useState('');
   const [context, setContext] = useState<{ movie: MovieListItem; x: number; y: number } | null>(null);
   const load = store.load;
+  const refreshSources = useCallback(() => movieApi.systemInfo().then(info => {
+    setSourceAvailable(info.source_available);
+    setNasConnected(info.nas_connected);
+    setSourceLabel(info.source_available ? 'NAS 已连接 · 媒体库可扫描' : info.nas_connected && !info.nas_configured ? 'NAS 已连接 · 尚未选择并保存媒体库目录' : info.nas_configured ? '媒体库所需的 NAS 共享未全部连接 · 使用已同步资料和海报' : 'NAS 未连接 · 使用已同步资料和海报');
+  }), []);
   useEffect(() => {
     load();
-    movieApi.systemInfo().then(info => setSourceAvailable(info.source_available)).catch(e => setMessage((e as Error).message));
+    refreshSources().catch(e => setMessage((e as Error).message));
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60000);
     return () => window.clearInterval(timer);
-  }, [load]);
+  }, [load, refreshSources]);
   useEffect(() => {
     let active = true;
     if (!store.selectedId) return;
@@ -66,14 +73,14 @@ export default function MovieWall() {
         <button className="btn" onClick={() => setBrowse('top250')}>榜单对比</button>
         <button className="btn" onClick={() => setBrowse('nowplaying')}>新片推荐</button>
         <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}>刷新数据库</button>
-        <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? 'NUC 尚未挂载 NAS，当前无需扫描即可浏览共享电影库' : '扫描已挂载的电影目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}>扫描 NAS</button>
+        <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? sourceLabel + '，请在设置中配置媒体库' : '扫描已选择的媒体库目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}>扫描 NAS</button>
         <button className="btn" onClick={() => setSettingsOpen(true)}>设置</button>
         <JobProgress job={job} accent="cinema" onCancel={() => { if (job) movieApi.cancel(job.id).catch(e => setMessage((e as Error).message)); }} />
       </header>
       <div className="flex items-center justify-between gap-3 border-b divider px-3 py-2 text-xs text-ink-300">
         <span>NUC 共享电影库 · 共 {store.movies.length} 部 {series && ` / ${series}`}</span>
         {series && <button className="btn" onClick={() => setSeries('')}>退出系列筛选</button>}
-        <span>{sourceAvailable ? 'NAS 已连接' : 'NAS 未挂载 · 使用已同步资料和海报'}</span>
+        <span>{sourceLabel}</span>{!sourceAvailable && <button className="btn text-xs" onClick={() => setSettingsOpen(true)}>{nasConnected ? '选择媒体库目录' : '配置 NAS'}</button>}
       </div>
       {(message || store.error) && <div role={store.error ? 'alert' : 'status'} className="flex items-center justify-between gap-2 border-b divider px-3 py-2 text-sm"><span>{store.error || message}</span><button className="btn" onClick={() => { setMessage(''); if (store.error) load(); }}>{store.error ? '重试' : '关闭'}</button></div>}
       {detail && detail.id === store.selectedId ? <div className="max-h-[46dvh] shrink-0 overflow-auto border-b divider"><MovieDetail key={detail.id} movie={detail} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={setSeries} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /></div>
@@ -96,12 +103,12 @@ export default function MovieWall() {
       <MenuItem onClick={() => { setDeleteId(context.movie.id); setContext(null); }}>从共享数据库删除…</MenuItem>
     </div></>}
     {properties && <Modal title={`电影属性 · ${properties.title}`} onClose={() => setProperties(null)}>
-      <p className="mb-4 text-sm text-ink-300">NUC 尚未挂载 NAS。当前可查看共享资料，观看、收藏和个人评分可在详情中修改；编辑源 NFO 需要后续接入 NAS。</p>
+      <p className="mb-4 text-sm text-ink-300">{sourceAvailable ? 'NAS 目录已连接（只读），支持扫描与重新读取 NFO。观看、收藏和个人评分可在详情中修改；源文件编辑尚未开放。' : nasConnected ? 'NAS 共享已连接，请在设置中选择并保存需要扫描的媒体库目录。' : 'NAS 尚未连接，请在设置中填写登录并选择媒体库目录。共享资料仍可浏览，观看、收藏和个人评分可在详情中修改。'}</p>
       <dl className="space-y-3 break-all text-sm">{Object.entries({ 标题: properties.title, 原名: properties.original_title, 年份: properties.year, 上映日期: properties.premiered, 系列: properties.set_name, 国家地区: properties.countries.join(' / '), 导演: properties.directors.join(' / '), 类型: properties.genres.join(' / '), 视频: properties.video_path, NFO: properties.nfo_path, 海报: properties.poster_path, 分辨率: properties.resolution, HDR: properties.hdr_type }).map(([key, value]) => <div key={key}><dt className="text-ink-400">{key}</dt><dd className="select-text">{value || '未记录'}</dd></div>)}</dl>
     </Modal>}
     {deleteId && <Modal title="从共享数据库删除" onClose={() => !busy && setDeleteId(null)}><p>删除「{store.movies.find(movie => movie.id === deleteId)?.title}」的共享记录？同步下载的客户端也会收到删除；不会删除 NAS 上的文件。</p><div className="mt-5 flex justify-end gap-2"><button className="btn" disabled={busy} onClick={() => setDeleteId(null)}>取消</button><button className="btn bg-red-900/50" disabled={busy} onClick={() => run(async () => { await movieApi.delete(deleteId); store.removeMovie(deleteId); setDeleteId(null); setMessage('已从共享数据库删除'); })}>确认删除记录</button></div></Modal>}
     {browse && <LibraryBrowseDialog movies={store.movies} initial={browse} onSelect={store.selectMovie} onClose={() => setBrowse(null)} />}
-    <MovieSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+    <MovieSettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} onNasChanged={() => { refreshSources().catch(e => setMessage((e as Error).message)); }} />
   </div>;
 }
 

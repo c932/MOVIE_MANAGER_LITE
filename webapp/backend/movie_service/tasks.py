@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import shutil
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
 from wall_common.jobs import JobContext
@@ -52,6 +53,25 @@ def run_library_refresh(store: MovieStore, ctx: JobContext, *, force: bool = Fal
         raise RuntimeError("未配置电影目录，请先在设置中添加电影目录")
 
     incremental = not force
+    from .nas import NASPaths
+    mapper = NASPaths(store.settings.data_dir)
+    from utils.library_sync import read_json
+    nas_libraries = read_json(mapper.file, {}).get('libraries', [])
+    if nas_libraries:
+        from .nas import NASManager
+        nas_status = NASManager(store.settings.data_dir).status()
+        connected = {item['id'] for item in nas_status['connections'] if item['connected']}
+        if any(item['connection_id'] not in connected for item in nas_libraries):
+            raise RuntimeError('部分 NAS 共享未连接或不可达，请在设置中连接后重试；原电影库未修改')
+    scan_paths = []
+    for path in movie_paths:
+        try:
+            if Path(path).is_dir():
+                scan_paths.append(path)
+            else:
+                ctx.log('目录不可访问，保留该目录原有电影：' + path)
+        except OSError:
+            ctx.log('目录不可访问，保留该目录原有电影：' + path)
     old_by_nfo = {normalize(m.nfo_path): m for m in store.snapshot() if m.nfo_path}
     ctx.log(
         f"{'增量刷新' if incremental else '全量重建'}：旧数据 {len(old_by_nfo)} 部，"
@@ -62,7 +82,7 @@ def run_library_refresh(store: MovieStore, ctx: JobContext, *, force: bool = Fal
         ctx.update(current=current, total=total, stage="解析 NFO", message=message)
 
     movies = scan_library(
-        movie_paths,
+        scan_paths,
         cfg.get_blacklist_folders(),
         cfg.get_blacklist_patterns(),
         progress=_progress,
@@ -73,31 +93,67 @@ def run_library_refresh(store: MovieStore, ctx: JobContext, *, force: bool = Fal
     ctx.update(stage="写入缓存", message="正在统计差异...")
 
     # added_time：增量模式沿用旧值；全量重建（或全新电影）读磁盘 mtime
-    for movie in movies:
+    posters_cached, poster_errors = 0, 0
+    for index, movie in enumerate(movies, 1):
+        ctx.check_cancelled()
+        physical_poster = movie.poster_path
+        physical_time = file_added_time(movie)
+        mapper.movie(movie)
+        if physical_poster and movie.poster_path != physical_poster:
+            try:
+                from .media_assets import cache_source_poster
+                from .store import movie_id
+                posters_cached += int(cache_source_poster(store.settings.data_dir, movie_id(movie.nfo_path), physical_poster))
+            except (OSError, ValueError) as exc:
+                poster_errors += 1
+                ctx.log(f'海报副本更新失败，保留已有缓存：{movie.title}：{exc}')
+        ctx.update(current=index, total=len(movies), stage='读取媒体资料与海报', message=movie.nfo_path)
         old = old_by_nfo.get(normalize(movie.nfo_path))
         if incremental and old is not None and old.added_time:
             movie.added_time = old.added_time
         else:
-            movie.added_time = file_added_time(movie) or (old.added_time if old else 0.0)
+            movie.added_time = physical_time or (old.added_time if old else 0.0)
 
     store.apply_watched(movies)
 
     new_paths = {normalize(m.nfo_path) for m in movies if m.nfo_path}
     old_paths = set(old_by_nfo)
     added = len(new_paths - old_paths)
-    removed = len(old_paths - new_paths)
+    removed = 0
     unchanged = len(new_paths & old_paths)
 
     if movies:
-        # 按当前扫描结果清理本地失效记录（语义同桌面版 _prune_stale_local_records）
-        store.prune_stale_records(new_paths)
+        with store.lock:
+            latest = store.snapshot()
+            latest_by_path = {normalize(item.nfo_path): item for item in latest}
+            for movie in movies:
+                old = latest_by_path.get(normalize(movie.nfo_path))
+                if old:
+                    if incremental and old.added_time:
+                        movie.added_time = old.added_time
+                    if 'user' in old.ratings:
+                        movie.ratings['user'] = old.ratings['user']
+            # 只更新扫描覆盖的目录，不能把其他客户端或其他共享的电影删掉。
+            outside = [item for item in latest if not mapper.contains(item.nfo_path, scan_paths)]
+            unparsed = []
+            for item in latest:
+                if mapper.contains(item.nfo_path, scan_paths) and normalize(item.nfo_path) not in new_paths:
+                    try:
+                        if Path(mapper.source(item.nfo_path)).is_file():
+                            unparsed.append(item)
+                            ctx.log('NFO 本次未解析成功，保留原资料：' + item.nfo_path)
+                    except OSError as exc:
+                        raise RuntimeError('NAS 文件读取中断，原电影库未修改') from exc
+            kept = new_paths | {normalize(item.nfo_path) for item in unparsed}
+            removed = len({normalize(item.nfo_path) for item in latest if mapper.contains(item.nfo_path, scan_paths)} - kept)
+            combined = movies + outside + unparsed
+            store.apply_watched(combined)
+            store.prune_stale_records({normalize(item.nfo_path) for item in combined if item.nfo_path})
+            store.replace_all(combined)
     else:
         # 扫描结果为空（目录不可达等）时不清库，避免误删用户本地记录
         ctx.log("本次扫描未发现任何电影，跳过失效记录清理")
         removed = 0
-
-    if movies:
-        store.replace_all(movies)
 
     duration = round(time.time() - started, 2)
     message = f"刷新完成：新增 {added}，移除 {removed}，未变化 {unchanged}，共 {len(movies)} 部"
@@ -109,6 +165,8 @@ def run_library_refresh(store: MovieStore, ctx: JobContext, *, force: bool = Fal
         "unchanged": unchanged,
         "total": len(movies),
         "duration": duration,
+        "posters_cached": posters_cached,
+        "poster_errors": poster_errors,
     }
 
 
