@@ -194,6 +194,8 @@ PUT 接受同结构的任意子集。
 
 ### 3.5.0 完整网页刮削与展示扩展
 
+3.5.1 新增 `GET /api/movie/movies/{id}/playlist.m3u8`：返回 UTF-8 播放列表附件（`application/vnd.apple.mpegurl`，`Cache-Control:no-store`，中文文件名使用 filename*）。无需 NAS 在 NUC 挂载，不读取或写入源文件，不改变观看状态；使用共享库记录中的原始 Windows/UNC 视频路径。不存在的影片404，路径缺失/不支持/含换行等400。用于浏览器未能唤起 moviewall 协议时由用户下载打开，协议启动仍要求本机已安装3.5.0或更新版。
+
 以下接口均位于 `/api/movie/scrape`。除列表、设置读取和小体积配置写入外，网络/源文件操作返回 `{job_id}`，通过通用 jobs 接口查询结果。任务失败保留中文错误，凭据脱敏。
 
 | 方法 | 路径 | 请求 / 结果 |

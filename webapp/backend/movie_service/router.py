@@ -21,6 +21,7 @@ from .routes_movies import router as movies_router
 from .routes_sync import router as sync_router
 from .routes_nas import router as nas_router
 from .routes_scrape_workspace import router as workspace_router
+from .routes_playback import router as playback_router
 
 router = APIRouter(tags=["movie"])
 
@@ -30,6 +31,7 @@ router.include_router(fetch_router)
 router.include_router(sync_router)
 router.include_router(nas_router)
 router.include_router(workspace_router)
+router.include_router(playback_router)
 
 
 @router.get("/system/info")

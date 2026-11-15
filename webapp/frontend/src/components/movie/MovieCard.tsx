@@ -11,6 +11,7 @@ interface Props {
   height: number;
   scale: number;
   selected: boolean;
+  posterVersion?: number;
   onSelect: (movie: MovieListItem) => void;
   onContextMenu: (movie: MovieListItem, x: number, y: number) => void;
 }
@@ -21,14 +22,16 @@ export const MovieCard = memo(function MovieCard({
   height,
   scale,
   selected,
+  posterVersion = 0,
   onSelect,
   onContextMenu,
 }: Props) {
-  const [imgFailed, setImgFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState('');
   const w = Math.round(width * (scale / 100));
   const h = Math.round(height * (scale / 100));
 
-  const showImage = movie.has_poster && !imgFailed;
+  const posterUrl = `${movieApi.posterUrl(movie.id, w, h, 'cover')}&v=${posterVersion}`;
+  const showImage = movie.has_poster && failedUrl !== posterUrl;
   const score = preferredRating(movie);
 
   return (
@@ -51,11 +54,12 @@ export const MovieCard = memo(function MovieCard({
       >
         {showImage ? (
           <img
-            src={movieApi.posterUrl(movie.id, w, h, 'cover')}
+            src={posterUrl}
             alt={movie.title}
             loading="lazy"
+            decoding="async"
             className="h-full w-full object-cover"
-            onError={() => setImgFailed(true)}
+            onError={() => setFailedUrl(posterUrl)}
             draggable={false}
           />
         ) : (
@@ -66,13 +70,13 @@ export const MovieCard = memo(function MovieCard({
 
         {/* 顶部评分 */}
         {score.value > 0 && (
-          <span title={ratingNames[score.source as keyof typeof ratingNames]} className="rating-badge absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs text-gold backdrop-blur-sm">
+          <span title={ratingNames[score.source as keyof typeof ratingNames]} className="rating-badge absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs text-gold">
             ★ {score.value.toFixed(1)}
           </span>
         )}
 
         {/* 底部标题条 */}
-        <div className="absolute inset-x-0 bottom-0 bg-black/65 px-2 py-2 backdrop-blur-sm">
+        <div className="absolute inset-x-0 bottom-0 bg-black/75 px-2 py-2">
           <div className="truncate text-xs font-medium text-ink-50">
             {movie.title}
           </div>

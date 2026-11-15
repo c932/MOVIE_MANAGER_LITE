@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { movieApi } from '../api/client';
 import { useJobPoll } from '../hooks/useJobPoll';
 import { JobProgress } from '../components/JobProgress';
 import { Modal } from '../components/Modal';
-import { MovieCard } from '../components/movie/MovieCard';
+import { VirtualPosterGrid } from '../components/movie/VirtualPosterGrid';
 import { MovieDetail } from '../components/movie/MovieDetail';
 import { FloatingMovieDetail } from '../components/movie/FloatingMovieDetail';
 import { MovieFilterSidebar } from '../components/movie/MovieFilterSidebar';
@@ -13,8 +13,8 @@ import { ScrapeManager } from '../components/movie/ScrapeManager';
 import { SearchScrapeDialog } from '../components/movie/SearchScrapeDialog';
 import { scrapeApi } from '../api/scrape';
 import type { ScrapeRow } from '../api/scrape';
-import { localPlayUrl } from '../utils/movieDisplay';
-import { useMovieStore } from '../stores/movieStore';
+import { LocalPlayback } from '../components/movie/LocalPlayback';
+import { filterMovies, useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
 
 export default function MovieWall() {
@@ -77,11 +77,17 @@ export default function MovieWall() {
     try { await work(); } catch (e) { setMessage((e as Error).message); } finally { setBusy(false); }
   };
   const updated = (movie: MovieListItem) => { store.updateMovie(movie); setDetail(movie); };
-  const selected = (movie: MovieListItem) => { store.selectMovie(movie.id); setContext(null); };
+  const selectMovie = store.selectMovie;
+  const selected = useCallback((movie: MovieListItem) => { selectMovie(movie.id); setContext(null); }, [selectMovie]);
+  const openContext = useCallback((movie: MovieListItem, x: number, y: number) => setContext({movie, x:Math.min(x,window.innerWidth-220), y:Math.min(y,window.innerHeight-320)}), []);
   const refreshPoster = async (movie: MovieListItem) => {
     await movieApi.invalidatePoster(movie.id); setPosterVersion(value => value + 1); setMessage('已刷新后端海报副本');
   };
-  const movies = store.filtered().filter(movie => !series || movie.set_name === series);
+  const {movies: allMovies, search, searchDuplicate, selectedGenres, selectedCountries, selectedYears,
+    selectedTags, minRating, watchFilter, favoriteFilter, sortMode} = store;
+  const movies = useMemo(() => filterMovies({movies:allMovies, search, searchDuplicate, selectedGenres, selectedCountries, selectedYears, selectedTags, minRating, watchFilter, favoriteFilter, sortMode}).filter(movie => !series || movie.set_name === series),
+    [allMovies, search, searchDuplicate, selectedGenres, selectedCountries, selectedYears, selectedTags,
+      minRating, watchFilter, favoriteFilter, sortMode, series]);
   const openScrape = async (movie: MovieListItem) => {
     const workspace = await scrapeApi.rows();
     const selected = workspace.rows.find(row => row.movie_id === movie.id);
@@ -118,11 +124,10 @@ export default function MovieWall() {
         <span>{sourceLabel}</span>{!sourceAvailable && <button className="btn text-xs" onClick={() => setSettingsOpen(true)}>{nasConnected ? '选择媒体库目录' : '配置 NAS'}</button>}
       </div>
       {(message || store.error) && <div role={store.error ? 'alert' : 'status'} className="flex items-center justify-between gap-2 border-b divider px-3 py-2 text-sm"><span>{store.error || message}</span><button className="btn" onClick={() => { setMessage(''); if (store.error) load(); }}>{store.error ? '重试' : '关闭'}</button></div>}
-      <div data-testid="poster-scroll" className="min-h-0 flex-1 overflow-y-auto">
+      <VirtualPosterGrid movies={movies} scale={store.posterScale} selectedId={store.selectedId} posterVersion={posterVersion} onSelect={selected} onContextMenu={openContext}>
         {store.loading && !store.movies.length && <p role="status" className="p-8">正在读取共享电影库…</p>}
         {!store.loading && !movies.length && <div className="p-10 text-center text-ink-300"><p>{store.movies.length ? '没有符合条件的电影，请调整搜索或筛选。' : '共享电影库为空。请在桌面设置中开启后端同步，选择仅上传导入已有电影库。'}</p>{!!store.movies.length && <button className="btn mt-3" onClick={() => { store.resetFilters(); setSeries(''); }}>清除筛选</button>}</div>}
-        <div className="flex flex-wrap content-start gap-3 p-3">{movies.map(movie => <MovieCard key={`${movie.id}-${posterVersion}`} movie={movie} width={200} height={300} scale={store.posterScale} selected={movie.id === store.selectedId} onSelect={selected} onContextMenu={(movie, x, y) => setContext({ movie, x: Math.min(x, window.innerWidth - 220), y: Math.min(y, window.innerHeight - 320) })} />)}</div>
-      </div>
+      </VirtualPosterGrid>
       {!immersive && <footer className="shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>}
     </main>
     {store.selectedId && (() => {
@@ -131,7 +136,7 @@ export default function MovieWall() {
     })()}
     {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
       <MenuItem onClick={() => selected(context.movie)}>查看完整详情</MenuItem>
-      <a role="menuitem" className="flex w-full rounded px-3 py-2 text-sm hover:bg-ink-700" href={localPlayUrl(context.movie)} onClick={()=>{setContext(null);setMessage('请允许浏览器打开本地电影墙，需安装 3.5.0 或更新客户端。');}}>本地播放器播放</a>
+      <LocalPlayback movie={context.movie} menu/>
       <MenuItem onClick={()=>run(()=>openScrape(context.movie))}>搜索匹配 / 刮削电影</MenuItem>
       <MenuItem onClick={() => { setProperties(context.movie); setContext(null); }}>属性</MenuItem>
       <MenuItem onClick={() => run(async () => { updated(await movieApi.setWatched(context.movie.id, !context.movie.watched)); })}>{context.movie.watched ? '标为未观看' : '标为已观看'}</MenuItem>

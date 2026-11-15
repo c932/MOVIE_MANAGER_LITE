@@ -149,82 +149,7 @@ export const useMovieStore = create<MovieStore>((set, get) => ({
       sortMode: 'release',
     }),
 
-  filtered: () => {
-    const s = get();
-    let result = s.movies;
-
-    // 搜索（最高优先级）
-    if (s.search.trim()) {
-      const q = s.search.toLowerCase().trim();
-      result = result.filter(
-        (m) =>
-          m.title.toLowerCase().includes(q) ||
-          m.original_title.toLowerCase().includes(q) ||
-          m.directors.some((d) => d.toLowerCase().includes(q)) ||
-          m.actors.some((a) => a.name.toLowerCase().includes(q)),
-      );
-    }
-
-    // 同名重复
-    if (s.searchDuplicate) {
-      const titleCount: Record<string, number> = {};
-      for (const m of s.movies) {
-        const key = m.title.toLowerCase();
-        titleCount[key] = (titleCount[key] || 0) + 1;
-      }
-      result = result.filter((m) => titleCount[m.title.toLowerCase()] > 1);
-    }
-
-    // 类型（并集）
-    if (s.selectedGenres.size > 0) {
-      result = result.filter((m) =>
-        m.genres.some((g) => s.selectedGenres.has(g)),
-      );
-    }
-    // 国家
-    if (s.selectedCountries.size > 0) {
-      result = result.filter((m) =>
-        m.countries.some((c) => s.selectedCountries.has(c)),
-      );
-    }
-    // 年份
-    if (s.selectedYears.size > 0) {
-      result = result.filter((m) => s.selectedYears.has(m.year));
-    }
-    // 标签
-    if (s.selectedTags.size > 0) {
-      result = result.filter((m) => m.tags.some((t) => s.selectedTags.has(t)));
-    }
-    // 最低评分
-    if (s.minRating > 0) {
-      result = result.filter((m) => m.rating >= s.minRating);
-    }
-    // 观看状态
-    if (s.watchFilter === 1) result = result.filter((m) => m.watched);
-    else if (s.watchFilter === 2) result = result.filter((m) => !m.watched);
-    // 收藏
-    if (s.favoriteFilter === 1) result = result.filter((m) => m.favorite);
-
-    // 排序
-    switch (s.sortMode) {
-      case 'rating':
-        result = [...result].sort((a, b) => b.rating - a.rating);
-        break;
-      case 'release':
-        result = [...result].sort(
-          (a, b) => (b.premiered || b.year).localeCompare(a.premiered || a.year),
-        );
-        break;
-      case 'added':
-        result = [...result].sort((a, b) => b.added_time - a.added_time);
-        break;
-      case 'random':
-        result = [...result].sort(() => Math.random() - 0.5);
-        break;
-    }
-
-    return result;
-  },
+  filtered: () => filterMovies(get()),
 
   filterOptions: () => {
     const movies = get().movies;
@@ -246,3 +171,81 @@ export const useMovieStore = create<MovieStore>((set, get) => ({
     };
   },
 }));
+
+export type MovieFilters = Pick<MovieStore, "movies" | "search" | "searchDuplicate" | "selectedGenres" | "selectedCountries" | "selectedYears" | "selectedTags" | "minRating" | "watchFilter" | "favoriteFilter" | "sortMode">;
+
+export function filterMovies(s: MovieFilters): MovieListItem[] {
+  let result = s.movies;
+
+  // 搜索（最高优先级）
+  if (s.search.trim()) {
+    const q = s.search.toLowerCase().trim();
+    result = result.filter(
+      (m) =>
+        m.title.toLowerCase().includes(q) ||
+        m.original_title.toLowerCase().includes(q) ||
+        m.directors.some((d) => d.toLowerCase().includes(q)) ||
+        m.actors.some((a) => a.name.toLowerCase().includes(q)),
+    );
+  }
+
+  // 同名重复
+  if (s.searchDuplicate) {
+    const titleCount: Record<string, number> = {};
+    for (const m of s.movies) {
+      const key = m.title.toLowerCase();
+      titleCount[key] = (titleCount[key] || 0) + 1;
+    }
+    result = result.filter((m) => titleCount[m.title.toLowerCase()] > 1);
+  }
+
+  // 类型（并集）
+  if (s.selectedGenres.size > 0) {
+    result = result.filter((m) =>
+      m.genres.some((g) => s.selectedGenres.has(g)),
+    );
+  }
+  // 国家
+  if (s.selectedCountries.size > 0) {
+    result = result.filter((m) =>
+      m.countries.some((c) => s.selectedCountries.has(c)),
+    );
+  }
+  // 年份
+  if (s.selectedYears.size > 0) {
+    result = result.filter((m) => s.selectedYears.has(m.year));
+  }
+  // 标签
+  if (s.selectedTags.size > 0) {
+    result = result.filter((m) => m.tags.some((t) => s.selectedTags.has(t)));
+  }
+  // 最低评分
+  if (s.minRating > 0) {
+    result = result.filter((m) => m.rating >= s.minRating);
+  }
+  // 观看状态
+  if (s.watchFilter === 1) result = result.filter((m) => m.watched);
+  else if (s.watchFilter === 2) result = result.filter((m) => !m.watched);
+  // 收藏
+  if (s.favoriteFilter === 1) result = result.filter((m) => m.favorite);
+
+  // 排序
+  switch (s.sortMode) {
+    case 'rating':
+      result = [...result].sort((a, b) => b.rating - a.rating);
+      break;
+    case 'release':
+      result = [...result].sort(
+        (a, b) => (b.premiered || b.year).localeCompare(a.premiered || a.year),
+      );
+      break;
+    case 'added':
+      result = [...result].sort((a, b) => b.added_time - a.added_time);
+      break;
+    case 'random':
+      result = [...result].sort(() => Math.random() - 0.5);
+      break;
+  }
+
+  return result;
+}

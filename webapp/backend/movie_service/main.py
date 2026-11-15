@@ -24,7 +24,7 @@ def create(data_dir: Optional[str] = None, extra_routers: Optional[list] = None)
     app = create_app(
         service="movie",
         title="Movie Wall API",
-        version="3.5.0",
+        version="3.5.1",
         routers=routers,
         data_dir=data_dir,
     )

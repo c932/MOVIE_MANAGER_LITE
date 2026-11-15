@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
-import { ratingOrder, ratingNames, localPlayUrl } from '../../utils/movieDisplay';
+import { ratingOrder, ratingNames } from '../../utils/movieDisplay';
+import { LocalPlayback } from './LocalPlayback';
 import { TechBadges } from './TechBadges';
 
 interface Props {
@@ -26,7 +27,6 @@ export function MovieDetail({
   const [ratingInput, setRatingInput] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [playHelp, setPlayHelp] = useState(false);
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -100,7 +100,6 @@ export function MovieDetail({
 
       {/* 右：信息 */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        {playHelp && <p role="status" className="rounded border divider p-3 text-xs text-ink-200">请允许浏览器打开本地电影墙。需要安装 3.5.0 或更新版 Windows 客户端，本机须能访问该 NAS 路径；视频会由 Windows 默认播放器打开。</p>}
         {error && <p role="alert" className="text-red-400">{error}</p>}
         {/* 标题 */}
         <div>
@@ -198,7 +197,7 @@ export function MovieDetail({
 
         {/* 按钮栏 */}
         <div className="mt-auto flex flex-wrap gap-2 border-t divider pt-3">
-          {movie.video_path && <a className="btn btn-primary" href={localPlayUrl(movie)} onClick={() => setPlayHelp(true)}>▶ 本地播放器播放</a>}
+          {movie.video_path && <LocalPlayback movie={movie}/>}
           <button
             className={`btn ${movie.watched ? 'btn-active' : ''}`}
             onClick={() => run(toggleWatched)} disabled={busy}
