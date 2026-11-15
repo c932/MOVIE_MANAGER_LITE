@@ -9,11 +9,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from models.movie import Movie
+from parsers.nfo_parser import NFOParser
 from scraper.scrape_models import (
     Candidate, Metadata, ScrapeDraft, ScrapeError, VideoTarget,
     can_rebuild_nfo, capture_target_version, validate_target_version,
 )
-from scraper.scrape_persistence import commit_draft, ensure_writable_file, fingerprint, poster_path, read_ids, snapshot_files, update_douban_nfo, validate_score
+from scraper.scrape_persistence import commit_draft, ensure_writable_file, fingerprint, poster_path, read_ids, snapshot_files, update_douban_nfo, validate_score, _normalize_tmdb_rating
 from scraper.scrape_settings import ScrapeSettings
 
 
@@ -139,16 +140,88 @@ class ScrapeService:
             common = set(old_ids) & set(identifiers)
             draft.replace_identity = any(old_ids[s] != identifiers[s] for s in common)
             if not common and root.findtext("title", "").strip() and draft.fields.get("title"):
-                title_changed = root.findtext("title").strip().casefold() != str(draft.fields["title"]).strip().casefold()
+                normalize = lambda value: re.sub(r'[\W_]+', '', str(value or '').casefold())
+                old_names = {normalize(root.findtext('title')), normalize(root.findtext('originaltitle'))} - {''}
+                new_names = {normalize(draft.fields.get('title')), normalize(draft.fields.get('original_title'))} - {''}
+                title_changed = not bool(old_names & new_names)
                 old_year, new_year = root.findtext("year", "").strip(), str(draft.fields.get("year", "")).strip()
                 draft.replace_identity = title_changed or bool(old_year and new_year and old_year != new_year)
             if draft.replace_identity:
                 draft.warnings.append("电影身份发生变化：保存将替换旧片名、简介、演职员、站点 ID、外部评分和图片关联；保留用户评分、标签及观看收藏状态")
+            else:
+                # 相同电影的来源选择只决定本次资料来源，不应让其他站评分从预览消失。
+                normalized = copy.deepcopy(root)
+                _normalize_tmdb_rating(normalized)
+                previous = (NFOParser._extract_rating(normalized) or {}).get('all_ratings', {})
+                for source in {'tmdb', 'imdb', 'douban'}:
+                    if source not in ratings and source in previous:
+                        try:
+                            score = validate_score(previous[source])
+                        except ScrapeError:
+                            continue
+                        if score > 0:
+                            ratings[source] = score
+                            count = normalized.findtext(f"ratings/rating[@name='{source}']/votes")
+                            if count is not None and count.strip().isdigit():
+                                draft.votes.setdefault(source, int(count))
+                for source, identity in old_ids.items():
+                    if source in {'tmdb', 'imdb', 'douban'} and identity:
+                        identifiers.setdefault(source, identity)
+                if ratings:
+                    draft.fields['ratings'] = ratings
+                if identifiers:
+                    draft.fields['uniqueids'] = identifiers
         if any(fingerprint(Path(path)) != expected for path, expected in draft.expected_files.items()):
             raise ScrapeError("文件在生成草稿时已改变，请重新加载")
         if not readonly_unreadable:
             validate_target_version(target)
         return draft
+
+    def automatic_douban_metadata(self, metadata: Metadata) -> list[Metadata]:
+        """按已有豆瓣 ID 或唯一同名同年候选补分；歧义不能自动绑定。"""
+        if metadata.source != 'tmdb' or metadata.ratings.get('douban'):
+            return []
+        normalize = lambda value: re.sub(r'[\W_]+', '', str(value or '').casefold())
+        names = {normalize(metadata.fields.get('title')), normalize(metadata.fields.get('original_title'))} - {''}
+        year = str(metadata.fields.get('year') or '').strip()
+        identity = str(metadata.ids.get('douban') or '')
+        try:
+            if identity and re.fullmatch(r'\d+', identity):
+                selected = Candidate('douban', identity, str(metadata.fields.get('title') or ''))
+            else:
+                if not names or not year:
+                    metadata.warnings.append('豆瓣自动关联未完成：缺少片名或年份，请手动匹配豆瓣候选')
+                    return []
+                selected = None
+                for query in dict.fromkeys(str(metadata.fields.get(key) or '') for key in ('title', 'original_title')):
+                    if not query:
+                        continue
+                    candidates = self.search('douban', query, year)
+                    exact = {candidate.id: candidate for candidate in candidates if candidate.source == 'douban'
+                             and candidate.media_type == 'movie' and candidate.year == year
+                             and names & ({normalize(candidate.title), normalize(candidate.original_title)} - {''})}
+                    if len(exact) > 1:
+                        metadata.warnings.append('豆瓣自动关联未完成：有多个同名同年候选，请手动选择')
+                        return []
+                    if exact:
+                        selected = next(iter(exact.values()))
+                        break
+                if selected is None:
+                    metadata.warnings.append('豆瓣自动关联未完成：未找到唯一同名同年候选，请手动匹配')
+                    return []
+            related = self.details(selected)
+            if related.source != 'douban' or related.id != selected.id:
+                raise ScrapeError('豆瓣返回了不同的条目 ID')
+            for source in set(metadata.ids) & set(related.ids):
+                if metadata.ids[source] != related.ids[source]:
+                    raise ScrapeError('两站来源 ID 冲突，未合并豆瓣资料')
+            if not identity and (str(related.fields.get('year') or '') != year or not names & {
+                    normalize(related.fields.get('title')), normalize(related.fields.get('original_title'))}):
+                raise ScrapeError('豆瓣详情与搜索候选不一致，未合并')
+            return [related]
+        except (ScrapeError, OSError, ValueError) as exc:
+            metadata.warnings.append('豆瓣自动关联未完成：' + str(exc))
+            return []
 
     def save(self, draft: ScrapeDraft, selected_fields: set[str] | None = None,
              overwrite: bool = False, metadata_only: bool = False) -> Movie:

@@ -393,8 +393,14 @@ class ScrapeManagerDialog(QDialog):
             rows = [row for row in rows if not row.is_new]
         if not rows or not self.service:
             return
+        start_key = rows[0].key
+        # 单选进入时可顺序浏览当前筛选列表；多选是明确的处理队列。
+        if not douban and len(rows) == 1:
+            rows = [self.proxy.index(i, 0).data(Qt.ItemDataRole.UserRole) for i in range(self.proxy.rowCount())]
+        start_index = next((i for i, row in enumerate(rows) if row.key == start_key), 0)
         from ui.scrape_search_dialog import SearchScrapeDialog
-        dialog = SearchScrapeDialog([deepcopy(row.target) for row in rows], self, mode='douban' if douban else 'full', service=self.service)
+        dialog = SearchScrapeDialog([deepcopy(row.target) for row in rows], self, mode='douban' if douban else 'full',
+                                   service=self.service, start_index=start_index)
         dialog.saved.connect(self._child_saved)
         dialog.operation_failed.connect(self._child_failed)
         self._child = dialog

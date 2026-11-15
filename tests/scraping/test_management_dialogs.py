@@ -104,6 +104,7 @@ def test_real_service_search_confirm_save_refreshes_management_row(app, tmp_path
                            {'cast': [], 'crew': []}, {'posters': []}])
     service = ScrapeService(ScrapeSettings(tmdb_api_key='fake'))
     monkeypatch.setattr(service, 'enrich_metadata', lambda metadata: metadata)
+    monkeypatch.setattr(service, 'automatic_douban_metadata', lambda metadata: [])
     manager = ScrapeManagerDialog([target], service=service)
     manager.show()
     until(app, lambda: not manager.tasks.busy)

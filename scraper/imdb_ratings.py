@@ -112,7 +112,8 @@ class ImdbRatings:
                 damaged = False
                 if cache.exists():
                     stat = cache.stat()
-                    if 0 <= time.time() - stat.st_mtime < _CACHE_TTL:
+                    # Windows 文件时间与系统时钟可有亚毫秒误差，刚更新的缓存不应因此被旧下载覆盖。
+                    if -1 <= time.time() - stat.st_mtime < _CACHE_TTL:
                         try:
                             if stat.st_size > _MAX_COMPRESSED_BYTES:
                                 raise ProviderError('IMDb 官方评分缓存超出大小上限')

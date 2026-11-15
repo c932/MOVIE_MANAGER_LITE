@@ -13,13 +13,16 @@ from ui.scrape_dialog import ScrapeDialog, _key
 
 class SearchScrapeDialog(ScrapeDialog):
     operation_failed = pyqtSignal(str, str)
+    complete_ratings = True
 
-    def __init__(self, movies=None, parent=None, mode='full', service=None):
+    def __init__(self, movies=None, parent=None, mode='full', service=None, *, start_index=0):
         super().__init__(movies, parent, mode, service, restore_queue=False)
         self.setObjectName('scrapeSearchDialog')
         self.setWindowTitle('搜索电影与刮削')
         self.setMinimumSize(960, 650)
         self.resize(1250, 840)
+        if self.target_list.count():
+            self.target_list.setCurrentRow(max(0, min(start_index, self.target_list.count() - 1)))
         self._sync_targets()
 
     def _build_ui(self):
@@ -40,14 +43,18 @@ class SearchScrapeDialog(ScrapeDialog):
         navigation = QHBoxLayout()
         self.target_combo = QComboBox()
         self.target_combo.setMinimumWidth(200)
+        self.target_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.target_combo.setMinimumContentsLength(24)
         self.target_combo.setAccessibleName('当前刮削电影')
         self.target_combo.currentIndexChanged.connect(self._choose_target)
         navigation.addWidget(self.target_combo, 1)
-        previous = QPushButton('上一部')
-        previous.clicked.connect(lambda: self.target_list.setCurrentRow(max(0, self.target_list.currentRow() - 1)))
+        self.previous_target_button = QPushButton('上一部')
+        self.previous_target_button.setAutoDefault(False)
+        self.previous_target_button.clicked.connect(lambda: self.target_list.setCurrentRow(max(0, self.target_list.currentRow() - 1)))
         self.next_target_button = QPushButton('下一部 / 跳过')
+        self.next_target_button.setAutoDefault(False)
         self.next_target_button.clicked.connect(lambda: self.target_list.setCurrentRow(min(self.target_list.count() - 1, self.target_list.currentRow() + 1)))
-        navigation.addWidget(previous)
+        navigation.addWidget(self.previous_target_button)
         navigation.addWidget(self.next_target_button)
         layout.addLayout(navigation)
         self.video_path_label = QLineEdit()
@@ -105,6 +112,11 @@ class SearchScrapeDialog(ScrapeDialog):
         right_layout.addWidget(self.rating_label)
         right_layout.addWidget(self.match_label)
         right_layout.addWidget(self.tmdb_match_button)
+        self.douban_match_button = QPushButton('匹配豆瓣补充评分')
+        self.douban_match_button.setAutoDefault(False)
+        self.douban_match_button.clicked.connect(self._match_douban)
+        self.douban_match_button.hide()
+        right_layout.addWidget(self.douban_match_button)
         right_layout.addWidget(self.confirm_button)
         splitter.addWidget(left)
         splitter.addWidget(right)
@@ -179,6 +191,47 @@ class SearchScrapeDialog(ScrapeDialog):
         self.video_path_label.setText(str(target.video_path) if target else '')
         self.video_path_label.setCursorPosition(0)
         self.douban_button.setVisible(self.mode == 'douban')
+        self._update_navigation()
+
+    def _update_navigation(self):
+        if not hasattr(self, 'previous_target_button'):
+            return
+        writing = bool(self._write_active or self._write_queue)
+        current, count = self.target_list.currentRow(), self.target_list.count()
+        self.previous_target_button.setEnabled(not writing and current > 0 and not self._closing)
+        self.next_target_button.setEnabled(not writing and 0 <= current < count - 1 and not self._closing)
+        self.target_combo.setEnabled(not writing and not self._closing)
+        hint = '仅有一部电影可处理；返回主页可更改筛选或多选电影' if count == 1 else '按当前电影列表顺序切换，未保存内容不会自动写入'
+        self.previous_target_button.setToolTip(hint)
+        self.next_target_button.setToolTip(hint)
+
+    def _update_buttons(self):
+        super()._update_buttons()
+        self._update_navigation()
+        if hasattr(self, 'douban_match_button'):
+            draft = self.drafts.get(self._active_key)
+            self.douban_match_button.setVisible(bool(draft and draft.confirmed and not self._preview and self.mode != 'douban'
+                                                    and 'douban' not in draft.fields.get('ratings', {})))
+            self.douban_match_button.setEnabled(not bool(self._write_active or self._write_queue or self._preview_pending)
+                                               and not self._closing)
+
+    def _confirm(self):
+        if self.mode == 'douban':
+            super()._confirm()
+        elif self._preview and not self._preview_pending and not self._draft_blocked(self._preview[0]):
+            # 预览已经完成跨站补分；确认时沿用整份资料，避免只重建最后一个来源。
+            self._accept_match(*self._preview)
+
+    def _match_douban(self):
+        draft = self.drafts.get(self._active_key)
+        if not draft or not draft.confirmed:
+            return
+        plot_source = self.plot_source_combo.currentData()
+        self.source_combo.setCurrentIndex(self.source_combo.findData('douban'))
+        self.plot_source_combo.setCurrentIndex(self.plot_source_combo.findData(plot_source))
+        self.query_edit.setText(str(draft.fields.get('title') or draft.fields.get('original_title') or ''))
+        self.year_edit.setText(str(draft.fields.get('year') or ''))
+        self.search()
 
     def _choose_target(self, index):
         if index >= 0:

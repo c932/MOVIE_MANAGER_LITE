@@ -651,6 +651,7 @@ class ScrapeDialog(QDialog):
         self.preview_text.clear()
         self.artwork_list.clear()
         self.status_label.setText("正在后台获取候选详情与写入预览…")
+        complete = getattr(self, 'complete_ratings', False) and self.mode != 'douban'
         def build(context):
             prepared = capture_target_version(target)
             context.checkpoint()
@@ -658,9 +659,20 @@ class ScrapeDialog(QDialog):
             context.checkpoint()
             additional = getattr(service, "automatic_tmdb_metadata", lambda m: [])(metadata)
             context.checkpoint()
+            if complete and not additional:
+                metadata = getattr(service, 'enrich_metadata', lambda m: m)(metadata)
+                context.checkpoint()
             sources = [m for m in confirmed if m.source != metadata.source] + [metadata]
             sources.extend(m for m in additional if m.source not in {source.source for source in sources})
             draft = service.build_draft(prepared, sources, plot_source=plot_source)
+            if complete and metadata.source == 'tmdb' and 'douban' not in draft.fields.get('ratings', {}):
+                lookup = deepcopy(metadata)
+                lookup.ids.update(draft.fields.get('uniqueids', {}))
+                related = getattr(service, 'automatic_douban_metadata', lambda m: [])(lookup)
+                context.checkpoint()
+                metadata.warnings.extend(w for w in lookup.warnings if w not in metadata.warnings)
+                sources.extend(m for m in related if m.source not in {source.source for source in sources})
+                draft = service.build_draft(prepared, sources, plot_source=plot_source)
             draft.confirmed = False
             return key, draft, sources
         self.tasks.start("preview", build)

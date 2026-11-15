@@ -207,6 +207,18 @@ def test_recent_query_reuses_parsed_result_and_file_change_invalidates_it(monkey
         assert parse.call_count == 1
 
 
+def test_small_filesystem_clock_skew_does_not_redownload_older_ratings(monkeypatch, scrape_data_dir):
+    from scraper import imdb_ratings
+    calls = install_download(monkeypatch)
+    assert provider().rating('tt0143145') == (6.4, 223243)
+    cache = cache_path(scrape_data_dir)
+    cache.write_bytes(dataset(b'tt0143145\t6.8\t12345\n'))
+    now = cache.stat().st_mtime - 0.001
+    monkeypatch.setattr(imdb_ratings.time, 'time', lambda: now)
+    assert provider().rating('tt0143145') == (6.8, 12345)
+    assert len(calls) == 1
+
+
 def test_identity_error_and_normal_unrated_page_never_request_dataset(monkeypatch):
     from scraper.imdb_provider import ImdbProvider
     from scraper.scrape_http import HttpClient
