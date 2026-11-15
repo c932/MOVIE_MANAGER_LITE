@@ -19,6 +19,7 @@ class NASConfig(BaseModel):
     share: str = Field(default='', max_length=100)
     vers: str = Field(default='3.0', pattern=r'^(3\.0|3\.1\.1|2\.1|2\.0)$')
     guest: bool = False
+    read_only: bool = True
 
 
 class LibrarySelection(BaseModel):
@@ -71,6 +72,8 @@ def shares(request: Request, payload: NASConfig):
 
 @router.post('/nas/connect')
 def connect(request: Request, payload: NASConfig):
+    if request.app.state.jobs.active_count():
+        raise HTTPException(409, '请等待扫描或保存任务结束后再更改 NAS 连接和写入权限')
     return _connection_job(request, payload, 'connect')
 
 

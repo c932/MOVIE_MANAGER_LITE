@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { NASConfig, NASConnection, NASDirectories, NASLibrary, NASStatus } from '../../types/api';
 
-const initial: NASConfig = {host: '192.168.50.100', port: 445, username: '', password: '', domain: '', share: '', vers: '3.0', guest: false};
+const initial: NASConfig = {host: '192.168.50.100', port: 445, username: '', password: '', domain: '', share: '', vers: '3.0', guest: false, read_only: true};
 
 export function NASSettingsPanel({ onPathsChanged, onChanged }: { onPathsChanged: (paths: string[]) => void; onChanged: () => void }) {
   const [config, setConfig] = useState<NASConfig>(initial);
@@ -73,7 +73,7 @@ export function NASSettingsPanel({ onPathsChanged, onChanged }: { onPathsChanged
     } catch (e) { if (mounted.current) { setError((e as Error).message); setBusy(false); setMessage(''); } }
   };
   const chooseConnection = (item: NASConnection) => {
-    setConfig({host: item.host, port: item.port, username: item.username, password: '', domain: item.domain, share: item.share, vers: item.vers, guest: item.guest});
+    setConfig({host: item.host, port: item.port, username: item.username, password: '', domain: item.domain, share: item.share, vers: item.vers, guest: item.guest, read_only: item.read_only});
     if (item.connected) { setSelected(item.id); setPath(''); }
   };
   const savedAccount = status?.connections.some(item => item.host === config.host && item.username === config.username && item.has_password);
@@ -111,6 +111,7 @@ export function NASSettingsPanel({ onPathsChanged, onChanged }: { onPathsChanged
       <label className="text-xs text-ink-300">域（可选）<input className="input mt-1 w-full" value={config.domain} onChange={e => setConfig({...config, domain: e.target.value})} /></label>
       <label className="text-xs text-ink-300">SMB 版本<select className="input mt-1 w-full" value={config.vers} onChange={e => setConfig({...config, vers: e.target.value})}><option value="3.0">SMB 3.0（推荐）</option><option value="3.1.1">SMB 3.1.1</option><option value="2.1">SMB 2.1</option><option value="2.0">SMB 2.0（旧设备）</option></select></label>
       <label className="flex items-center gap-2 text-xs text-ink-300 sm:col-span-2"><input type="checkbox" checked={config.guest} onChange={e => setConfig({...config, guest: e.target.checked})} />访客免密访问</label>
+      <label className="flex items-center gap-2 text-xs text-ink-300 sm:col-span-2"><input type="checkbox" checked={config.read_only === false} onChange={e => setConfig({...config, read_only: !e.target.checked})} />允许刮削写入 NFO 和海报（保存前备份原文件）</label>
       <div className="flex flex-wrap gap-2 sm:col-span-2"><button className="btn border divider" onClick={() => launch('shares')} disabled={!config.host}>测试登录并列出共享</button></div>
       <label className="text-xs text-ink-300 sm:col-span-2">共享目录名（如 movie、Movie Series，可选择或手动输入）<input className="input mt-1 w-full" value={config.share} list="nas-share-options" onChange={e => setConfig({...config, share: e.target.value})} /><datalist id="nas-share-options">{shares.map(name => <option key={name} value={name} />)}</datalist></label>
       <button className="btn btn-primary w-fit sm:col-span-2" disabled={!config.host || !config.share} onClick={() => launch('connect')}>保存登录并连接共享</button>
@@ -118,7 +119,7 @@ export function NASSettingsPanel({ onPathsChanged, onChanged }: { onPathsChanged
     {busy && <p role="status" className="text-sm">{message || '正在处理 NAS 操作…'}</p>}
     {!busy && message && <p role="status" className="text-sm text-ink-200">{message}</p>}
     {error && <p role="alert" className="break-words text-sm text-red-400">{error}</p>}
-    {status?.connections.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b divider py-2 text-sm"><div><strong>{item.host} / {item.share}</strong><p className="text-xs text-ink-300">{item.connected ? '已连接 · 只读' : item.error || '未连接'} · {item.guest ? '访客' : item.username}</p></div><div className="flex flex-wrap gap-1">{item.connected && <button className="btn border divider" disabled={busy} onClick={() => addRoot(item)}>将整个共享加入媒体库</button>}<button className="btn" disabled={busy} onClick={() => chooseConnection(item)}>{item.connected ? '选择子目录' : '使用已保存登录'}</button>{item.mounted && <button className="btn" disabled={busy} onClick={() => launch('disconnect', item.id)}>断开</button>}</div></div>)}
+    {status?.connections.map(item => <div key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-b divider py-2 text-sm"><div><strong>{item.host} / {item.share}</strong><p className="text-xs text-ink-300">{item.connected ? `已连接 · ${item.read_only ? '只读' : '允许刮削写入'}` : item.error || '未连接'} · {item.guest ? '访客' : item.username}</p></div><div className="flex flex-wrap gap-1">{item.connected && <button className="btn border divider" disabled={busy} onClick={() => addRoot(item)}>将整个共享加入媒体库</button>}<button className="btn" disabled={busy} onClick={() => chooseConnection(item)}>{item.connected ? '选择子目录' : '使用已保存登录'}</button>{item.mounted && <button className="btn" disabled={busy} onClick={() => launch('disconnect', item.id)}>断开</button>}</div></div>)}
     {selected && <div className="space-y-2"><p className="text-sm">媒体库子目录：{path || '共享根目录'}</p><div className="flex flex-wrap gap-2"><button className="btn" disabled={!path || busy} onClick={() => setPath(path.split('/').slice(0, -1).join('/'))}>上一级</button><button className="btn border divider" disabled={!canAdd || busy} onClick={add}>将当前目录加入媒体库</button></div>
       {folderError ? <p role="alert" className="text-sm text-red-400">{folderError}</p> : folders?.id !== selected || folders.path !== path ? <p role="status">正在读取目录…</p> : <div className="max-h-44 overflow-auto rounded border divider">{folders.directories.length ? folders.directories.map(item => <button className="block w-full px-3 py-2 text-left text-sm hover:bg-ink-700" disabled={busy} key={item.path} onClick={() => setPath(item.path)}>文件夹：{item.name}</button>) : <p className="p-3 text-xs text-ink-300">没有下级文件夹，可直接添加当前目录。</p>}</div>}
     </div>}

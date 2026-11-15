@@ -73,7 +73,7 @@ export const useMovieStore = create<MovieStore>((set, get) => ({
   minRating: 0,
   watchFilter: 0,
   favoriteFilter: 0,
-  sortMode: 'default',
+  sortMode: 'release',
   posterScale: 78,
   selectedId: null,
 
@@ -146,7 +146,7 @@ export const useMovieStore = create<MovieStore>((set, get) => ({
       minRating: 0,
       watchFilter: 0,
       favoriteFilter: 0,
-      sortMode: 'default',
+      sortMode: 'release',
     }),
 
   filtered: () => {

@@ -25,6 +25,7 @@ from utils.favorite_manager import FavoriteManager
 from utils.watch_history import WatchHistoryManager
 from wall_common.settings import Settings
 from utils.library_sync import LibraryDatabase, movie_key
+from utils.genres import localize_genres, preferred_rating
 
 logger = logging.getLogger("movie_service.store")
 
@@ -83,6 +84,7 @@ def movie_to_dto(
             "imdb_top250": rank.get("imdb_top250"),
         }
 
+    primary_rating, primary_source = preferred_rating(movie)
     return {
         "id": movie_id(movie.nfo_path) if movie.nfo_path else "",
         "title": movie.title or "",
@@ -94,11 +96,11 @@ def movie_to_dto(
         "runtime": movie.runtime or "",
         "file_size": movie.file_size or "",
         "set_name": movie.set_name or "",
-        "genres": list(movie.genres or []),
+        "genres": localize_genres(movie.genres),
         "countries": list(movie.countries or []),
         "tags": list(movie.tags or []),
-        "rating": float(movie.rating or 0.0),
-        "rating_source": movie.rating_source or "",
+        "rating": primary_rating,
+        "rating_source": primary_source,
         "ratings": ratings,
         "user_rating": user_rating,
         "watched": bool(watched),

@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+.movie-overlay { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 4vh 3vw; border: 0; background: transparent; color: inherit; }
+.movie-overlay::backdrop { background: rgb(0 0 0 / .62); backdrop-filter: blur(5px); animation: movie-backdrop-in .2s ease-out both; }
+.movie-floating-panel { display: flex; flex-direction: column; width: min(1120px, 100%); height: min(760px, 88dvh); margin: auto; background: #18181a; border: 1px solid #3a3a3e; border-radius: 16px; box-shadow: 0 24px 90px rgb(0 0 0 / .65); animation: movie-panel-in .22s cubic-bezier(.2,.7,.2,1) both; }
+.movie-overlay[data-closing="true"] .movie-floating-panel { animation: movie-panel-out .18s ease-in both; }
+.movie-overlay[data-closing="true"]::backdrop { animation: movie-backdrop-in .18s ease-in reverse both; }
+@keyframes movie-panel-in { from { opacity: 0; transform: translateY(22px) scale(.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes movie-panel-out { to { opacity: 0; transform: translateY(14px) scale(.99); } }
+@keyframes movie-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .movie-floating-panel, .movie-overlay::backdrop { animation: none !important; } }
+
 @layer base {
   :root {
     color-scheme: dark;
@@ -58,6 +68,21 @@
 }
 
 @layer components {
+  .media-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    min-width: 0;
+  }
+  .media-badge {
+    height: 42px;
+    width: auto;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+  .media-badges-compact { gap: 4px; }
+  .media-badges-compact .media-badge { height: 24px; }
   /* 工具栏按钮 */
   .btn {
     @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm

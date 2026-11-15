@@ -2,6 +2,8 @@
 import { memo, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
+import { preferredRating, ratingNames } from '../../utils/movieDisplay';
+import { TechBadges } from './TechBadges';
 
 interface Props {
   movie: MovieListItem;
@@ -27,6 +29,7 @@ export const MovieCard = memo(function MovieCard({
   const h = Math.round(height * (scale / 100));
 
   const showImage = movie.has_poster && !imgFailed;
+  const score = preferredRating(movie);
 
   return (
     <div
@@ -39,7 +42,7 @@ export const MovieCard = memo(function MovieCard({
       }}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onSelect(movie)}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(movie); } }}
     >
       <div
         className={`relative h-full w-full overflow-hidden rounded-lg bg-ink-800 ${
@@ -62,14 +65,14 @@ export const MovieCard = memo(function MovieCard({
         )}
 
         {/* 顶部评分 */}
-        {movie.rating > 0 && (
-          <span className="rating-badge absolute left-1.5 top-1.5 rounded bg-black/70 px-1.5 py-0.5 text-xs text-gold backdrop-blur-sm">
-            {movie.rating.toFixed(1)}
+        {score.value > 0 && (
+          <span title={ratingNames[score.source as keyof typeof ratingNames]} className="rating-badge absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs text-gold backdrop-blur-sm">
+            ★ {score.value.toFixed(1)}
           </span>
         )}
 
         {/* 底部标题条 */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2 pb-1.5 pt-6">
+        <div className="absolute inset-x-0 bottom-0 bg-black/65 px-2 py-2 backdrop-blur-sm">
           <div className="truncate text-xs font-medium text-ink-50">
             {movie.title}
           </div>
@@ -77,11 +80,7 @@ export const MovieCard = memo(function MovieCard({
             {movie.year && (
               <span className="font-mono text-2xs text-ink-300">{movie.year}</span>
             )}
-            {movie.resolution && (
-              <span className="rounded bg-white/10 px-1 font-mono text-2xs text-ink-200">
-                {movie.resolution}
-              </span>
-            )}
+            <TechBadges resolution={movie.resolution} hdrType={movie.hdr_type} compact />
           </div>
         </div>
 

@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
+import { ratingOrder, ratingNames, localPlayUrl } from '../../utils/movieDisplay';
+import { TechBadges } from './TechBadges';
 
 interface Props {
   movie: MovieListItem | null;
@@ -24,6 +26,7 @@ export function MovieDetail({
   const [ratingInput, setRatingInput] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [playHelp, setPlayHelp] = useState(false);
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -71,20 +74,7 @@ export function MovieDetail({
     onDeleted(movie.id);
   };
 
-  const ratingSources: { label: string; value: number }[] = [];
-  if (movie.ratings) {
-    for (const [source, value] of Object.entries(movie.ratings)) {
-      if (value > 0) {
-        const labels: Record<string, string> = {
-          douban: '豆瓣',
-          imdb: 'IMDb',
-          tmdb: 'TMDB',
-          user: '我的评分',
-        };
-        ratingSources.push({ label: labels[source] || source, value });
-      }
-    }
-  }
+  const ratingSources = ratingOrder.map(source => ({label: ratingNames[source], value: Number(movie.ratings?.[source] || 0)}));
 
   return (
     <div className="flex h-full gap-4 overflow-y-auto p-4 max-sm:flex-col">
@@ -110,6 +100,7 @@ export function MovieDetail({
 
       {/* 右：信息 */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
+        {playHelp && <p role="status" className="rounded border divider p-3 text-xs text-ink-200">请允许浏览器打开本地电影墙。需要安装 3.5.0 或更新版 Windows 客户端，本机须能访问该 NAS 路径；视频会由 Windows 默认播放器打开。</p>}
         {error && <p role="alert" className="text-red-400">{error}</p>}
         {/* 标题 */}
         <div>
@@ -121,17 +112,8 @@ export function MovieDetail({
             {movie.year && <span>{movie.year}</span>}
             {movie.runtime && <span>{movie.runtime} 分钟</span>}
             {movie.file_size && <span>{movie.file_size}</span>}
-            {movie.resolution && (
-              <span className="rounded bg-ink-700 px-1.5 py-0.5 font-mono">
-                {movie.resolution}
-              </span>
-            )}
-            {movie.hdr_type && (
-              <span className="rounded bg-ink-700 px-1.5 py-0.5 font-mono">
-                {movie.hdr_type}
-              </span>
-            )}
           </div>
+          <div className="mt-3"><TechBadges resolution={movie.resolution} hdrType={movie.hdr_type} /></div>
         </div>
 
         {/* 评分卡片 */}
@@ -144,7 +126,7 @@ export function MovieDetail({
               >
                 {['TMDB', 'IMDb', '豆瓣'].includes(r.label) ? <img className="h-5 w-14 object-contain" alt={r.label} src={`/logo/${r.label === '豆瓣' ? 'douban.png' : r.label === 'IMDb' ? 'imdb.png' : 'tmdb.jpg'}`} /> : <span className="text-2xs text-ink-300">{r.label}</span>}
                 <span className="font-mono text-sm font-semibold text-gold">
-                  {r.value.toFixed(1)}
+                  {r.value > 0 ? r.value.toFixed(1) : '—'}
                 </span>
               </div>
             ))}
@@ -216,6 +198,7 @@ export function MovieDetail({
 
         {/* 按钮栏 */}
         <div className="mt-auto flex flex-wrap gap-2 border-t divider pt-3">
+          {movie.video_path && <a className="btn btn-primary" href={localPlayUrl(movie)} onClick={() => setPlayHelp(true)}>▶ 本地播放器播放</a>}
           <button
             className={`btn ${movie.watched ? 'btn-active' : ''}`}
             onClick={() => run(toggleWatched)} disabled={busy}

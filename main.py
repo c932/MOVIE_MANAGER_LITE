@@ -67,6 +67,18 @@ def main():
     """应用程序主入口"""
     global _app_lock
 
+    # 浏览器播放调用不受电影墙单实例锁限制，也不建立第二个电影墙窗口。
+    if len(sys.argv) > 1 and sys.argv[1].startswith('moviewall:'):
+        try:
+            if len(sys.argv) != 2:
+                raise ValueError('播放链接参数无效')
+            from utils.play_protocol import play_url
+            play_url(sys.argv[1])
+        except (ValueError, OSError) as exc:
+            application = QApplication.instance() or QApplication(sys.argv)
+            QMessageBox.warning(None, '无法启动本地播放器', str(exc))
+        return
+
     # 单实例保护：避免重复启动导致资源竞争和体验混乱
     lock_path = Path(tempfile.gettempdir()) / "movie_manager_lite.lock"
     _app_lock = QLockFile(str(lock_path))

@@ -18,6 +18,7 @@ from parsers.nfo_parser import NFOParser
 from utils.poster_cache_manager import PosterCacheManager
 from utils.image_loader import ImageLoader
 from utils.network_mode import is_offline_cache_only
+from ui.tech_badges import TechBadges
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -417,6 +418,8 @@ class MovieDetailPanel(QWidget):
         
         meta_layout.addStretch()
         content_layout.addLayout(meta_layout)
+        if movie.resolution or movie.hdr_type:
+            content_layout.addWidget(TechBadges(movie.resolution, movie.hdr_type, height=42))
 
         # 先显示轻量占位，重内容分阶段异步渲染，避免点击瞬时卡顿。
         loading_more = QLabel("正在加载更多信息...")

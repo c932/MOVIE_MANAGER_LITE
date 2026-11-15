@@ -57,7 +57,7 @@ class NASHelper:
         if any(re.search(r'[\x00-\x1f]', value) for value in spec.values()):
             raise ValueError('登录名与域不能包含换行或控制字符')
         spec.update(host=host, share=share, port=port, guest=bool(data.get('guest', False)),
-                    vers=str(data.get('vers', '3.0')))
+                    vers=str(data.get('vers', '3.0')), read_only=bool(data.get('read_only', True)))
         if spec['vers'] not in {'3.0', '3.1.1', '2.1', '2.0'}:
             raise ValueError('不支持此 SMB 版本')
         spec['id'] = hashlib.sha256(f'{host.casefold()}|{share.casefold()}|{port}'.encode()).hexdigest()[:16]
@@ -80,9 +80,21 @@ class NASHelper:
         if not re.fullmatch(r'[a-f0-9]{16}', mid):
             raise ValueError('连接标识无效')
         path = self.mount_root / mid
-        if path.is_symlink() or path.parent.resolve() != self.mount_root.resolve():
+        if path.parent.resolve() != self.mount_root.resolve() or (self.mount_flags(path) is None and path.is_symlink()):
             raise ValueError('挂载目录无效')
         return path
+
+    def mount_flags(self, target):
+        """从内核本地挂载表读取，不能 statvfs 离线 CIFS（会阻塞或 EINVAL）。"""
+        try:
+            for line in Path('/proc/self/mountinfo').read_text(encoding='utf-8').splitlines():
+                fields = line.split()
+                mountpoint = re.sub(r'\\([0-7]{3})', lambda match: chr(int(match[1], 8)), fields[4])
+                if mountpoint == str(target):
+                    return set(fields[5].split(','))
+        except OSError:
+            pass
+        return None
 
     def command(self, args, password='', timeout=20):
         try:
@@ -107,12 +119,17 @@ class NASHelper:
 
     def mount(self, spec):
         target = self.target(spec['id'])
-        target.mkdir(exist_ok=True)
-        if os.path.ismount(target):
+        flags = self.mount_flags(target)
+        if flags is not None:
+            desired = spec.get('read_only', True)
+            current = 'ro' in flags
+            if current != desired:
+                self.command(['/usr/bin/mount', '-o', f'remount,{"ro" if desired else "rw"},nosuid,nodev,noexec,soft', str(target)])
             return
+        target.mkdir(exist_ok=True)
         credential = self.credentials(spec)
         try:
-            options = (f'ro,nosuid,nodev,noexec,soft,vers={spec["vers"]},port={spec["port"]},'
+            options = (f'{"ro" if spec.get("read_only", True) else "rw"},nosuid,nodev,noexec,soft,vers={spec["vers"]},port={spec["port"]},'
                        f'uid={self.uid},gid={self.gid},dir_mode=0750,file_mode=0640,iocharset=utf8,'
                        f'credentials={credential}')
             self.command(['/sbin/mount.cifs', f'//{spec["host"]}/{spec["share"]}', str(target), '-o', options], spec['password'])
@@ -120,7 +137,8 @@ class NASHelper:
             credential.unlink(missing_ok=True)
 
     def public(self, spec):
-        mounted = os.path.ismount(self.target(spec['id']))
+        flags = self.mount_flags(self.target(spec['id']))
+        mounted = flags is not None
         reachable = False
         if mounted:
             try:
@@ -130,7 +148,8 @@ class NASHelper:
                 pass
         return {key: spec[key] for key in ('id', 'host', 'share', 'username', 'domain', 'port', 'guest', 'vers', 'enabled')} | {
             'connected': mounted and reachable, 'mounted': mounted, 'has_password': bool(spec['password']),
-            'mount_path': str(self.target(spec['id'])), 'read_only': True,
+            'mount_path': str(self.target(spec['id'])),
+            'read_only': 'ro' in flags if mounted else spec.get('read_only', True),
             'error': self.errors.get(spec['id'], '') if reachable else ('NAS 不可达或尚未连接' if mounted else self.errors.get(spec['id'], ''))}
 
     def handle(self, request):
@@ -152,7 +171,7 @@ class NASHelper:
             if action == 'connect':
                 spec = self.spec(request.get('config', {}))
                 old = profiles.get(spec['id'])
-                if old and os.path.ismount(self.target(spec['id'])) and any(old.get(key) != spec.get(key) for key in ('username', 'password', 'domain', 'guest', 'vers')):
+                if old and self.mount_flags(self.target(spec['id'])) is not None and any(old.get(key) != spec.get(key) for key in ('username', 'password', 'domain', 'guest', 'vers')):
                     raise ValueError('共享已连接，请先断开，再更换登录信息')
                 self.mount(spec)
                 profiles[spec['id']] = spec
@@ -164,7 +183,7 @@ class NASHelper:
                 target = self.target(mid)
                 if mid not in profiles:
                     raise ValueError('NAS 连接不存在')
-                if os.path.ismount(target):
+                if self.mount_flags(target) is not None:
                     self.command(['/usr/bin/umount', str(target)], timeout=15)
                 if action == 'forget':
                     del profiles[mid]

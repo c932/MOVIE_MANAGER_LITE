@@ -132,9 +132,9 @@ def inspect_target(target: VideoTarget) -> ManagementRow:
     row.subtitle_count = len(embedded) + len({p.with_suffix('').name.casefold() for p in external})
     row.subtitle_known = bool(embedded)  # 只有 NFO 记录才知道内嵌字幕；无轨信息不等于没有。
     if not movie.resolution:
-        match = re.search(r'(?i)(2160p|1080p|720p|4k)', target.video_path.name)
+        match = re.search(r'(?i)(4320p|2160p|1440p|1080p|720p|480p|[248]k)', target.video_path.name)
         if match:
-            movie.resolution = match.group(1).upper() if match.group(1).lower() == '4k' else match.group(1).lower()
+            movie.resolution = match.group(1).upper() if match.group(1).lower().endswith('k') else match.group(1).lower()
             row.inferred_tech = True
     if not movie.hdr_type:
         match = re.search(r'(?i)(HDR10\+?|Dolby[ ._-]?Vision|DoVi|HDR)', target.video_path.name)

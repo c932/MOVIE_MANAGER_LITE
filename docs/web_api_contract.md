@@ -192,6 +192,28 @@ PUT 接受同结构的任意子集。
 
 ## 4. 实现工程约定（后端）
 
+### 3.5.0 完整网页刮削与展示扩展
+
+以下接口均位于 `/api/movie/scrape`。除列表、设置读取和小体积配置写入外，网络/源文件操作返回 `{job_id}`，通过通用 jobs 接口查询结果。任务失败保留中文错误，凭据脱敏。
+
+| 方法 | 路径 | 请求 / 结果 |
+| --- | --- | --- |
+| GET | `/workspace` | `{rows:[{id,movie_id,movie,is_new,status,poster_exists,subtitle_count,error_kind,error}]}`；恢复保存列表，不扫描 |
+| POST | `/workspace/scan` | 显式扫描已配置媒体库，发现无 NFO 视频并更新快照 |
+| GET/PUT | `/settings` | ScrapeSettings；GET 只返回 has_tmdb_api_key/has_tmdb_token/has_omdb_api_key，无原始密钥；PUT 空密钥保留 |
+| POST | `/search` | `{source:tmdb或douban,query,year,page}` → 候选数组，每项含服务器 token |
+| POST | `/preview` | `{target_id,candidate,previous?}` → 预览草稿；previous 必须为同一目标已确认会话 |
+| POST | `/sessions/{session}/confirm` | `{title,plot,plot_source,poster_index:null或索引,rebuild_nfo}` → 已确认草稿 |
+| POST | `/sessions/{session}/save` | `{selected_fields,overwrite,metadata_only,replace_identity_ack}` → 最新 MovieDetail |
+| POST | `/edit/{target_id}` | 读取最新 NFO → `{session,movie,uniqueids,votes}` |
+| POST | `/edit/sessions/{session}/save` | `{changes,votes?,poster_base64?}` → 最新 MovieDetail；只提交改变字段，图片上限10MB |
+
+草稿含 session/target_id/fields/votes/artwork/warnings/confirmed/replace_identity/can_rebuild/plot_source/source_plots/sources/write_blocked/target_path。候选与草稿有效30分钟，最多1000项；过期需重新预览。服务器校验选片范围、NFO/海报路径、会话确认、身份替换、源版本、实际 NAS 写权限，并复用桌面备份/回滚。成功后更新 SQLite、共享海报和新增状态。扫描、确认、保存互斥，重复保存拒绝；批量由前端顺序提交已确认草稿，失败停止后续保存。
+
+`POST /nas/connect` 增加 `read_only:bool=true`，明确 false 才切换可写；已存密码可留空复用，挂载中的登录身份变更仍需先断开。NAS 状态返回实际挂载权限；扫描或保存期间切换权限返回409。不会自动开放真实共享写入。
+
+Movie DTO 的 genres 在显示层合并中英文同义项；rating/rating_source 优先有效豆瓣、IMDb、TMDB，ratings 原始数据不丢失。网页默认上映日期降序；固定三站评分显示顺序不依赖字典插入顺序。moviewall://play?path=完整视频路径 由3.5.0 Windows安装包注册，绝对路径/UNC 视频白名单，无 shell 执行。共享电影库无需为调用本机播放器挂载客户端视频到 NUC。
+
 1. **导入顺序**：服务 `main.py` 第一时间初始化设置；任何模块**不得在导入期**创建 `CacheManager`/`ConfigManager`/`GameCacheManager` 等有状态对象，必须放在路由处理函数内或 `lifespan` 中（保证测试可用不同数据目录建多个 app 实例）。
 2. **单例陷阱**：`ConfigManager` 是进程级单例。测试用 `tests/webapp/conftest.py` 的 `service_data_dir` 夹具（monkeypatch `utils.app_paths.DATA_DIR` + 重置单例），**严禁写真实 data/ 目录**。
 3. **线程安全**：FastAPI 默认线程池并发处理请求，对缓存文件的读写必须加锁（进程内 `threading.Lock`）；保存 JSON 用「临时文件 + replace」原子写。

@@ -304,8 +304,12 @@ class NFOParser:
     @staticmethod
     def _determine_resolution(width: int, height: int) -> str:
         """根据宽高判断分辨率等级"""
-        if width >= 3840 or height >= 2160:
+        if width >= 7680 or height >= 4320:
+            return "8K"
+        elif width >= 3840 or height >= 2160:
             return "4K"
+        elif width >= 2048 or height >= 1440:
+            return "2K"
         elif width >= 1920 or height >= 1080:
             return "1080p"
         elif width >= 1280 or height >= 720:

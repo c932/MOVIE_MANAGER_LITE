@@ -116,7 +116,7 @@ def test_field_edit_validation(service_data_dir):
         cases = [
             {"unknown_field": "x"},                       # 不支持的字段
             {"fileinfo": {"bluray": "yes"}},              # 不支持的 fileinfo 子键
-            {"fileinfo": {"resolution": "8k"}},           # 未知分辨率
+            {"fileinfo": {"resolution": "16k"}},          # 未知分辨率
             {"genres": "恐怖"},                            # 类型错误
             {},                                           # 空请求
         ]

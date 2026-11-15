@@ -46,6 +46,29 @@ def test_helper_rejects_injection_keeps_password_out_of_commands_and_response(he
         helper.target('../../outside')
 
 
+def test_helper_write_opt_in_and_restricted_remount(helper, monkeypatch):
+    spec = helper.spec({'host':'127.0.0.1','share':'Test','username':'reader','password':'test-password','read_only':False})
+    monkeypatch.setattr(helper, 'mount_flags', lambda _: {'ro','nosuid','nodev','noexec'})
+    commands = []
+    monkeypatch.setattr(helper, 'command', lambda args, **kwargs: commands.append(args))
+    helper.mount(spec)
+    assert commands == [['/usr/bin/mount','-o','remount,rw,nosuid,nodev,noexec,soft',str(helper.target(spec['id']))]]
+
+
+def test_offline_mount_flags_do_not_probe_cifs_filesystem(helper, monkeypatch):
+    spec = helper.spec({'host':'127.0.0.1','share':'Test','username':'reader','password':'test-password'})
+    target = helper.mount_root / spec['id']
+    original = Path.read_text
+    def read(path, *args, **kwargs):
+        if str(path).replace('\\','/') == '/proc/self/mountinfo':
+            return f'10 1 0:1 / {target} ro,nosuid,nodev,noexec - cifs //127.0.0.1/Test rw\n'
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, 'read_text', read)
+    monkeypatch.setattr(Path, 'is_symlink', lambda _: (_ for _ in ()).throw(AssertionError('不得探测离线挂载')))
+    assert helper.mount_flags(target) == {'ro','nosuid','nodev','noexec'}
+    assert helper.target(spec['id']) == target
+
+
 @pytest.fixture
 def nas_rpc(tmp_path, monkeypatch):
     from movie_service.nas import NASManager

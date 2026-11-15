@@ -1,0 +1,70 @@
+{
+  "resolution": {
+    "480p": {
+      "file": "480p.svg",
+      "label": "480P",
+      "aliases": [
+        "480p",
+        "480",
+        "sd"
+      ]
+    },
+    "720p": {
+      "file": "720p.svg",
+      "label": "720P",
+      "aliases": [
+        "720p",
+        "720",
+        "hd"
+      ]
+    },
+    "1080p": {
+      "file": "1080p.svg",
+      "label": "1080P",
+      "aliases": [
+        "1080p",
+        "1080",
+        "fullhd",
+        "fhd",
+        "1080i"
+      ]
+    },
+    "2k": {
+      "file": "2k.svg",
+      "label": "2K",
+      "aliases": [
+        "2k",
+        "1440p",
+        "1440",
+        "qhd"
+      ]
+    },
+    "4k": {
+      "file": "4k.svg",
+      "label": "4K",
+      "aliases": [
+        "4k",
+        "2160p",
+        "2160",
+        "uhd"
+      ]
+    },
+    "8k": {
+      "file": "8k.svg",
+      "label": "8K",
+      "aliases": [
+        "8k",
+        "4320p",
+        "4320"
+      ]
+    }
+  },
+  "hdr": {
+    "file": "hdr.png",
+    "label": "HDR"
+  },
+  "dolbyvision": {
+    "file": "dolby-vision.png",
+    "label": "Dolby Vision"
+  }
+}

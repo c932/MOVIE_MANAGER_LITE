@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor, QPainterPath, QCursor
 
 from models.movie import Movie
 from utils.image_loader import ImageLoader, ImageCache
+from ui.tech_badges import TechBadges
 
 
 class MovieCard(QWidget):
@@ -69,24 +70,9 @@ class MovieCard(QWidget):
         self.poster_label.setScaledContents(False)
         
         # === 技术徽章层（左上角）===
-        self.tech_badges_container = QWidget(self.poster_container)
-        self.tech_badges_container.setGeometry(6, 6, self.poster_width - 12, 20)
-        tech_layout = QHBoxLayout(self.tech_badges_container)
-        tech_layout.setContentsMargins(0, 0, 0, 0)
-        tech_layout.setSpacing(4)
-        
-        # 分辨率徽章
-        if self.movie.resolution:
-            res_badge = self._create_badge(self.movie.resolution, "#E74C3C")  # 红色
-            tech_layout.addWidget(res_badge)
-        
-        # HDR徽章
-        if self.movie.hdr_type:
-            hdr_text = "DV" if "dolby" in self.movie.hdr_type.lower() else "HDR"
-            hdr_badge = self._create_badge(hdr_text, "#9B59B6")  # 紫色
-            tech_layout.addWidget(hdr_badge)
-        
-        tech_layout.addStretch()
+        self.tech_badges_container = TechBadges(self.movie.resolution, self.movie.hdr_type,
+                                                height=24, parent=self.poster_container)
+        self.tech_badges_container.setGeometry(6, 6, self.poster_width - 12, 24)
         
         # === 评分徽章（右上角，半透明）===
         self.rating_badge = QLabel(self.poster_container)
@@ -169,6 +155,7 @@ class MovieCard(QWidget):
         """卡片复用时同步实际控件；不启动 I/O 或重建海报线程。"""
         self.movie = movie
         self.title_label.setText(movie.title or "")
+        self.tech_badges_container.set_values(movie.resolution, movie.hdr_type)
         self._refresh_rating()
 
     def _refresh_rating(self) -> None:
@@ -176,40 +163,17 @@ class MovieCard(QWidget):
             icon = "⭐" if self.movie.rating_source == "douban" else "★"
             self.rating_badge.setText(f"{icon} {self.movie.rating:.1f}")
             self.rating_badge.adjustSize()
-            self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, 6)
+            self._position_rating()
             self.rating_badge.show()
         else:
             self.rating_badge.clear()
             self.rating_badge.hide()
     
-    # 技术徽章颜色映射（半透明）
-    _BADGE_COLORS = {
-        '4K':   'rgba(231, 76, 60, 0.75)',    # 红
-        '8K':   'rgba(192, 57, 43, 0.75)',    # 深红
-        'SD':   'rgba(149, 165, 166, 0.75)',  # 灰
-        '1080p':'rgba(52, 152, 219, 0.75)',   # 蓝
-        '720p': 'rgba(41, 128, 185, 0.75)',   # 深蓝
-        'HDR':  'rgba(155, 89, 182, 0.75)',   # 紫
-        'DV':   'rgba(155, 89, 182, 0.75)',   # 紫
-    }
-    _BADGE_DEFAULT = 'rgba(128, 128, 128, 0.75)'
-
-    def _create_badge(self, text: str, color: str) -> QLabel:
-        """创建技术徽章标签（半透明背景）"""
-        bg = self._BADGE_COLORS.get(text.upper(), self._BADGE_DEFAULT)
-        badge = QLabel(text)
-        badge.setStyleSheet(f"""
-            QLabel {{
-                background-color: {bg};
-                color: #FFFFFF;
-                font-size: 10px;
-                font-weight: bold;
-                padding: 2px 6px;
-                border-radius: 4px;
-            }}
-        """)
-        badge.setFixedHeight(20)
-        return badge
+    def _position_rating(self) -> None:
+        # 小海报上三枚图标可能占满一行，评分移至下一行，避免互相覆盖。
+        needed = self.tech_badges_container.sizeHint().width() + self.rating_badge.width() + 16
+        y = 34 if needed > self.poster_width else 6
+        self.rating_badge.move(self.poster_width - self.rating_badge.width() - 6, y)
 
     def _relayout(self):
         """缩放后重新布局所有子控件"""
@@ -222,12 +186,12 @@ class MovieCard(QWidget):
         self.poster_label.setGeometry(0, 0, pw, ph)
 
         # 技术徽章容器（高度与徽章一致，确保左右对齐）
-        self.tech_badges_container.setGeometry(6, 6, pw - 12, 20)
+        self.tech_badges_container.setGeometry(6, 6, pw - 12, 24)
 
         # 评分徽章（右上角）
         if hasattr(self, 'rating_badge') and self.rating_badge:
             self.rating_badge.adjustSize()
-            self.rating_badge.move(pw - self.rating_badge.width() - 6, 6)
+            self._position_rating()
 
         # 排名角标容器（左下角，水平并排）
         if self._rank_badges:

@@ -62,6 +62,10 @@ _MULTI_TAGS: Dict[str, str] = {
 
 # resolution → (width, height)：解析器由 width/height 反推分辨率等级
 _RESOLUTION_SIZE: Dict[str, tuple] = {
+    "8k": (7680, 4320),
+    "4320p": (7680, 4320),
+    "2k": (2560, 1440),
+    "1440p": (2560, 1440),
     "4k": (3840, 2160),
     "2160p": (3840, 2160),
     "1080p": (1920, 1080),

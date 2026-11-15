@@ -49,6 +49,10 @@ if __name__ == '__main__':
             raise TimeoutError('NAS 连接助手未就绪')
         time.sleep(.2)
     try:
+        # 测试 SMB 服务重启后不复用旧 CIFS 会话，只清理严格匹配的临时连接。
+        for old in request('GET', '/nas')['connections']:
+            if old['host'] == '127.0.0.1' and old['share'] == 'MMLTest' and old['port'] == 1445:
+                NASManager(Path('/tmp/mml-nas-e2e-data')).transport({'action': 'forget', 'id': old['id']})
         assert 'mmltest' in [name.casefold() for name in wait(request('POST', '/nas/shares', config))['shares']]
         print('SMB login and share listing: PASS', flush=True)
         connection = wait(request('POST', '/nas/connect', config))
@@ -80,6 +84,33 @@ if __name__ == '__main__':
         assert len(request('GET', f'/movies/{mid_movie}/poster')) > 100
         assert 'NAS只读扫描验收' in request('GET', f'/movies/{mid_movie}/nfo')['xml']
         print('Directory selection, stable UNC identity, scan and poster: PASS', flush=True)
+        # 仅对本脚本创建的回环临时共享验证写入，不接触用户 NAS。
+        wait(request('POST', '/scrape/workspace/scan'))
+        rows = request('GET', '/scrape/workspace')['rows']
+        target = next(row for row in rows if row['movie_id'] == mid_movie)
+        edit = wait(request('POST', '/scrape/edit/' + target['id']))
+        wait(request('POST', '/scrape/edit/sessions/' + edit['session'] + '/save',
+                     {'changes': {'title': '不应写入'}}), expected='error')
+        assert request('GET', '/movies/' + mid_movie)['title'] == 'NAS只读扫描验收'
+        writable = wait(request('POST', '/nas/connect', dict(config, password='', read_only=False)))
+        assert writable['connected'] and not writable['read_only']
+        original = Path('/tmp/mml-smb-test/share/Films/TestFilm/TestFilm.nfo').read_bytes()
+        edit = wait(request('POST', '/scrape/edit/' + target['id']))
+        saved = wait(request('POST', '/scrape/edit/sessions/' + edit['session'] + '/save', {'changes': {
+            'title': '网页刮削编辑验收', 'set_name': '网页测试系列', 'ratings': {'tmdb': 7.8, 'imdb': 7.1, 'douban': 8.2}}}))
+        assert saved['title'] == '网页刮削编辑验收' and saved['ratings'] == {'tmdb': 7.8, 'imdb': 7.1, 'douban': 8.2}
+        assert saved['nfo_path'] == canonical and saved['watched'] and saved['added_time'] == 123
+        assert any(path.read_bytes() == original for path in Path('/tmp/mml-smb-test/share/Films/TestFilm').glob('*.mml-backup-*'))
+        edit = wait(request('POST', '/scrape/edit/' + target['id']))
+        external = Path('/tmp/mml-smb-test/share/Films/TestFilm/TestFilm.nfo')
+        external.write_bytes(external.read_bytes().replace('网页刮削编辑验收'.encode(), '外部更新'.encode()))
+        changed = external.read_bytes()
+        wait(request('POST', '/scrape/edit/sessions/' + edit['session'] + '/save',
+                     {'changes': {'title': '不应覆盖'}}), expected='error')
+        assert external.read_bytes() == changed
+        readonly = wait(request('POST', '/nas/connect', dict(config, password='', read_only=True)))
+        assert readonly['read_only']
+        print('Real read/write remount, safe edit, three ratings, UNC, backup, conflict: PASS', flush=True)
         wait(request('POST', f'/nas/{mid}/disconnect'))
         assert not request('GET', '/system/info')['source_available']
         assert len(request('GET', f'/movies/{mid_movie}/poster')) > 100

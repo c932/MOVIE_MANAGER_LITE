@@ -34,6 +34,7 @@ class ProductConfig:
     menu_folder: str
     shortcut_prefix: str
     default_version: str
+    url_protocol: str = ''
 
     @property
     def dist_dir(self) -> Path:
@@ -340,6 +341,15 @@ def _add_directories_and_payload(db, cab, feature, config: ProductConfig) -> Non
 
 
 def _add_icons_and_shortcuts(db, config: ProductConfig) -> None:
+    if config.url_protocol:
+        key = 'Software\\Classes\\' + config.url_protocol
+        add_data(db, 'Registry', [
+            ('PlayProtocolName', 2, key, None, 'URL:Local Movie Wall Playback', 'MainComp'),
+            ('PlayProtocolFlag', 2, key, 'URL Protocol', '', 'MainComp'),
+            ('PlayProtocolIcon', 2, key + '\\DefaultIcon', None, '[INSTALLDIR]' + config.executable_name + ',0', 'MainComp'),
+            ('PlayProtocolCommand', 2, key + '\\shell\\open\\command', None,
+             '"[INSTALLDIR]' + config.executable_name + '" "%1"', 'MainComp'),
+        ])
     icon_name = None
     if config.icon_path.is_file():
         icon_name = "AppIcon.ico"
@@ -389,6 +399,8 @@ def _single_row(db, query: str):
 def verify_built_msi(path: Path, config: ProductConfig) -> None:
     db = msilib.OpenDatabase(str(path), msilib.MSIDBOPEN_READONLY)
     try:
+        if config.url_protocol and _single_row(db, "SELECT `Registry` FROM `Registry` WHERE `Registry`='PlayProtocolCommand'") is None:
+            raise RuntimeError('Missing playback protocol registration.')
         required_dialogs = {"WelcomeDlg", "ProgressDlg", "ExitDialog", "UserExit", "FatalError"}
         for dialog_name in required_dialogs:
             if _single_row(db, f"SELECT `Dialog` FROM `Dialog` WHERE `Dialog` = '{dialog_name}'") is None:

@@ -99,6 +99,7 @@ export interface MovieSettings {
 export interface NASConfig {
   host: string; port: number; username: string; password: string;
   domain: string; share: string; vers: string; guest: boolean;
+  read_only?: boolean;
 }
 export interface NASConnection extends Omit<NASConfig, 'password'> {
   id: string; connected: boolean; mounted: boolean; enabled: boolean;

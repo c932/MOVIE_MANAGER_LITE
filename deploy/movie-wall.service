@@ -9,6 +9,8 @@ User=manfred
 WorkingDirectory=/home/manfred/ai-local/services/movie-wall
 Environment=PYTHONPATH=/home/manfred/ai-local/services/movie-wall:/home/manfred/ai-local/services/movie-wall/webapp/backend
 Environment=MML_DATA_DIR=/mnt/data/AI/movie-wall-data
+Environment=MML_SCRAPE_CONFIG=/home/manfred/.config/localmoviewall/scrape_config.json
+Environment=PATH=/home/manfred/.nvm/versions/node/v24.21.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 ExecStart=/home/manfred/ai-local/services/movie-wall/.venv/bin/uvicorn movie_service.main:app --host 127.0.0.1 --port 8010
 Restart=on-failure
 RestartSec=3

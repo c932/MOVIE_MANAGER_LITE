@@ -13,6 +13,7 @@ a = Analysis(
     ],
     hiddenimports=[
         'PyQt6.sip',
+        'PyQt6.QtSvg',
         'scraper',
         'scraper.douban_cli',
         'scraper.douban_ranking',
