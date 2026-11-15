@@ -33,7 +33,7 @@ def test_manager_opens_without_scan_and_restores_state(app, tmp_path, monkeypatc
     window.show()
     until(app, lambda: not window.tasks.busy)
     assert window.model.rowCount() == 1
-    assert window.table.columnCount() if hasattr(window.table, 'columnCount') else window.model.columnCount() == 14
+    assert window.model.columnCount() == 14
     assert window.scan_button.text().startswith('更新媒体库')
     window.close()
     until(app, lambda: not window.tasks.busy)
@@ -43,3 +43,19 @@ def test_manager_opens_without_scan_and_restores_state(app, tmp_path, monkeypatc
     assert reopened.model.rowCount() == 1
     reopened.close()
     until(app, lambda: not reopened.tasks.busy)
+
+
+def test_manager_scan_populates_table_and_retains_selected_identity(app, tmp_path):
+    from ui.scrape_manager import ScrapeManagerDialog
+    from tests.scraping.test_management import movie_files
+    movie_files(tmp_path)
+    window = ScrapeManagerDialog()
+    window.show()
+    until(app, lambda: not window.tasks.busy)
+    window.scan(paths=[str(tmp_path)])
+    until(app, lambda: not window.tasks.busy)
+    assert window.model.rowCount() == 1
+    assert window.selected_rows()[0].movie.title == '电影'
+    assert window.inspector.current_row.movie.title == '电影'
+    window.close()
+    until(app, lambda: not window.tasks.busy and not window.inspector.tasks.busy)
