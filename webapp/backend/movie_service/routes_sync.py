@@ -68,13 +68,24 @@ def push(request: Request, payload: Push) -> dict:
                     raise ValueError('收藏状态必须为布尔值')
                 if 'ratings' in change.data:
                     ratings = TypeAdapter(dict[str, float]).validate_python(change.data['ratings'])
-                    if any(not math.isfinite(value) or not 0 <= value <= 10 for value in ratings.values()):
-                        raise ValueError('评分必须在 0–10 之间')
+                    for source, value in ratings.items():
+                        # TMM 的烂番茄等来源使用百分制；只约束已知十分制来源。
+                        maximum = 10 if source.casefold() in {'tmdb', 'imdb', 'douban', 'user'} else None
+                        if not math.isfinite(value) or value < 0 or (maximum is not None and value > maximum):
+                            raise ValueError(f'ratings.{source}={value} 不符合该来源评分范围')
                     change.data['ratings'] = ratings
                 if any(not math.isfinite(change.data[key]) for key in ('rating', 'added_time') if key in change.data):
                     raise ValueError('评分与加入时间必须为有效数值')
             except (ValidationError, ValueError, TypeError, KeyError) as exc:
-                raise HTTPException(422, '电影资料格式无效，请检查评分、演员及字段类型') from exc
+                label = str(change.data.get('title') or change.id)[:80]
+                if isinstance(exc, ValidationError):
+                    issue = exc.errors()[0]
+                    reason = '.'.join(str(part) for part in issue['loc']) + ' 字段类型无效'
+                elif isinstance(exc, KeyError):
+                    reason = f'字段 {exc.args[0]} 无法保存'
+                else:
+                    reason = str(exc)[:160]
+                raise HTTPException(422, f'电影「{label}」资料格式无效：{reason}') from exc
             if not change.deleted and change.base is None:
                 if not change.data.get('nfo_path') or movie_key(change.data['nfo_path']) != change.id:
                     raise HTTPException(422, '新电影缺少有效 NFO 标识')

@@ -45,3 +45,19 @@ def test_sync_rejects_wrong_identity_and_server(service_data_dir):
             response = client.post('/api/movie/sync/push', json={'changes': [{'id': movie_key('/film.nfo'), 'data': data}]})
             assert response.status_code == 422
         assert client.get('/api/movie/movies').json()['total'] == 0
+
+
+def test_sync_preserves_rotten_tomatoes_percent_ratings(service_data_dir):
+    from movie_service.main import create
+    data = {'nfo_path': '//nas/movie.nfo', 'title': '我们的世界',
+            'ratings': {'tomatometerallcritics': 91, 'imdb': 8, 'tmdb': 7.5}}
+    with TestClient(create(str(service_data_dir))) as client:
+        response = client.post('/api/movie/sync/push', json={'changes': [{'id': movie_key(data['nfo_path']), 'data': data}]})
+        assert response.status_code == 200, response.text
+        saved = client.get('/api/movie/sync/changes').json()['records'][0]['data']
+        assert saved['ratings']['tomatometerallcritics'] == 91
+        assert saved['ratings']['imdb'] == 8
+        invalid = dict(data, title='错误电影', ratings={'imdb': 91})
+        response = client.post('/api/movie/sync/push', json={'changes': [{'id': movie_key(data['nfo_path']), 'data': invalid}]})
+        assert response.status_code == 422
+        assert '错误电影' in response.json()['detail'] and 'imdb' in response.json()['detail']
