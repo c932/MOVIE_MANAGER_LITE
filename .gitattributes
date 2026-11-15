@@ -1,0 +1,2 @@
+# 部署脚本需要从 Windows 直接上传到 OpenWrt/Linux，始终保留 LF。
+*.sh text eol=lf
