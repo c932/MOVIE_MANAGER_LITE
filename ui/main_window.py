@@ -887,7 +887,7 @@ class MainWindow(QMainWindow):
         self.content_stack.setCurrentIndex(1)
     
     def _open_scrape_dialog(self):
-        """空媒体库也可发现新视频；所有刮削操作进入统一工作台。"""
+        """顶部入口进入资料管理，空媒体库也可显式扫描新视频。"""
         self._show_scrape_workbench()
 
     def _show_scrape_workbench(self, movies=None, mode="full"):
@@ -900,6 +900,21 @@ class MainWindow(QMainWindow):
         dialog.exec()
         dialog.deleteLater()
 
+    def _show_movie_search_dialog(self, movie: Movie):
+        """电影墙快捷入口直接匹配当前影片，不经过全库管理页面。"""
+        from ui.scrape_search_dialog import SearchScrapeDialog
+        normalize = lambda item: str(item.video_path or item.nfo_path).replace('\\', '/').casefold()
+        movies = list(getattr(self, '_sorted_movies', None) or self.filtered_movies or [])
+        start_index = next((index for index, item in enumerate(movies) if normalize(item) == normalize(movie)), None)
+        if start_index is None:
+            movies, start_index = [movie], 0
+        else:
+            movies[start_index] = movie
+        dialog = SearchScrapeDialog(movies, parent=self, start_index=start_index)
+        dialog.saved.connect(self._on_scrape_saved)
+        dialog.exec()
+        dialog.deleteLater()
+
     def _on_scrape_saved(self, paths):
         """仅重新载入已写入条目，不触发全库重扫/清理或丢失筛选。"""
         pending = getattr(self, '_pending_scrape_paths', set())
@@ -908,7 +923,7 @@ class MainWindow(QMainWindow):
         self._drain_scrape_refresh_queue()
 
     def _drain_scrape_refresh_queue(self):
-        if not getattr(self, '_pending_scrape_paths', None):
+        if not (getattr(self, '_pending_scrape_paths', None) or getattr(self, '_pending_poster_source_paths', None)):
             return
         if hasattr(self, 'scanner') and self.scanner.isRunning():
             return  # on_scan_completed 会排空队列，避免扫描与新增互相覆盖。
@@ -918,10 +933,23 @@ class MainWindow(QMainWindow):
         if runner is None:
             runner = TaskRunner(self)
             runner.result.connect(self._on_scrape_refresh_result)
-            runner.error.connect(lambda channel, generation, message: self.status_label.setText('刮削后刷新失败：' + message))
+            runner.error.connect(lambda channel, generation, message: self.status_label.setText('读取媒体资料失败：' + message))
             runner.idle.connect(self._drain_scrape_refresh_queue)
             self._scrape_refresh_runner = runner
         if runner.busy:
+            return
+        if not getattr(self, '_pending_scrape_paths', None):
+            nfo_path, old_path = self._pending_poster_source_paths.pop()
+            def read_poster(context):
+                from utils.poster_cache_manager import PosterCacheManager
+                context.checkpoint()
+                updated = NFOParser.parse(nfo_path) if nfo_path else None
+                path = (updated.poster_path if updated else '') or old_path
+                # 手动更新明确请求读源图，不受启动时的仅缓存模式限制。
+                if not path or not PosterCacheManager().refresh_from_source(path):
+                    raise ValueError('无法读取源海报或更新本机缓存，已保留可用旧缓存：' + path)
+                return nfo_path, old_path, path
+            runner.start('poster-source', read_poster)
             return
         paths = tuple(self._pending_scrape_paths)
         self._pending_scrape_paths.clear()
@@ -932,6 +960,8 @@ class MainWindow(QMainWindow):
             for path in paths:
                 context.checkpoint()
                 movie = NFOParser.parse(path, include_user_rating=True)
+                if movie is None:
+                    raise ValueError('无法读取源 NFO，原有电影资料未替换：' + path)
                 if movie is not None and movie.video_path:
                     if movie.poster_path:
                         # 保存成功说明本次可以访问媒体目录。即使启动时离线，也要
@@ -942,6 +972,9 @@ class MainWindow(QMainWindow):
         runner.start('read', read_saved)
 
     def _on_scrape_refresh_result(self, channel, generation, value):
+        if channel == 'poster-source':
+            self._on_source_poster_ready(*value)
+            return
         if channel != 'read':
             return
         if hasattr(self, 'scanner') and self.scanner.isRunning():
@@ -2840,7 +2873,7 @@ class MainWindow(QMainWindow):
         elif selected == action_open_folder:
             self._menu_open_movie_folder(movie)
         elif selected == action_scrape_full:
-            self._show_scrape_workbench([movie], mode="existing")
+            self._show_movie_search_dialog(movie)
         elif selected == action_scrape_douban:
             self._menu_scrape_douban_rating(movie)
         elif selected == action_update_nfo:
@@ -2888,67 +2921,57 @@ class MainWindow(QMainWindow):
         self._show_scrape_workbench([movie], mode="douban")
 
     def _menu_refresh_movie_from_nfo(self, movie: Movie):
-        """右键菜单：重新解析NFO并更新本地数据库"""
+        """明确从媒体目录后台重读 NFO，更新本机资料；不执行网络刮削。"""
         if not movie.nfo_path:
             QMessageBox.warning(self, "更新失败", "当前电影缺少NFO路径。")
             return
 
-        from parsers.nfo_parser import NFOParser
-
-        updated_movie = NFOParser.parse(movie.nfo_path)
-        if not updated_movie:
-            QMessageBox.warning(self, "更新失败", "NFO重新解析失败。")
-            return
-
-        # 保留运行期状态
-        updated_movie.watched = self.watch_history.is_watched(movie.nfo_path)
-        if hasattr(movie, 'added_time') and not getattr(updated_movie, 'added_time', 0.0):
-            updated_movie.added_time = getattr(movie, 'added_time', 0.0)
-
-        for attr in vars(updated_movie):
-            setattr(movie, attr, getattr(updated_movie, attr))
-
-        # 若当前详情页就是该电影，刷新详情
-        if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
-
-        movie_paths = self.config.get_movie_paths()
-        self.cache_manager.save_cache(self.all_movies, movie_paths)
-        self.apply_filters()
-        logger.info(f"右键更新NFO完成: {movie.title}")
+        self.status_label.setText(f'正在从媒体目录读取最新 NFO：{movie.title}')
+        self._on_scrape_saved([movie.nfo_path])
 
     def _menu_refresh_movie_poster(self, movie: Movie):
-        """右键菜单：清理该电影海报缓存并触发重新加载"""
-        if not movie.poster_path:
-            QMessageBox.information(self, "提示", "该电影没有海报路径。")
+        """先读取 NAS/本地源图成功后回填缓存，失败不清除原缓存。"""
+        if not (movie.poster_path or movie.nfo_path):
+            QMessageBox.information(self, "提示", "缺少影片路径，无法定位源海报。")
             return
 
-        if self._poster_cache_manager is None:
-            from utils.poster_cache_manager import PosterCacheManager
-            self._poster_cache_manager = PosterCacheManager()
+        pending = getattr(self, '_pending_poster_source_paths', set())
+        pending.add((movie.nfo_path, movie.poster_path))
+        self._pending_poster_source_paths = pending
+        self.status_label.setText(f'正在从媒体目录读取最新海报：{movie.title}')
+        self._drain_scrape_refresh_queue()
 
-        removed = self._poster_cache_manager.invalidate_cache_for_path(movie.poster_path)
-
-        # 同步清理内存缓存，确保后续会从源图重新加载
+    def _on_source_poster_ready(self, nfo_path: str, old_path: str, path: str):
+        """源图已成功回填本机缓存，再使电影墙与详情的内存预览失效。"""
         image_cache = ImageCache()
-        if hasattr(image_cache, 'remove'):
-            image_cache.remove(movie.poster_path)
+        for image_path in {old_path, path} - {''}:
+            image_cache.remove(image_path)
 
-        for card in self.movie_cards:
-            if card.movie.poster_path == movie.poster_path:
+        cards = {id(card): card for card in [*self.movie_cards, *self._card_pool.values()]}
+        current = self.detail_panel.current_movie
+        normalize = lambda value: str(value).replace('\\', '/').casefold()
+        for movie in [*self.all_movies, *(card.movie for card in cards.values()), *([current] if current else [])]:
+            if nfo_path and normalize(movie.nfo_path) == normalize(nfo_path):
+                movie.poster_path = path
+        for card in cards.values():
+            if card.movie.poster_path in {old_path, path} - {''}:
                 card._poster_loaded = False
                 card._poster_loading = False
                 card._poster_fail_count = 0
                 card._poster_next_retry_at = 0.0
 
+        # 先回填刚读到的本机缓存，不能只等待离线模式的懒加载队列。
+        self._sync_wall_poster_from_cache(path)
         # 立即尝试重新加载可见区域海报
         self._load_visible_posters()
 
         # 若当前详情页就是该电影，刷新详情（会触发详情异步海报加载）
-        if self.detail_panel.current_movie and self.detail_panel.current_movie.nfo_path == movie.nfo_path:
-            self.detail_panel.show_movie(movie, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(movie))
-
-        logger.info(f"右键更新海报: {movie.title}, 清理缓存条目={removed}")
+        if current and current.poster_path == path:
+            self.detail_panel.show_movie(current, self.watch_history, self.favorite_manager, self.all_movies, rank_info=self._get_movie_rank_info(current))
+        self.status_label.setText('已从媒体目录读取最新海报并更新本机缓存')
+        snapshot, roots = list(self.all_movies), self.config.get_movie_paths()
+        self._scrape_refresh_runner.start('cache', lambda context: self.cache_manager.save_cache(snapshot, roots))
+        logger.info(f"右键更新源海报完成: {path}")
 
     def _menu_edit_movie_properties(self, movie: Movie):
         """右键菜单：打开属性编辑（NFO编辑器）"""

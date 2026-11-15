@@ -41,6 +41,31 @@ def test_toolbar_opens_unified_workbench_even_when_library_empty():
     assert len(calls) == 1
 
 
+def test_wall_context_search_opens_search_dialog_at_clicked_movie(qt_window, monkeypatch):
+    from PyQt6.QtCore import QPoint
+    from PyQt6.QtWidgets import QMenu
+    from models.movie import Movie
+    from ui.scrape_search_dialog import SearchScrapeDialog
+    app, window = qt_window
+    movies = [Movie(title=name, nfo_path=name + '.nfo', video_path=name + '.mkv') for name in ['A', 'B', 'C']]
+    window._sorted_movies = movies
+    monkeypatch.setattr(window, '_show_scrape_workbench', lambda *a, **kw: pytest.fail('右键搜索不能打开管理页'))
+    opened = []
+    def execute(dialog):
+        opened.append(([target.title for target in dialog.targets], dialog.current_target.title))
+        # 不启动网络与配置任务，仍使用真实窗口构造与选择逻辑。
+        dialog._closing = True
+        dialog.saved.emit(['B.nfo'])
+        return 0
+    monkeypatch.setattr(SearchScrapeDialog, 'exec', execute)
+    saved = []
+    monkeypatch.setattr(window, '_on_scrape_saved', saved.extend)
+    monkeypatch.setattr(QMenu, 'exec', lambda menu, *a: next(action for action in menu.actions() if '搜索匹配' in action.text()))
+    window.on_movie_card_right_clicked(movies[1], QPoint(0, 0))
+    assert opened == [(['A', 'B', 'C'], 'B')]
+    assert saved == ['B.nfo']
+
+
 def test_saved_movie_warms_durable_posters_even_if_started_offline(qt_window, tmp_path, monkeypatch):
     from PyQt6.QtGui import QImage
     from utils.poster_cache_manager import PosterCacheManager
