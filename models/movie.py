@@ -4,6 +4,7 @@
 """
 from dataclasses import dataclass, field
 from typing import List, Optional
+from utils.countries import localize_countries
 
 
 @dataclass
@@ -68,6 +69,7 @@ class Movie:
     
     def __post_init__(self):
         """初始化后处理，确保数据类型正确"""
+        self.countries = localize_countries(self.countries)
         if isinstance(self.rating, str):
             try:
                 self.rating = float(self.rating)

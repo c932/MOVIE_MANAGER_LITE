@@ -5,6 +5,8 @@
 import hashlib
 import json
 import logging
+import os
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional, Tuple
@@ -21,9 +23,29 @@ class PosterCacheManager:
     
     CACHE_DIR = ensure_data_dir() / ".poster_cache"
     CACHE_VERSION = "1.0"
+    _instances: dict = {}
+    _instances_lock = threading.RLock()
+
+    def __new__(cls):
+        # 所有 UI 和加载线程必须共享索引，否则退出时旧实例会覆盖新海报记录。
+        directory = cls.CACHE_DIR.resolve()
+        with cls._instances_lock:
+            if directory not in cls._instances:
+                instance = super().__new__(cls)
+                instance.CACHE_DIR = directory
+                instance._initialized = False
+                cls._instances[directory] = instance
+            return cls._instances[directory]
     
     def __init__(self):
         """初始化缓存管理器"""
+        with self._instances_lock:
+            if self._initialized:
+                return
+            self._initialize()
+            self._initialized = True
+
+    def _initialize(self):
         self._lock = threading.Lock()  # 线程锁保护缓存索引
         self._save_lock = threading.Lock()  # 仅用于索引文件写入串行化
         self._pending_index_updates = 0
@@ -68,23 +90,52 @@ class PosterCacheManager:
     
     def _save_cache_index(self, data: Optional[dict] = None):
         """保存缓存索引文件（串行写入，避免并发覆盖）"""
+        temporary_path = None
         try:
-            payload = data if data is not None else self._cache_index
             with self._save_lock:
-                with open(self._cache_index_file, 'w', encoding='utf-8') as f:
+                with self._lock:
+                    payload = data if data is not None else {
+                        'version': self.CACHE_VERSION,
+                        'entries': dict(self._cache_index.get('entries', {})),
+                    }
+                    self._pending_index_updates = 0
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                                                 dir=self.CACHE_DIR, delete=False) as f:
+                    temporary_path = f.name
                     json.dump(payload, f, ensure_ascii=False, indent=2)
+                os.replace(temporary_path, self._cache_index_file)
         except Exception as e:
             logger.error(f"保存缓存索引失败: {e}")
+        finally:
+            if temporary_path and Path(temporary_path).exists():
+                Path(temporary_path).unlink(missing_ok=True)
 
     def _flush_cache_index_snapshot(self):
         """在短锁内复制索引，锁外落盘，避免 UI 读取时长时间等待。"""
-        with self._lock:
-            snapshot = {
-                "version": self._cache_index.get("version", self.CACHE_VERSION),
-                "entries": dict(self._cache_index.get("entries", {}))
-            }
-            self._pending_index_updates = 0
-        self._save_cache_index(snapshot)
+        self._save_cache_index()
+
+    def _recover_unindexed_cache(self, image_path: str, width: int, height: int) -> None:
+        """按确定的文件名恢复旧版漏写的索引，只读取本地 JPG，不探测 NAS。"""
+        recovered = False
+        for w, h in {(width, height), (200, 300), (280, 420)}:
+            key = self._get_cache_key(image_path, w, h)
+            with self._lock:
+                if key in self._cache_index['entries']:
+                    continue
+            path = self._get_cache_path(key)
+            if not path.is_file() or QImage(str(path)).isNull():
+                continue
+            with self._lock:
+                self._cache_index['entries'].setdefault(key, {
+                    'original_path': image_path, 'original_mtime': None,
+                    'width': w, 'height': h, 'cache_path': str(path),
+                })
+                keys = self._path_to_cache_keys.setdefault(image_path, [])
+                if key not in keys:
+                    keys.append(key)
+                recovered = True
+        if recovered:
+            self._flush_cache_index_snapshot()
     
     def _get_cache_key(self, image_path: str, width: int, height: int) -> str:
         """
@@ -212,6 +263,7 @@ class PosterCacheManager:
         Returns:
             缓存的 QPixmap，如果缓存无效则返回 None
         """
+        self._recover_unindexed_cache(image_path, width, height)
         # 1. 先尝试精确匹配
         if self.has_valid_cache(image_path, width, height):
             try:
@@ -271,6 +323,7 @@ class PosterCacheManager:
         线程安全版本：使用 QImage 加载缓存（可在后台线程调用）。
         QPixmap 不是线程安全的，后台线程必须用此方法。
         """
+        self._recover_unindexed_cache(image_path, width, height)
         # 1. 先尝试精确匹配
         if self.has_valid_cache(image_path, width, height):
             try:
@@ -363,6 +416,20 @@ class PosterCacheManager:
             logger.error(f"保存缓存失败: {e}")
             return False
     
+    def refresh_from_source(self, image_path: str) -> bool:
+        """在后台为刚保存的电影生成离线海报；原图不可读时保留已有缓存。"""
+        image = QImage(image_path)
+        if image.isNull():
+            return False
+        self.invalidate_cache_for_path(image_path)
+        results = []
+        for width, height in ((200, 300), (280, 420)):
+            scaled = image.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio,
+                                  Qt.TransformationMode.SmoothTransformation)
+            results.append(self.save_to_cache_from_image(image_path, width, height, scaled))
+        self.flush_index()
+        return all(results)
+
     def save_to_cache_from_image(self, image_path: str, width: int, height: int, image: QImage) -> bool:
         """
         线程安全版本：将 QImage 保存到缓存（可在后台线程调用）。

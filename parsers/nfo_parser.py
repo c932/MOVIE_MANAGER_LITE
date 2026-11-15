@@ -8,6 +8,7 @@ from typing import Optional
 import logging
 
 from models.movie import Movie, Actor
+from utils.countries import localize_countries
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,7 @@ class NFOParser:
             for country in root.findall('country'):
                 if country.text:
                     movie.countries.append(country.text.strip())
+            movie.countries = localize_countries(movie.countries)
             
             # 用户自定义标签（custom元素）
             # 注意：NFO中的<tag>通常是媒体服务器从 TMDB 获取的电影关键词，

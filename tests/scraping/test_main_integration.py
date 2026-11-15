@@ -41,6 +41,29 @@ def test_toolbar_opens_unified_workbench_even_when_library_empty():
     assert len(calls) == 1
 
 
+def test_saved_movie_warms_durable_posters_even_if_started_offline(qt_window, tmp_path, monkeypatch):
+    from PyQt6.QtGui import QImage
+    from utils.poster_cache_manager import PosterCacheManager
+    app, window = qt_window
+    monkeypatch.setattr(PosterCacheManager, 'CACHE_DIR', tmp_path / 'posters')
+    (tmp_path / 'new.mkv').touch()
+    nfo = tmp_path / 'new.nfo'
+    nfo.write_text('<movie><title>新增电影</title></movie>', encoding='utf-8')
+    poster = str(tmp_path / 'new-poster.jpg')
+    image = QImage(1000, 1500, QImage.Format.Format_RGB32)
+    image.fill(0x3366CC)
+    assert image.save(poster)
+    window._on_scrape_saved([str(nfo)])
+    _wait(app, lambda: not window._scrape_refresh_runner.busy)
+    cache = PosterCacheManager()
+    assert cache.has_valid_cache(poster, 200, 300)
+    assert cache.has_valid_cache(poster, 280, 420)
+    # 关闭后也必须保留索引，而不是只存在于当前进程内存。
+    import json
+    entries = json.loads((tmp_path / 'posters/index.json').read_text(encoding='utf-8'))['entries']
+    assert len(entries) == 2
+
+
 def test_douban_shortcut_selects_same_workbench_mode():
     from ui.main_window import MainWindow
     calls = []

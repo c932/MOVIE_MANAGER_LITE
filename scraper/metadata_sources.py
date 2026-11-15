@@ -7,6 +7,7 @@ import threading
 import time
 from typing import Any, Callable
 from urllib.parse import urlsplit
+from utils.countries import localize_country
 
 from .scrape_http import HttpClient, HttpError
 from .scrape_models import Artwork, Candidate, Metadata, ScrapeError
@@ -157,7 +158,8 @@ class TmdbProvider:
             'plot': _text(data.get('overview')), 'tagline': _text(data.get('tagline')),
             'runtime': _text(data.get('runtime')),
             'genres': [_text(item.get('name')) for item in _items(data, 'genres', 'TMDB')],
-            'countries': [_text(item.get('name')) for item in _items(data, 'production_countries', 'TMDB')],
+            'countries': [localize_country(_text(item.get('name')), _text(item.get('iso_3166_1')))
+                          for item in _items(data, 'production_countries', 'TMDB')],
             'directors': [_text(item.get('name')) for item in crew if item.get('job') == 'Director'],
             'actors': [{'name': _text(item.get('name')), 'role': _text(item.get('character')),
                         'thumb': _image(item.get('profile_path'), 'w185')}

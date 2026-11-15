@@ -926,11 +926,17 @@ class MainWindow(QMainWindow):
         paths = tuple(self._pending_scrape_paths)
         self._pending_scrape_paths.clear()
         def read_saved(context):
+            from utils.poster_cache_manager import PosterCacheManager
+            poster_cache = PosterCacheManager()
             movies = []
             for path in paths:
                 context.checkpoint()
                 movie = NFOParser.parse(path, include_user_rating=True)
                 if movie is not None and movie.video_path:
+                    if movie.poster_path:
+                        # 保存成功说明本次可以访问媒体目录。即使启动时离线，也要
+                        # 在后台生成并落盘新海报，不能只依赖可见卡片的按需加载。
+                        poster_cache.refresh_from_source(movie.poster_path)
                     movies.append(movie)
             return movies
         runner.start('read', read_saved)
@@ -954,8 +960,6 @@ class MainWindow(QMainWindow):
                 updated, getattr(old, "added_time", 0.0) if old is not None else 0.0)
             for image_path in {getattr(old, 'poster_path', ''), updated.poster_path} - {''}:
                 image_cache.remove(image_path)
-                if self._poster_cache_manager is not None:
-                    self._poster_cache_manager.invalidate_cache_for_path(image_path)
             if old is not None:
                 for name, field_value in vars(updated).items():
                     setattr(old, name, field_value)
