@@ -86,3 +86,68 @@ def test_search_next_movie_follows_search_source_and_repeated_results_can_select
     assert dialog._preview is not None
     dialog.close()
     until(app, lambda: not dialog.tasks.busy)
+
+
+def test_real_service_search_confirm_save_refreshes_management_row(app, tmp_path, monkeypatch):
+    from ui.scrape_search_dialog import SearchScrapeDialog
+    from ui.scrape_manager import ScrapeManagerDialog
+    from scraper.scrape_service import ScrapeService
+    from scraper.scrape_settings import ScrapeSettings
+    from parsers.nfo_parser import NFOParser
+    from tests.scraping.test_sources import transport, movie_record
+    video = tmp_path / 'New.2024.mkv'
+    video.touch()
+    target = VideoTarget(video, video.with_suffix('.nfo'), 'New', '2024')
+    record = dict(movie_record(17, title='新电影'), vote_average=8.2, vote_count=120)
+    record.pop('poster_path')
+    transport(monkeypatch, [{'results': [record]}, record, {'imdb_id': None},
+                           {'cast': [], 'crew': []}, {'posters': []}])
+    service = ScrapeService(ScrapeSettings(tmdb_api_key='fake'))
+    monkeypatch.setattr(service, 'enrich_metadata', lambda metadata: metadata)
+    manager = ScrapeManagerDialog([target], service=service)
+    manager.show()
+    until(app, lambda: not manager.tasks.busy)
+    dialog = SearchScrapeDialog([target], service=service)
+    dialog.saved.connect(manager._child_saved)
+    dialog.show()
+    dialog.search()
+    until(app, lambda: not dialog.tasks.busy)
+    dialog.candidate_table.selectRow(0)
+    until(app, lambda: not dialog.tasks.busy)
+    dialog.metadata_only_check.setChecked(True)
+    dialog.confirm_button.click()
+    until(app, lambda: not dialog.tasks.busy)
+    assert dialog.save_button.isEnabled()
+    dialog.save_button.click()
+    until(app, lambda: not dialog.tasks.busy and not manager.tasks.busy)
+    parsed = NFOParser.parse(str(target.nfo_path))
+    assert parsed.title == '新电影' and parsed.ratings['tmdb'] == 8.2
+    assert manager.model.rows[0].outcome == '已保存'
+    assert not manager.model.rows[0].is_new
+    dialog.close()
+    manager.close()
+    until(app, lambda: not dialog.tasks.busy and not manager.tasks.busy)
+
+
+def test_editor_preserves_unmodified_legacy_formats(app, tmp_path):
+    from ui.metadata_editor import MetadataEditorDialog
+    from tests.scraping.test_management import movie_files
+    import xml.etree.ElementTree as ET
+    nfo = movie_files(tmp_path)
+    root = ET.parse(nfo).getroot()
+    ET.SubElement(root, 'premiered').text = '2024/01/02'
+    ET.SubElement(root, 'runtime').text = '2h'
+    ET.SubElement(root, 'uniqueid', {'type': 'tmdb'}).text = 'legacy-invalid-id'
+    nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
+    editor = MetadataEditorDialog(str(nfo))
+    editor.show()
+    until(app, lambda: not editor.tasks.busy)
+    editor.fields['title'].setText('仅改标题')
+    editor.save()
+    until(app, lambda: not editor.tasks.busy)
+    assert not editor.isVisible()
+    root = ET.parse(nfo).getroot()
+    assert root.findtext('title') == '仅改标题'
+    assert root.findtext('runtime') == '2h'
+    assert root.findtext('premiered') == '2024/01/02'
+    assert root.findtext("uniqueid[@type='tmdb']") == 'legacy-invalid-id'

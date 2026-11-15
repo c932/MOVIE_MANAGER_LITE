@@ -308,13 +308,13 @@ class MetadataEditorDialog(QDialog):
             return
         try:
             values = self._values()
-            if values['year'] and not re.fullmatch(r'\d{4}', values['year']):
-                raise ValueError('年份应为四位数字')
-            if values['premiered']:
-                date.fromisoformat(values['premiered'])
-            if values['runtime'] and not values['runtime'].isdigit():
-                raise ValueError('时长应为非负整数分钟')
             changes = {key: value for key, value in values.items() if value != self._initial[key]}
+            if 'year' in changes and values['year'] and not re.fullmatch(r'\d{4}', values['year']):
+                raise ValueError('年份应为四位数字')
+            if 'premiered' in changes and values['premiered']:
+                date.fromisoformat(values['premiered'])
+            if 'runtime' in changes and values['runtime'] and not values['runtime'].isdigit():
+                raise ValueError('时长应为非负整数分钟')
             ratings = {}
             for source, edit in self.ratings.items():
                 text = edit.text().strip()
@@ -322,8 +322,8 @@ class MetadataEditorDialog(QDialog):
                     ratings[source] = float(text) if text else None
             if ratings:
                 changes['ratings'] = ratings
-            ids = {source: self._identity(source, edit.text()) for source, edit in self.ids.items()}
-            changed_ids = {s: value for s, value in ids.items() if value != self._initial_ids.get(s, '')}
+            changed_ids = {source: self._identity(source, edit.text()) for source, edit in self.ids.items()
+                           if edit.text().strip() != self._initial_ids.get(source, '')}
             if changed_ids:
                 changes['uniqueids'] = changed_ids
             actors = []

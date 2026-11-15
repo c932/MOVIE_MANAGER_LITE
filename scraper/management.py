@@ -11,6 +11,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Callable
+from urllib.parse import urlsplit
 
 from models.movie import Actor, Movie
 from parsers.nfo_parser import NFOParser
@@ -26,6 +27,14 @@ from utils.app_paths import resolve_data_file
 
 def path_key(path: str | Path) -> str:
     return str(path).replace('\\', '/').casefold()
+
+
+def _is_douban_url(value: str) -> bool:
+    try:
+        host = urlsplit(value).hostname or ''
+        return host == 'douban.com' or host.endswith('.douban.com')
+    except ValueError:
+        return False
 
 
 @dataclass
@@ -206,9 +215,13 @@ def load_edit(nfo_path: str, video_path: str = '') -> EditSnapshot:
     root = ET.fromstring(payload)
     poster = Path(movie.poster_path) if movie.poster_path else target.video_path.with_name(target.video_path.stem + '-poster.jpg')
     votes = {}
-    for rating in root.findall('ratings/rating'):
+    normalized = copy.deepcopy(root)
+    _normalize_tmdb_rating(normalized)
+    info = NFOParser._extract_rating(normalized, include_user_rating=True) or {}
+    movie.ratings = info.get('all_ratings', {})
+    for rating in normalized.findall('ratings/rating'):
         try:
-            votes[rating.get('name', '').replace('themoviedb', 'tmdb')] = int(rating.findtext('votes', '0'))
+            votes[rating.get('name', '').casefold()] = int(rating.findtext('votes', '0'))
         except ValueError:
             pass
     return EditSnapshot(target, root, movie, {str(nfo): target.nfo_fingerprint, str(poster): fingerprint(poster)}, poster, votes)
@@ -244,7 +257,7 @@ def save_edit(snapshot: EditSnapshot, changes: dict, *, votes: dict | None = Non
                 root.remove(node)
         if source == 'douban':
             for node in list(root.findall('url')):
-                if 'douban.com' in (node.text or ''):
+                if _is_douban_url(node.text or ''):
                     root.remove(node)
     for source, count in (votes or {}).items():
         node = root.find(f"ratings/rating[@name='{source}']")

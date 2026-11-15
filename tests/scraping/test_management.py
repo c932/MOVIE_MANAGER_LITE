@@ -115,3 +115,27 @@ def test_reinspected_rebuilt_nfo_drops_resolved_error_and_can_clear_legacy_set(t
     nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
     updated = save_edit(load_edit(str(nfo)), {'set_name': ''})
     assert updated.set_name == ''
+
+
+def test_edit_duplicate_tmdb_alias_uses_votes_from_effective_rating(tmp_path):
+    from scraper.management import load_edit
+    nfo = movie_files(tmp_path)
+    root = ET.parse(nfo).getroot()
+    ET.SubElement(root.find('ratings'), 'rating', {'name': 'tmdb'})
+    nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
+    snapshot = load_edit(str(nfo))
+    assert snapshot.votes['tmdb'] == 123
+    assert snapshot.movie.ratings['tmdb'] == 8.1
+
+
+@pytest.mark.parametrize('identity', ['', '2'])
+def test_edit_douban_identity_preserves_unrelated_url_with_douban_in_query(tmp_path, identity):
+    from scraper.management import load_edit, save_edit
+    nfo = movie_files(tmp_path)
+    root = ET.parse(nfo).getroot()
+    unrelated = 'https://example.com/?ref=douban.com'
+    ET.SubElement(root, 'url').text = unrelated
+    ET.SubElement(root, 'doubanurl').text = 'https://movie.douban.com/subject/1/'
+    nfo.write_bytes(ET.tostring(root, encoding='utf-8'))
+    save_edit(load_edit(str(nfo)), {'uniqueids': {'douban': identity}})
+    assert ET.parse(nfo).getroot().findtext('url') == unrelated
