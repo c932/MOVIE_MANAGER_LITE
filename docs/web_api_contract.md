@@ -260,3 +260,14 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 桌面仅上传不应用服务端资料，仅下载只发 GET（包括海报），双向先上传变更再增量下载。缓存丢失不代表删除共享库：不从缺失记录自动推导墓碑，下载可从本机同步基线恢复；显式删除协议由调用方提交。电影墙原有“仅本地数据库”删除维持本机语义，下次下载可能重新出现；网页“从共享数据库删除”形成服务器墓碑并同步到其他客户端。均不删除媒体文件。
 
 观看、收藏、个人评分修改产生新资料版本。个人评分没有可读 NAS NFO 时保存在共享库；NFO 可读时兼容原有写回。海报读取优先使用后端已保存副本。`/system/info` 新增 `sync:true` 与 `source_available:bool`，网页据此禁用源文件操作。NAS 挂载与完整源扫描/刮削编辑/播放按用户确认后续接入，本轮交付同步和浏览。
+
+## 榜单发现接口（2026-11-17）
+
+- 榜单与新片条目补充 `douban_id`；榜单补充 `douban_url`。已入库返回 `movie_id`，网页直接复用本地详情与播放。
+- `GET /rankings/{kind}` 仍只读缓存，不触发真实网络。`fetched_at` 优先使用该来源独立时间戳；旧缓存没有独立时间戳时返回0但保留条目，网页会触发后台刷新。更新某一来源不得给其他来源续期。
+- `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源仍为 `rankings.fetch`；不同来源不会误复用同一任务。热门只抓列表，简介按需读取，避免每次刷新等待几十个详情请求。来源空响应报错，保留旧缓存。成功保存用锁及原子替换。
+- `GET /discovery/annual/{year}` → `{year,fetched_at,source_url?,categories:[{id,title,items:RankingItem[]}]}`。无缓存返回空categories；只读，无隐式网络。年度必须已结束。
+- `POST /discovery/annual/{year}/refresh` → `{job_id}`；官方页面动态发现新版page ID或旧版activity名，按年份独立缓存。支持2017年起年度；来源不可用时报中文错误、保留原缓存。
+- `POST /discovery/subject/{douban_id}` → `{job_id}`；任务result为 `{title,plot,douban_id,fetched_at}`，简介缓存一天，只读发现，不创建本库电影、不写NAS/NFO。
+- 网页热门/新片六小时、Top250一天、年度七天过期后显式提交刷新任务；提供手动刷新和错误提示。
+- 豆瓣图片使用浏览器UA、豆瓣Referer及图片Accept；图片代理白名单增加IMDb官方media-amazon.com图片域名，仍拒绝任意主机。远程缓存并发使用唯一临时文件。

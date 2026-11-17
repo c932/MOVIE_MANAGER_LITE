@@ -317,7 +317,7 @@ def run_rankings_fetch(
     if "chart" in sources:
         ctx.update(stage="抓取榜单", message="正在抓取豆瓣近期热门榜单...")
         ctx.check_cancelled()
-        chart = fetch_douban_chart(cached_movies=all_cached)
+        chart = fetch_douban_chart(cached_movies=all_cached, fetch_details=False)
         ctx.log(f"  热门榜单获取完成: {len(chart)} 部电影")
 
     if "imdb_top250" in sources:
@@ -329,10 +329,14 @@ def run_rankings_fetch(
     ctx.check_cancelled()
 
     # 保存到缓存（合并模式：未请求的来源保留旧缓存）
+    if any(not items for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250)) if source in sources):
+        raise ValueError('榜单来源未返回有效资料，请稍后重试；旧缓存已保留。')
     if top250 or chart:
-        save_ranking_cache(top250, chart, imdb_top250 or None, cache_path=cache_path)
+        with store.lock:
+            save_ranking_cache(top250, chart, imdb_top250 or None, cache_path=cache_path)
     elif imdb_top250:
-        save_ranking_cache([], [], imdb_top250, cache_path=cache_path)
+        with store.lock:
+            save_ranking_cache([], [], imdb_top250, cache_path=cache_path)
 
     return _finish(top250 + chart + imdb_top250, False)
 

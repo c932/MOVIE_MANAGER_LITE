@@ -221,7 +221,8 @@ def test_rankings_fetch_from_network(service_data_dir, monkeypatch):
             )
         ]
 
-    def chart(cached_movies=None):
+    def chart(cached_movies=None, *, fetch_details=True):
+        assert fetch_details is False
         return [
             dr.RankedMovie(
                 title="疯狂动物城", year="2016", rating=9.2, douban_id="25669958",

@@ -354,7 +354,11 @@ def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
 
         data = {
             "timestamp": datetime.now().isoformat(),
+            "source_timestamps": dict(existing.get("source_timestamps", {})),
         }
+        for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250)):
+            if items:
+                data['source_timestamps'][source] = data['timestamp']
 
         # 合并 top250：有新数据则覆盖，无新数据则保留旧缓存
         if top250:
@@ -374,8 +378,11 @@ def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
         else:
             data["imdb_top250"] = existing.get("imdb_top250", [])
 
-        with open(path, 'w', encoding='utf-8') as f:
+        from uuid import uuid4
+        tmp = path.with_name(path.name + '.' + uuid4().hex + '.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+        tmp.replace(path)
         imdb_count = len(data.get("imdb_top250", []))
         imdb_info = f", IMDB {imdb_count} 部" if imdb_count else ""
         logger.info(f"榜单缓存已保存: Top250 {len(data['top250'])} 部, 热门 {len(data['chart'])} 部{imdb_info} -> {path}")
@@ -584,7 +591,7 @@ def _fetch_movie_detail(douban_id: str) -> dict:
     return {"douban_id": douban_id, "detail": detail}
 
 
-def fetch_douban_chart(cached_movies: List[RankedMovie] = None) -> List[RankedMovie]:
+def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details: bool = True) -> List[RankedMovie]:
     """
     抓取豆瓣最新热门电影（评分 ≥ 7.0）
 
@@ -629,7 +636,7 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None) -> List[RankedMo
     new_ids = [did for did in all_ids if did and did not in cached_lookup]
 
     details = {}
-    if new_ids:
+    if new_ids and fetch_details:
         logger.info(f"豆瓣热门: {len(new_ids)}/{len(all_ids)} 部为新电影，获取详情")
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {executor.submit(_fetch_movie_detail, did): did for did in new_ids}

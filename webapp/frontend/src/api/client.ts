@@ -53,6 +53,9 @@ export const jobsApi = (prefix: string) => ({
 
 // ── 电影墙 ────────────────────────────────────────────
 export const movieApi = {
+  annual: (year: number) => request<import('../types/api').AnnualResponse>(`/api/movie/discovery/annual/${year}`),
+  refreshAnnual: (year: number) => request<{job_id: string}>(`/api/movie/discovery/annual/${year}/refresh`, {method: 'POST'}),
+  subject: (id: string) => request<{job_id: string}>(`/api/movie/discovery/subject/${id}`, {method: 'POST'}),
   playlistUrl: (id: string) => `/api/movie/movies/${id}/playlist.m3u8`,
   nasStatus: () => request<NASStatus>('/api/movie/nas'),
   nasShares: (config: NASConfig) => request<{job_id: string}>('/api/movie/nas/shares', {method: 'POST', body: JSON.stringify(config)}),

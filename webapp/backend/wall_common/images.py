@@ -13,6 +13,8 @@ import logging
 import os
 import time
 import urllib.request
+from urllib.parse import urlparse
+from uuid import uuid4
 from pathlib import Path
 from typing import Optional, Union
 
@@ -134,7 +136,15 @@ def _fit(img: Image.Image, width: int, height: int, mode: str, bg: tuple) -> Ima
 
 def fetch_remote(url: str, timeout: float = 12.0, max_bytes: int = 30 * 1024 * 1024) -> bytes:
     """拉取远程图片字节（带 UA、大小上限）。"""
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    headers = {"User-Agent": USER_AGENT}
+    host = (urlparse(url).hostname or '').lower()
+    if host == 'doubanio.com' or host.endswith('.doubanio.com') or host == 'douban.com' or host.endswith('.douban.com'):
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Referer': 'https://movie.douban.com/',
+            'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        }
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             length = resp.headers.get("Content-Length")
@@ -183,9 +193,12 @@ def cached_remote(
             return dest  # 新内容损坏但旧缓存可用
         raise ImageError("远程图片内容无效", status_code=502) from exc
 
-    tmp = cache_dir / f"{name}.{os.getpid()}.tmp"
-    tmp.write_bytes(data)
-    tmp.replace(dest)
+    tmp = cache_dir / f"{name}.{uuid4().hex}.tmp"
+    try:
+        tmp.write_bytes(data)
+        tmp.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
     return dest
 
 

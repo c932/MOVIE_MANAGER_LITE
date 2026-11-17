@@ -41,7 +41,7 @@ RANKING_KINDS: Sequence[str] = ("top250", "chart", "imdb_top250")
 NEW_MOVIE_KINDS: Sequence[str] = ("nowplaying", "coming")
 
 # 图片代理 host 白名单（契约 2.2）
-IMAGE_PROXY_HOSTS = ("douban.com", "doubanio.com", "imdb.com", "tmdb.org")
+IMAGE_PROXY_HOSTS = ("douban.com", "doubanio.com", "imdb.com", "media-amazon.com", "tmdb.org")
 
 
 class ScrapeRequest(BaseModel):
@@ -58,13 +58,13 @@ class NewMoviesFetchRequest(BaseModel):
     use_cache: bool = True
 
 
-def _cache_timestamp(path: Path) -> float:
+def _cache_timestamp(path: Path, source: str = '') -> float:
     """读缓存 JSON 的 timestamp（ISO 文本）转 Unix 秒；读不到返回 0.0。"""
     try:
         if not path.is_file():
             return 0.0
         data = json.loads(path.read_text(encoding="utf-8"))
-        stamp = data.get("timestamp") or ""
+        stamp = (data.get('source_timestamps', {}).get(source) if source else data.get('timestamp')) or ''
         if not stamp:
             return 0.0
         return float(datetime.fromisoformat(stamp).timestamp())
@@ -128,6 +128,8 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
                 "year": str(rm.year or ""),
                 "rating": float(rm.rating or 0.0),
                 "poster_url": rm.poster_url or "",
+                "douban_id": rm.douban_id if rm.source != 'imdb_top250' else '',
+                "douban_url": f'https://movie.douban.com/subject/{rm.douban_id}/' if rm.douban_id and rm.source != 'imdb_top250' else '',
                 "owned": is_owned,
                 "movie_id": movie_id(matched.nfo_path) if is_owned else None,
                 "in_library": is_owned,
@@ -146,8 +148,8 @@ def get_rankings(request: Request, kind: str) -> Dict[str, Any]:
 
     store = get_store(request)
     cache_path = store.ranking_cache_file
-    fetched_at = _cache_timestamp(cache_path)
-    if fetched_at <= 0.0:
+    fetched_at = _cache_timestamp(cache_path, kind)
+    if not cache_path.is_file():
         return {"kind": kind, "fetched_at": 0.0, "items": [], "owned_count": 0, "missing_count": 0}
 
     if kind == "imdb_top250":
@@ -173,7 +175,7 @@ def fetch_rankings(request: Request, payload: RankingsFetchRequest) -> Dict[str,
     store = get_store(request)
     sources = _validated_sources(payload.sources, RANKING_SOURCES)
     job = request.app.state.jobs.submit(
-        RANKINGS_KIND,
+        RANKINGS_KIND + ('.' + sources[0] if len(sources) == 1 else ''),
         lambda ctx: run_rankings_fetch(
             store, ctx, sources=sources, use_cache=bool(payload.use_cache)
         ),
@@ -211,6 +213,7 @@ def get_newmovies(request: Request, kind: str) -> Dict[str, Any]:
         items.append(
             {
                 "title": nm.title,
+                "douban_id": nm.douban_id,
                 "year": str(nm.year or ""),
                 "genre": " / ".join(nm.genres or []),
                 "release_date": nm.premiered or "",
