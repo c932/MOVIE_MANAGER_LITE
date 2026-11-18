@@ -108,7 +108,7 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose }: {
     <Modal title="系列、榜单与新片" wide onClose={onClose}>
       <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([value, label]) => <button key={value} className={`btn ${kind === value ? 'btn-active' : ''}`} aria-pressed={kind === value} onClick={() => {setKind(value); setRefresh(0);}}>{label}</button>)}</div>
       {kind === 'annual' && <div className="mb-4 flex flex-wrap items-center gap-3">
-        <label>年度 <select className="input" aria-label="榜单年度" value={year} onChange={e => {setYear(Number(e.target.value)); setCategory(''); setRefresh(0);}}>{Array.from({length: Math.max(1, latestYear - 2016)}, (_, i) => latestYear - i).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label>年度 <select className="input" aria-label="榜单年度" value={year} onChange={e => {setYear(Number(e.target.value)); setCategory(''); setRefresh(0);}}>{Array.from({length: Math.max(1, latestYear - 2018)}, (_, i) => latestYear - i).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
         {!!categories.length && <label>分类 <select className="input max-w-full" aria-label="年度电影分类" value={selectedCategory?.id || ''} onChange={e => setCategory(e.target.value)}>{categories.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
         <a className="btn text-sm" target="_blank" rel="noopener noreferrer" href={`https://movie.douban.com/annual/${year}/`}>豆瓣年度原榜</a>
       </div>}
