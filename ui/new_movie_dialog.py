@@ -381,6 +381,13 @@ class NewMovieDialog(QDialog):
 
         # 搜索下载链接
         search_action = menu.addAction(f"搜索下载链接 - {new_movie.title}")
+        bili_menu = menu.addMenu("📺 哔哩哔哩")
+        bili_search = bili_menu.addAction("🔎 B站搜索")
+        bili_play = bili_menu.addAction("▶ B站播放")
+        bili_search.triggered.connect(lambda: self._open_bilibili(
+            new_movie.title, new_movie.year, False))
+        bili_play.triggered.connect(lambda: self._open_bilibili(
+            new_movie.title, new_movie.year, True))
         menu.addSeparator()
 
         # 复制豆瓣链接
@@ -398,6 +405,14 @@ class NewMovieDialog(QDialog):
             self._log(f"已复制: {douban_url}")
         elif selected == open_action:
             webbrowser.open(douban_url)
+
+    def _open_bilibili(self, title: str, year: str, play: bool):
+        import threading
+        def work():
+            from utils.bilibili import open_bilibili_play, open_bilibili_search
+            opener = open_bilibili_play if play else open_bilibili_search
+            opener(title, year=year)
+        threading.Thread(target=work, daemon=True).start()
 
     # ─────────────── 工具方法 ───────────────
 

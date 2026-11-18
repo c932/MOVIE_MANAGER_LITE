@@ -4,6 +4,7 @@ import type { AnnualResponse, MovieListItem, RankingItem, NewMovieItem } from '.
 import { Modal } from '../Modal';
 import { FloatingMovieDetail } from './FloatingMovieDetail';
 import { MovieDetail } from './MovieDetail';
+import { BilibiliActions } from './BilibiliActions';
 
 type Kind = 'series' | 'top250' | 'imdb_top250' | 'chart' | 'nowplaying' | 'coming' | 'annual';
 type Item = RankingItem | NewMovieItem;
@@ -54,6 +55,7 @@ function MissingMovie({row, onClose}: {row: Item; onClose: () => void}) {
       {detail.plot}
     </div>
     <div className="flex flex-wrap gap-3"><a className="btn btn-active" href={`https://www.zhongchuangwl.com/s/${encodeURIComponent(row.title)}/`} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>
+      <BilibiliActions title={row.title} year={row.year}/>
       {did && <a className="btn" href={`https://movie.douban.com/subject/${did}/`} target="_blank" rel="noopener noreferrer">豆瓣条目</a>}</div>
   </Modal>;
 }

@@ -65,6 +65,8 @@ describe('电影墙交互', () => {
     expect(within(scroll).getByRole('button', {name: /第一部/})).toBe(card);
     const logos = within(dialog).getAllByRole('img').filter(image => ['豆瓣','IMDb','TMDB'].includes(image.getAttribute('alt') || ''));
     expect(logos.map(image => image.getAttribute('alt'))).toEqual(['豆瓣','IMDb','TMDB']);
+    expect(within(dialog).getByRole('link', {name: '🔎 B站搜索'}).getAttribute('href')).toMatch(/^moviewall:\/\/bilibili\/search\?keyword=/);
+    expect(within(dialog).getByRole('link', {name: '▶ B站播放'}).getAttribute('href')).toMatch(/^moviewall:\/\/bilibili\/play\?keyword=/);
     fireEvent.click(dialog);
     await waitFor(() => expect(screen.queryByRole('dialog', {name: '第一部'})).not.toBeInTheDocument());
     expect(scroll.scrollTop).toBe(540);

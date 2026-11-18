@@ -14,6 +14,7 @@ import { SearchScrapeDialog } from '../components/movie/SearchScrapeDialog';
 import { scrapeApi } from '../api/scrape';
 import type { ScrapeRow } from '../api/scrape';
 import { LocalPlayback } from '../components/movie/LocalPlayback';
+import { BilibiliActions } from '../components/movie/BilibiliActions';
 import { filterMovies, useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
 
@@ -171,6 +172,8 @@ export default function MovieWall() {
     {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
       <MenuItem onClick={() => openDetails(context.movie)}>查看完整详情</MenuItem>
       <LocalPlayback movie={context.movie} menu/>
+      <BilibiliActions title={context.movie.title} originalTitle={context.movie.original_title}
+        year={context.movie.year} menu onRequested={() => setContext(null)}/>
       <MenuItem onClick={()=>run(()=>openScrape(context.movie))}>搜索匹配 / 刮削电影</MenuItem>
       <MenuItem onClick={() => { setProperties(context.movie); setContext(null); }}>属性</MenuItem>
       <MenuItem onClick={() => run(async () => { updated(await movieApi.setWatched(context.movie.id, !context.movie.watched)); })}>{context.movie.watched ? '标为未观看' : '标为已观看'}</MenuItem>

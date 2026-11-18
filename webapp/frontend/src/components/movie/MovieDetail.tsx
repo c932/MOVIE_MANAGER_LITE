@@ -5,6 +5,7 @@ import type { MovieListItem } from '../../types/api';
 import { ratingOrder, ratingNames } from '../../utils/movieDisplay';
 import { LocalPlayback } from './LocalPlayback';
 import { TechBadges } from './TechBadges';
+import { BilibiliActions } from './BilibiliActions';
 
 interface Props {
   movie: MovieListItem | null;
@@ -198,6 +199,7 @@ export function MovieDetail({
         {/* 按钮栏 */}
         <div className="mt-auto flex flex-wrap gap-2 border-t divider pt-3">
           {movie.video_path && <LocalPlayback movie={movie}/>}
+          <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
           <button
             className={`btn ${movie.watched ? 'btn-active' : ''}`}
             onClick={() => run(toggleWatched)} disabled={busy}

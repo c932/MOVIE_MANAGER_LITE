@@ -51,6 +51,8 @@ it('缺失电影显示简介和中创盘搜，没有播放操作', async () => {
   const dialog = await screen.findByRole('dialog', {name: '缺失电影 · 电影简介'});
   expect(await within(dialog).findByText('该电影的真实剧情')).toBeInTheDocument();
   expect(within(dialog).getByRole('link', {name: '打开夸克盘搜'})).toHaveAttribute('href', 'https://www.zhongchuangwl.com/s/'+encodeURIComponent('缺失电影')+'/');
+  expect(within(dialog).getByRole('link', {name: '🔎 B站搜索'}).getAttribute('href')).toContain('moviewall://bilibili/search?keyword=');
+  expect(within(dialog).getByRole('link', {name: '▶ B站播放'}).getAttribute('href')).toContain('moviewall://bilibili/play?keyword=');
   expect(within(dialog).queryByRole('button', {name: /播放/})).not.toBeInTheDocument();
   expect(movieApi.subject).toHaveBeenCalledWith('456');
 });

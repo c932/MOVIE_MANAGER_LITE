@@ -72,11 +72,15 @@ def main():
         try:
             if len(sys.argv) != 2:
                 raise ValueError('播放链接参数无效')
-            from utils.play_protocol import play_url
-            play_url(sys.argv[1])
+            if sys.argv[1].startswith('moviewall://bilibili'):
+                from utils.bilibili import open_bridge_url
+                open_bridge_url(sys.argv[1])
+            else:
+                from utils.play_protocol import play_url
+                play_url(sys.argv[1])
         except (ValueError, OSError) as exc:
             application = QApplication.instance() or QApplication(sys.argv)
-            QMessageBox.warning(None, '无法启动本地播放器', str(exc))
+            QMessageBox.warning(None, '无法打开播放链接', str(exc))
         return
 
     # 单实例保护：避免重复启动导致资源竞争和体验混乱

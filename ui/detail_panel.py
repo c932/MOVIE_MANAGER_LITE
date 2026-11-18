@@ -4,6 +4,7 @@
 """
 import os
 import logging
+import threading
 import time
 import webbrowser
 from PyQt6.QtWidgets import (
@@ -1016,6 +1017,24 @@ class MovieDetailPanel(QWidget):
             logger.info(f"正在播放: {movie.video_path}")
         except Exception as e:
             logger.error(f"播放失败: {e}")
+
+    def _open_bilibili_search(self, movie: Movie):
+        try:
+            from utils.bilibili import open_bilibili_search
+            mode = open_bilibili_search(movie.title, movie.original_title, movie.year)
+            logger.info("B站搜索已打开: %s (%s)", movie.title, mode)
+        except Exception as exc:
+            logger.error("打开B站搜索失败: %s", exc)
+
+    def _open_bilibili_play(self, movie: Movie):
+        def work():
+            try:
+                from utils.bilibili import open_bilibili_play
+                mode = open_bilibili_play(movie.title, movie.original_title, movie.year)
+                logger.info("B站播放已打开: %s (%s)", movie.title, mode)
+            except Exception as exc:
+                logger.error("打开B站播放失败: %s", exc)
+        threading.Thread(target=work, daemon=True).start()
     
     def _toggle_watch_status(self):
         """切换观看状态"""
@@ -1064,6 +1083,17 @@ class MovieDetailPanel(QWidget):
         play_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         play_btn.clicked.connect(lambda: self._play_movie(movie))
         layout.addWidget(play_btn)
+
+        bili_btn = QPushButton("📺 B站 ▾")
+        bili_btn.setStyleSheet(btn_style)
+        bili_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        bili_menu = QMenu(bili_btn)
+        bili_search = bili_menu.addAction("🔎 B站搜索")
+        bili_play = bili_menu.addAction("▶ B站播放")
+        bili_search.triggered.connect(lambda: self._open_bilibili_search(movie))
+        bili_play.triggered.connect(lambda: self._open_bilibili_play(movie))
+        bili_btn.setMenu(bili_menu)
+        layout.addWidget(bili_btn)
         
         # 收藏按钮
         favorite_btn = QPushButton()

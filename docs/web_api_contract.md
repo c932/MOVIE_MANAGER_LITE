@@ -194,6 +194,8 @@ PUT 接受同结构的任意子集。
 
 ### 3.5.0 完整网页刮削与展示扩展
 
+3.6.0 新增本机哔哩哔哩链接桥 `moviewall://bilibili/search?keyword=...&fallback=...` 与 `moviewall://bilibili/play?keyword=...&fallback=...`。播放桥先按关键字搜索视频并选最匹配条目，检测到哔哩哔哩客户端时打开 `bilibili://search` / `bilibili://video/{BV号}`，否则回退允许范围内的 B 站网页。网页没有新增服务端数据接口，电影资料与账号凭据不传到 NUC 之外；客户端桥要求 3.6.0 或更新版。
+
 3.5.2 共享协议的 Movie 资料增加可选 `video_width:int=0` / `video_height:int=0`，用于保留已核实像素尺寸；列表DTO继续通过resolution/hdr_type展示，不改变既有字段契约。0表示未知；不会把0×0判为SD。缺尺寸资料允许从规范视频文件名补全，旧缓存不重新扫描媒体目录。
 
 3.5.1 新增 `GET /api/movie/movies/{id}/playlist.m3u8`：返回 UTF-8 播放列表附件（`application/vnd.apple.mpegurl`，`Cache-Control:no-store`，中文文件名使用 filename*）。无需 NAS 在 NUC 挂载，不读取或写入源文件，不改变观看状态；使用共享库记录中的原始 Windows/UNC 视频路径。不存在的影片404，路径缺失/不支持/含换行等400。用于浏览器未能唤起 moviewall 协议时由用户下载打开，协议启动仍要求本机已安装3.5.0或更新版。

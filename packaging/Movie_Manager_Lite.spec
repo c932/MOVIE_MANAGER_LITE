@@ -19,6 +19,7 @@ a = Analysis(
         'scraper.douban_ranking',
         'scraper.new_movie_checker',
         'scraper.qt_tasks',
+        'utils.bilibili',
     ],
     hookspath=[],
     hooksconfig={},

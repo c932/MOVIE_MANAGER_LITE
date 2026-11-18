@@ -4,6 +4,7 @@
 """
 import logging
 import os
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -2875,6 +2876,11 @@ class MainWindow(QMainWindow):
         """)
 
         action_play = menu.addAction("▶ 播放")
+        bili_menu = menu.addMenu("📺 哔哩哔哩")
+        action_bili_search = bili_menu.addAction("🔎 B站搜索")
+        action_bili_play = bili_menu.addAction("▶ B站播放")
+        action_bili_search.triggered.connect(lambda: self._menu_open_bilibili(movie, False))
+        action_bili_play.triggered.connect(lambda: self._menu_open_bilibili(movie, True))
         action_open_folder = menu.addAction("📁 打开所在文件夹")
         menu.addSeparator()
         action_scrape_full = menu.addAction("🔍 搜索匹配 / 刮削电影")
@@ -2915,6 +2921,18 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"右键播放失败: {e}")
             QMessageBox.warning(self, "播放失败", str(e))
+
+    def _menu_open_bilibili(self, movie: Movie, play: bool):
+        def work():
+            try:
+                from utils.bilibili import open_bilibili_play, open_bilibili_search
+                opener = open_bilibili_play if play else open_bilibili_search
+                mode = opener(movie.title, movie.original_title, movie.year)
+                logger.info("右键B站%s已打开: %s (%s)",
+                            "播放" if play else "搜索", movie.title, mode)
+            except Exception as exc:
+                logger.error("右键打开B站失败: %s", exc)
+        threading.Thread(target=work, daemon=True).start()
 
     def _menu_open_movie_folder(self, movie: Movie):
         """右键菜单：打开电影所在目录"""

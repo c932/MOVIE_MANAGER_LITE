@@ -489,6 +489,13 @@ class DoubanRankingDialog(QDialog):
 
         # 搜索下载链接
         search_action = menu.addAction(f"搜索下载链接 - {movie_title}")
+        bili_menu = menu.addMenu("📺 哔哩哔哩")
+        bili_search = bili_menu.addAction("🔎 B站搜索")
+        bili_play = bili_menu.addAction("▶ B站播放")
+        bili_search.triggered.connect(lambda: self._open_bilibili(
+            movie_title, getattr(ranked_movie, 'year', ''), False))
+        bili_play.triggered.connect(lambda: self._open_bilibili(
+            movie_title, getattr(ranked_movie, 'year', ''), True))
         menu.addSeparator()
 
         if is_imdb:
@@ -516,6 +523,14 @@ class DoubanRankingDialog(QDialog):
         elif selected == open_action:
             import os
             os.startfile(url)
+
+    def _open_bilibili(self, title: str, year: str, play: bool):
+        import threading
+        def work():
+            from utils.bilibili import open_bilibili_play, open_bilibili_search
+            opener = open_bilibili_play if play else open_bilibili_search
+            opener(title, year=year)
+        threading.Thread(target=work, daemon=True).start()
 
     # ─────────────── 导出 ───────────────
 
