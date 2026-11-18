@@ -614,7 +614,7 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details
         if not isinstance(item, dict):
             continue
         try:
-            rating = float(item.get("rate", 0) or 0)
+            rating = float(item.get("rating", item.get("rate", 0)) or 0)
         except (ValueError, TypeError):
             continue
         if rating < _DOUBAN_CLI_MIN_RATING:
@@ -659,7 +659,7 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details
             continue
 
         try:
-            rating = float(item.get("rate", 0) or 0)
+            rating = float(item.get("rating", item.get("rate", 0)) or 0)
         except (ValueError, TypeError):
             rating = 0.0
 

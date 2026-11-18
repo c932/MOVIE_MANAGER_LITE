@@ -79,3 +79,15 @@ def test_douban_image_headers(monkeypatch):
         return Response(b'image')
     monkeypatch.setattr(images.urllib.request, 'urlopen', urlopen)
     assert images.fetch_remote('https://img3.doubanio.com/a.jpg') == b'image'
+
+
+def test_douban_chart_accepts_current_cli_rating_field(monkeypatch):
+    import scraper.douban_ranking as ranking
+
+    monkeypatch.setattr(ranking, '_run_douban_cli', lambda *args, **kwargs: [{
+        'id': '123', 'title': '可能的爱', 'rating': '8.6',
+        'cover': 'https://img3.doubanio.com/poster.jpg',
+    }])
+    items = ranking.fetch_douban_chart(fetch_details=False)
+    assert len(items) == 1
+    assert items[0].rating == 8.6
