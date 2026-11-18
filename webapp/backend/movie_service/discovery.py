@@ -13,11 +13,16 @@ from utils.library_sync import atomic_json, read_json
 def fetch_text(url: str) -> str:
     from scraper.douban_ranking import HEADERS
     headers = {**HEADERS, 'Referer': 'https://movie.douban.com/'}
-    try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
-            return response.read(8 * 1024 * 1024).decode('utf-8')
-    except Exception as exc:
-        raise ValueError('豆瓣暂时无法访问，请稍后重试；已缓存的榜单会保留。') from exc
+    last_error = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as response:
+                return response.read(8 * 1024 * 1024).decode('utf-8')
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(attempt + 0.5)
+    raise ValueError('豆瓣暂时无法访问，请稍后重试；已缓存的榜单会保留。') from last_error
 
 
 def parse_annual(data: dict, year: int) -> dict:

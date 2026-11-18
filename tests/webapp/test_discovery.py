@@ -91,3 +91,21 @@ def test_douban_chart_accepts_current_cli_rating_field(monkeypatch):
     items = ranking.fetch_douban_chart(fetch_details=False)
     assert len(items) == 1
     assert items[0].rating == 8.6
+
+
+def test_fetch_text_retries_transient_failure(monkeypatch):
+    import io
+    from movie_service import discovery
+
+    attempts = 0
+    def urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError('temporary')
+        return io.BytesIO('年度数据'.encode())
+
+    monkeypatch.setattr(discovery.urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(discovery.time, 'sleep', lambda _: None)
+    assert discovery.fetch_text('https://movie.douban.com/annual/2018/') == '年度数据'
+    assert attempts == 2
