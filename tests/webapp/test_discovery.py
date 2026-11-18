@@ -144,6 +144,24 @@ def test_imdb_top250_extracts_poster(monkeypatch):
     assert items[0].poster_url == 'https://m.media-amazon.com/images/poster.jpg'
 
 
+def test_mobile_movie_retries_rate_limit(monkeypatch):
+    import io
+    import scraper.douban_ranking as ranking
+
+    attempts = 0
+    def urlopen(request, timeout):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise OSError('temporary')
+        return io.BytesIO(json.dumps({'id': '123', 'cover_url': 'https://img3.doubanio.com/a.jpg'}).encode())
+
+    monkeypatch.setattr(ranking.urllib.request, 'urlopen', urlopen)
+    monkeypatch.setattr(ranking.time, 'sleep', lambda _: None)
+    assert ranking._fetch_mobile_movie('123')['cover_url'].endswith('/a.jpg')
+    assert attempts == 3
+
+
 def test_fetch_text_retries_transient_failure(monkeypatch):
     import io
     from movie_service import discovery

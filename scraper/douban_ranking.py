@@ -11,6 +11,7 @@ import re
 import html
 import json
 import logging
+import time
 import urllib.request
 import urllib.error
 from dataclasses import dataclass
@@ -602,11 +603,19 @@ def _fetch_mobile_movie(douban_id: str) -> dict:
         url,
         headers={**HEADERS, 'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'},
     )
-    try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            data = json.loads(response.read(4 * 1024 * 1024).decode('utf-8'))
-    except Exception as exc:
-        raise ValueError(f'豆瓣条目 {douban_id} 暂时无法读取') from exc
+    last_error = None
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=20) as response:
+                data = json.loads(response.read(4 * 1024 * 1024).decode('utf-8'))
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.7 * (attempt + 1))
+    if data is None:
+        raise ValueError(f'豆瓣条目 {douban_id} 暂时无法读取') from last_error
     if not isinstance(data, dict) or str(data.get('id') or '') != str(douban_id):
         raise ValueError(f'豆瓣条目 {douban_id} 返回格式无效')
     return data

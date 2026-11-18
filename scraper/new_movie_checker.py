@@ -118,7 +118,7 @@ def _fetch_details_concurrent(ids: List[str]) -> dict:
     from scraper.douban_ranking import _fetch_mobile_movie
 
     details = {}
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    with ThreadPoolExecutor(max_workers=3) as executor:
         futures = {executor.submit(_fetch_mobile_movie, did): did for did in ids}
         for future in as_completed(futures):
             try:
