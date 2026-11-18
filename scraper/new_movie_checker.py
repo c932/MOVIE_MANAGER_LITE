@@ -7,6 +7,7 @@
 import json
 import logging
 import re
+import html
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -110,22 +111,24 @@ def _run_cli(*args: str, timeout: int = 30) -> Optional[list | dict]:
     return run_douban_cli(*args, timeout=timeout)
 
 
-def _fetch_details_concurrent(ids: List[str]) -> dict:
-    """并发读取豆瓣移动端条目，返回 {douban_id: detail_dict}。"""
-    if not ids:
-        return {}
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    from scraper.douban_ranking import _fetch_mobile_movie
+def _parse_cinema_posters(page: str) -> dict:
+    """从豆瓣城市电影页面解析条目 ID 与海报。"""
+    return {
+        douban_id: html.unescape(cover_url)
+        for douban_id, cover_url in re.findall(
+            r'<div class="item mod[^"]*">\s*'
+            r'<a class="thumb" href="https://movie\.douban\.com/subject/(\d+)/">\s*'
+            r'<img src="([^"]+)"',
+            page,
+            re.DOTALL,
+        )
+    }
 
-    details = {}
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(_fetch_mobile_movie, did): did for did in ids}
-        for future in as_completed(futures):
-            try:
-                details[futures[future]] = future.result()
-            except Exception as e:
-                logger.warning(f"获取新片详情失败: {e}")
-    return details
+
+def _fetch_cinema_posters(segment: str) -> dict:
+    from scraper.douban_ranking import _fetch_url
+    page = _fetch_url(f'https://movie.douban.com/cinema/{segment}/shanghai/')
+    return _parse_cinema_posters(page)
 
 
 def fetch_nowplaying(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
@@ -197,20 +200,11 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
     cached_lookup = {
         m.douban_id: m for m in (cached_movies or []) if m.douban_id
     }
-
-    # 旧缓存没有海报或年份时重新读取移动端条目。
-    all_ids = [str(item.get("id", "")) for item in data if item.get("id")]
-    new_ids = [
-        did for did in all_ids
-        if did and (did not in cached_lookup or not cached_lookup[did].poster_url or not cached_lookup[did].year)
-    ]
-
-    if new_ids:
-        logger.info(f"即将上映: {len(new_ids)}/{len(all_ids)} 部需要补齐海报或年份")
-        new_details = _fetch_details_concurrent(new_ids)
-    else:
-        logger.info(f"即将上映: 全部 {len(all_ids)} 部详情均可用")
-        new_details = {}
+    try:
+        posters = _fetch_cinema_posters('later')
+    except Exception as exc:
+        logger.warning(f"获取即将上映海报失败，将使用旧缓存: {exc}")
+        posters = {}
 
     movies: List[NewMovie] = []
     for item in data:
@@ -221,27 +215,13 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
 
         genres = [str(g) for g in item.get("types", [])] if item.get("types") else []
         cached = cached_lookup.get(douban_id)
-        detail = new_details.get(douban_id, {})
-        year = str(detail.get("year") or (cached.year if cached else ""))
-        from scraper.douban_ranking import _parse_pubdate
-        premiered = _parse_pubdate(detail.get("pubdate", [])) if detail else ""
-        if not premiered:
-            premiered = _parse_release_date(str(item.get("release_date", "")), year)
-        if not year and premiered and len(premiered) >= 4:
-            year = premiered[:4]
-
-        rating_value = detail.get("rating")
-        if isinstance(rating_value, dict):
-            rating_value = rating_value.get("value")
-        try:
-            rating = float(rating_value or (cached.rating if cached else 0))
-        except (ValueError, TypeError):
-            rating = 0.0
-
-        if not genres and (detail.get("genres") or (cached.genres if cached else [])):
-            genres = [str(g) for g in (detail.get("genres") or cached.genres)]
-
-        poster_url = str(detail.get("cover_url") or (cached.poster_url if cached else ""))
+        fallback_year = cached.year if cached else ""
+        premiered = _parse_release_date(str(item.get("release_date", "")), fallback_year)
+        year = premiered[:4] if premiered else fallback_year
+        rating = cached.rating if cached else 0.0
+        if not genres and cached:
+            genres = cached.genres
+        poster_url = str(posters.get(douban_id) or (cached.poster_url if cached else ""))
         movies.append(NewMovie(
             title=title,
             year=year,

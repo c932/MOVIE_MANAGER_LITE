@@ -118,16 +118,22 @@ def test_now_and_coming_keep_douban_order_and_posters(monkeypatch):
     coming = [{'id': '2', 'title': '即将上映', 'release_date': '11月19日',
                'types': ['剧情'], 'regions': ['中国台湾'], 'wish_count': 12}]
     monkeypatch.setattr(checker, '_run_cli', lambda *args, **kwargs: now if args[0] == 'now' else coming)
-    monkeypatch.setattr(checker, '_fetch_details_concurrent', lambda ids: {'2': {
-        'id': '2', 'year': '2026', 'rating': {'value': 6.8},
-        'cover_url': 'https://img9.doubanio.com/coming.jpg', 'genres': ['剧情']}})
+    monkeypatch.setattr(checker, '_fetch_cinema_posters', lambda segment: {
+        '2': 'https://img9.doubanio.com/coming.jpg'})
     playing = checker.fetch_nowplaying()
     upcoming = checker.fetch_coming_soon()
     assert playing[0].title == '无评分热映'
     assert playing[0].poster_url.endswith('/now.jpg')
     assert playing[0].year == '2026'
     assert upcoming[0].poster_url.endswith('/coming.jpg')
-    assert upcoming[0].rating == 6.8
+    assert upcoming[0].year == '2026'
+
+
+def test_cinema_page_poster_parser():
+    from scraper.new_movie_checker import _parse_cinema_posters
+    page = '''<div class="item mod "><a class="thumb" href="https://movie.douban.com/subject/123/">
+    <img src="https://img3.doubanio.com/coming.jpg"></a></div>'''
+    assert _parse_cinema_posters(page)['123'].endswith('/coming.jpg')
 
 
 def test_imdb_top250_extracts_poster(monkeypatch):
@@ -160,6 +166,17 @@ def test_mobile_movie_retries_rate_limit(monkeypatch):
     monkeypatch.setattr(ranking.time, 'sleep', lambda _: None)
     assert ranking._fetch_mobile_movie('123')['cover_url'].endswith('/a.jpg')
     assert attempts == 3
+
+
+def test_subject_suggest_requires_exact_movie_id(monkeypatch):
+    import io
+    import scraper.douban_ranking as ranking
+
+    payload = [{'id': '123', 'type': 'movie', 'title': '电影', 'year': '2026',
+                'img': 'https://img3.doubanio.com/suggest.jpg'}]
+    monkeypatch.setattr(ranking.urllib.request, 'urlopen',
+                        lambda request, timeout: io.BytesIO(json.dumps(payload).encode()))
+    assert ranking._fetch_subject_suggest('电影', '123')['cover_url'].endswith('/suggest.jpg')
 
 
 def test_fetch_text_retries_transient_failure(monkeypatch):

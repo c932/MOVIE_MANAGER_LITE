@@ -14,6 +14,7 @@ import logging
 import time
 import urllib.request
 import urllib.error
+from urllib.parse import quote
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -637,6 +638,45 @@ def _fetch_subject_abstract(douban_id: str) -> dict:
     if not isinstance(subject, dict) or str(subject.get('id') or '') != str(douban_id):
         raise ValueError(f'豆瓣条目 {douban_id} 摘要格式无效')
     return subject
+
+
+def _fetch_subject_suggest(title: str, douban_id: str) -> dict:
+    """按片名读取豆瓣搜索建议，并用精确条目 ID 校验海报。"""
+    url = f'https://movie.douban.com/j/subject_suggest?q={quote(title)}'
+    request = urllib.request.Request(
+        url,
+        headers={**HEADERS, 'Referer': 'https://movie.douban.com/'},
+    )
+    last_error = None
+    data = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                data = json.loads(response.read(1024 * 1024).decode('utf-8'))
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.6 * (attempt + 1))
+    if data is None:
+        raise ValueError(f'豆瓣搜索建议暂时无法读取: {title}') from last_error
+    if not isinstance(data, list):
+        raise ValueError(f'豆瓣搜索建议格式无效: {title}')
+    exact = next((
+        item for item in data
+        if isinstance(item, dict)
+        and str(item.get('id') or '') == str(douban_id)
+        and item.get('type') == 'movie'
+    ), None)
+    if not exact:
+        raise ValueError(f'豆瓣未找到与 {title} 对应的条目')
+    return {
+        'id': str(douban_id),
+        'title': str(exact.get('title') or ''),
+        'year': str(exact.get('year') or ''),
+        'cover_url': str(exact.get('img') or ''),
+        'rating': 0,
+    }
 
 
 def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details: bool = True) -> List[RankedMovie]:
