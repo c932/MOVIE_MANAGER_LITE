@@ -553,6 +553,11 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedM
             cached_premiered = ""
             if did in cached_lookup:
                 cached_premiered = cached_lookup[did].premiered or ""
+            poster_match = re.search(
+                r'<em[^>]*>\s*' + re.escape(rank_str) + r'\s*</em>.*?<img[^>]+src="([^"]+)"',
+                content,
+                re.DOTALL,
+            )
 
             all_movies.append(RankedMovie(
                 title=title,
@@ -561,6 +566,7 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedM
                 douban_id=did,
                 rank=int(rank_str),
                 source='top250',
+                poster_url=html.unescape(poster_match.group(1)) if poster_match else "",
                 premiered=cached_premiered,
             ))
 
@@ -568,8 +574,6 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedM
 
 
 # ─────────────────── douban-cli 工具函数 ───────────────────
-
-_DOUBAN_CLI_MIN_RATING = 7.0  # 豆瓣热门最低评分筛选
 
 from .douban_cli import run_douban_cli as _run_douban_cli
 
@@ -591,12 +595,47 @@ def _fetch_movie_detail(douban_id: str) -> dict:
     return {"douban_id": douban_id, "detail": detail}
 
 
+def _fetch_mobile_movie(douban_id: str) -> dict:
+    """读取包含海报的豆瓣移动端电影条目。"""
+    url = f'https://m.douban.com/rexxar/api/v2/movie/{douban_id}'
+    request = urllib.request.Request(
+        url,
+        headers={**HEADERS, 'Referer': f'https://m.douban.com/movie/subject/{douban_id}/'},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.loads(response.read(4 * 1024 * 1024).decode('utf-8'))
+    except Exception as exc:
+        raise ValueError(f'豆瓣条目 {douban_id} 暂时无法读取') from exc
+    if not isinstance(data, dict) or str(data.get('id') or '') != str(douban_id):
+        raise ValueError(f'豆瓣条目 {douban_id} 返回格式无效')
+    return data
+
+
+def _fetch_subject_abstract(douban_id: str) -> dict:
+    """读取豆瓣轻量条目摘要，用于热门列表补齐年份。"""
+    url = f'https://movie.douban.com/j/subject_abstract?subject_id={douban_id}'
+    request = urllib.request.Request(
+        url,
+        headers={**HEADERS, 'Referer': f'https://movie.douban.com/subject/{douban_id}/'},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            data = json.loads(response.read(1024 * 1024).decode('utf-8'))
+    except Exception as exc:
+        raise ValueError(f'豆瓣条目 {douban_id} 摘要暂时无法读取') from exc
+    subject = data.get('subject') if isinstance(data, dict) else None
+    if not isinstance(subject, dict) or str(subject.get('id') or '') != str(douban_id):
+        raise ValueError(f'豆瓣条目 {douban_id} 摘要格式无效')
+    return subject
+
+
 def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details: bool = True) -> List[RankedMovie]:
     """
-    抓取豆瓣最新热门电影（评分 ≥ 7.0）
+    抓取豆瓣选电影页当前热门电影
 
     数据源：douban-cli hot（对应 movie.douban.com/explore 最新电影）
-    筛选逻辑：客户端过滤评分 ≥ 7.0，并发获取每部电影详情以提取上映日期。
+    保持豆瓣页面顺序，不按评分过滤；并发读取移动端条目补齐年份和海报。
 
     cached_movies: 缓存中已有的电影列表，用于跳过详情获取（增量更新）
     """
@@ -608,20 +647,8 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details
         logger.error("douban-cli hot 返回数据为空")
         return []
 
-    # 第二步：筛选评分 ≥ 7.0 的电影
-    candidates = []
-    for item in hot_data:
-        if not isinstance(item, dict):
-            continue
-        try:
-            rating = float(item.get("rating", item.get("rate", 0)) or 0)
-        except (ValueError, TypeError):
-            continue
-        if rating < _DOUBAN_CLI_MIN_RATING:
-            continue
-        candidates.append(item)
-
-    logger.info(f"豆瓣热门: {len(hot_data)} 部中筛选出 {len(candidates)} 部（≥{_DOUBAN_CLI_MIN_RATING}分）")
+    candidates = [item for item in hot_data if isinstance(item, dict)]
+    logger.info(f"豆瓣热门: 获取豆瓣当前顺序 {len(candidates)} 部")
 
     if not candidates:
         return []
@@ -633,18 +660,19 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details
 
     # 第三步：仅获取缓存中没有的新电影详情
     all_ids = [str(item.get("id", "")) for item in candidates if item.get("id")]
-    new_ids = [did for did in all_ids if did and did not in cached_lookup]
+    new_ids = [
+        did for did in all_ids
+        if did and (did not in cached_lookup or not cached_lookup[did].year)
+    ]
 
     details = {}
     if new_ids and fetch_details:
         logger.info(f"豆瓣热门: {len(new_ids)}/{len(all_ids)} 部为新电影，获取详情")
         with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(_fetch_movie_detail, did): did for did in new_ids}
+            futures = {executor.submit(_fetch_subject_abstract, did): did for did in new_ids}
             for future in as_completed(futures):
                 try:
-                    result = future.result()
-                    if result.get("detail"):
-                        details[result["douban_id"]] = result["detail"]
+                    details[futures[future]] = future.result()
                 except Exception as e:
                     logger.warning(f"获取电影详情失败: {e}")
     else:
@@ -680,10 +708,11 @@ def fetch_douban_chart(cached_movies: List[RankedMovie] = None, *, fetch_details
             ))
             continue
 
-        # 从详情中提取上映日期和年份
+        # 从移动端条目中提取上映日期和年份
         detail = details.get(douban_id, {})
         premiered = _parse_pubdate(detail.get("pubdate", []))
-        year = str(detail.get("year", "")) if detail else ""
+        year = str(detail.get("release_year") or detail.get("year") or "") if detail else ""
+        poster_url = poster_url or str(detail.get("cover_url", "") or "")
         # 从 premiered 日期中提取年份作为降级
         if not year and premiered and len(premiered) >= 4:
             year = premiered[:4]
@@ -791,15 +820,16 @@ def fetch_imdb_top250(cached_movies: List[RankedMovie] = None) -> List[RankedMov
                 imdb_id = imdb_id_match.group(1) if imdb_id_match else ""
 
                 wr = _imdb_weighted_rating(rating, votes)
-                parsed.append((name, year, rating, votes, imdb_id, wr))
+                parsed.append((name, year, rating, votes, imdb_id, wr, str(item.get('image') or '')))
 
             if parsed:
                 # 按加权评分降序排列（还原真实 IMDB 排名）
                 parsed.sort(key=lambda x: -x[5])
-                for rank, (name, year, rating, votes, imdb_id, wr) in enumerate(parsed, 1):
+                for rank, (name, year, rating, votes, imdb_id, wr, poster_url) in enumerate(parsed, 1):
                     all_movies.append(RankedMovie(
                         title=name, year=year, rating=rating,
                         douban_id=imdb_id, rank=rank, source='imdb_top250',
+                        poster_url=poster_url,
                         premiered=cached_lookup[imdb_id].premiered if imdb_id in cached_lookup else "",
                     ))
                 logger.info(f"IMDB Top250 抓取完成: {len(all_movies)} 部电影 (详细版, 加权排序)")
@@ -833,14 +863,15 @@ def fetch_imdb_top250(cached_movies: List[RankedMovie] = None) -> List[RankedMov
                 imdb_url = str(item.get('imdb_url', ''))
                 imdb_id_match = re.search(r'/title/(tt\d+)', imdb_url)
                 imdb_id = imdb_id_match.group(1) if imdb_id_match else ""
-                parsed.append((name, year, rating, imdb_id))
+                parsed.append((name, year, rating, imdb_id, str(item.get('image') or '')))
 
             if parsed:
                 parsed.sort(key=lambda x: (-x[2], x[0]))
-                for rank, (name, year, rating, imdb_id) in enumerate(parsed, 1):
+                for rank, (name, year, rating, imdb_id, poster_url) in enumerate(parsed, 1):
                     all_movies.append(RankedMovie(
                         title=name, year=year, rating=rating,
                         douban_id=imdb_id, rank=rank, source='imdb_top250',
+                        poster_url=poster_url,
                         premiered=cached_lookup[imdb_id].premiered if imdb_id in cached_lookup else "",
                     ))
                 logger.info(f"IMDB Top250 抓取完成: {len(all_movies)} 部电影 (精简版, 评分排序)")

@@ -317,7 +317,7 @@ def run_rankings_fetch(
     if "chart" in sources:
         ctx.update(stage="抓取榜单", message="正在抓取豆瓣近期热门榜单...")
         ctx.check_cancelled()
-        chart = fetch_douban_chart(cached_movies=all_cached, fetch_details=False)
+        chart = fetch_douban_chart(cached_movies=all_cached, fetch_details=True)
         ctx.log(f"  热门榜单获取完成: {len(chart)} 部电影")
 
     if "imdb_top250" in sources:
@@ -417,6 +417,7 @@ def run_newmovies_fetch(
     save_nowplaying = nowplaying or (cached_nowplaying if not use_cache else [])
     save_coming = coming or (cached_coming if not use_cache else [])
     if save_nowplaying or save_coming:
-        save_new_movie_cache(save_nowplaying, save_coming, cache_path=cache_path)
+        with store.lock:
+            save_new_movie_cache(save_nowplaying, save_coming, cache_path=cache_path)
 
     return _finish(nowplaying + coming, False)

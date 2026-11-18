@@ -6,6 +6,7 @@
 """
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Tuple, Optional
@@ -110,20 +111,18 @@ def _run_cli(*args: str, timeout: int = 30) -> Optional[list | dict]:
 
 
 def _fetch_details_concurrent(ids: List[str]) -> dict:
-    """并发获取电影详情，返回 {douban_id: detail_dict}"""
+    """并发读取豆瓣移动端条目，返回 {douban_id: detail_dict}。"""
     if not ids:
         return {}
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from scraper.douban_ranking import _fetch_movie_detail
+    from scraper.douban_ranking import _fetch_mobile_movie
 
     details = {}
     with ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(_fetch_movie_detail, did): did for did in ids}
+        futures = {executor.submit(_fetch_mobile_movie, did): did for did in ids}
         for future in as_completed(futures):
             try:
-                result = future.result()
-                if result.get("detail"):
-                    details[result["douban_id"]] = result["detail"]
+                details[futures[future]] = future.result()
             except Exception as e:
                 logger.warning(f"获取新片详情失败: {e}")
     return details
@@ -134,7 +133,7 @@ def fetch_nowplaying(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
     获取豆瓣正在热映电影列表
 
     数据源：douban-cli now --json
-    筛选：仅保留有评分且 vote_count > 0 的条目（过滤掉混入的即将上映电影）
+    保持豆瓣页面顺序与条目，包括暂无评分电影。
 
     cached_movies: 缓存中已有的电影列表，用于跳过详情获取（增量更新）
     """
@@ -143,69 +142,29 @@ def fetch_nowplaying(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
         logger.error("douban-cli now 返回数据为空")
         return []
 
-    # 筛选正在热映：有实际评分（score != "-"）且有投票
-    candidates = []
+    cached_lookup = {
+        m.douban_id: m for m in (cached_movies or []) if m.douban_id
+    }
+
+    movies: List[NewMovie] = []
     for item in data:
         if not isinstance(item, dict):
             continue
-        score_str = str(item.get("score", "-"))
-        vote_count = int(item.get("vote_count", 0) or 0)
-        if score_str in ("-", "", "0") or vote_count <= 0:
-            continue
-        candidates.append(item)
-
-    logger.info(f"正在热映: {len(data)} 部中筛选出 {len(candidates)} 部（有评分）")
-
-    if not candidates:
-        return []
-
-    # 构建缓存查询表：douban_id -> NewMovie
-    cached_lookup = {}
-    if cached_movies:
-        cached_lookup = {m.douban_id: m for m in cached_movies if m.douban_id}
-
-    # 仅获取缓存中没有的新电影详情
-    all_ids = [str(item.get("id", "")) for item in candidates if item.get("id")]
-    new_ids = [did for did in all_ids if did and did not in cached_lookup]
-
-    if new_ids:
-        logger.info(f"正在热映: {len(new_ids)}/{len(all_ids)} 部为新电影，获取详情")
-        new_details = _fetch_details_concurrent(new_ids)
-    else:
-        logger.info(f"正在热映: 全部 {len(all_ids)} 部均在缓存中，跳过详情获取")
-        new_details = {}
-
-    movies: List[NewMovie] = []
-    for item in candidates:
         douban_id = str(item.get("id", ""))
         title = str(item.get("title", "")).strip()
         if not title or not douban_id:
             continue
 
         try:
-            rating = float(item.get("score", 0) or 0)
+            rating = float(item.get("rating", item.get("score", 0)) or 0)
         except (ValueError, TypeError):
             rating = 0.0
 
-        # 优先使用缓存数据
-        if douban_id in cached_lookup:
-            movies.append(cached_lookup[douban_id])
-            continue
-
-        # 从详情提取上映日期和年份
-        detail = new_details.get(douban_id, {})
-        from scraper.douban_ranking import _parse_pubdate
-        premiered = _parse_pubdate(detail.get("pubdate", [])) if detail else ""
-        year = str(detail.get("year", "")) if detail else ""
-        if not year and premiered and len(premiered) >= 4:
-            year = premiered[:4]
-        if not year:
-            year = str(item.get("release_date", ""))[:4] if item.get("release_date") not in (None, "-", "") else ""
-
-        # 从详情提取类型
-        genres = []
-        if detail and detail.get("genres"):
-            genres = [str(g) for g in detail["genres"]]
+        cached = cached_lookup.get(douban_id)
+        meta_parts = [part.strip() for part in str(item.get("meta", "")).split(" / ")]
+        year = meta_parts[0][:4] if meta_parts and re.match(r"^\d{4}$", meta_parts[0][:4]) else (cached.year if cached else "")
+        genres = meta_parts[2].split() if len(meta_parts) > 2 and meta_parts[2] else (cached.genres if cached else [])
+        premiered = _parse_release_date(str(item.get("release_date", "")), year)
 
         movies.append(NewMovie(
             title=title,
@@ -215,6 +174,7 @@ def fetch_nowplaying(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
             status='nowplaying',
             genres=genres,
             premiered=premiered,
+            poster_url=str(item.get("cover", "") or (cached.poster_url if cached else "")),
         ))
 
     logger.info(f"正在热映: 获取 {len(movies)} 部电影")
@@ -234,20 +194,22 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
         logger.error("douban-cli coming 返回数据为空")
         return []
 
-    # 构建缓存查询表：douban_id -> NewMovie
-    cached_lookup = {}
-    if cached_movies:
-        cached_lookup = {m.douban_id: m for m in cached_movies if m.douban_id}
+    cached_lookup = {
+        m.douban_id: m for m in (cached_movies or []) if m.douban_id
+    }
 
-    # 仅获取缓存中没有的新电影详情
+    # 旧缓存没有海报或年份时重新读取移动端条目。
     all_ids = [str(item.get("id", "")) for item in data if item.get("id")]
-    new_ids = [did for did in all_ids if did and did not in cached_lookup]
+    new_ids = [
+        did for did in all_ids
+        if did and (did not in cached_lookup or not cached_lookup[did].poster_url or not cached_lookup[did].year)
+    ]
 
     if new_ids:
-        logger.info(f"即将上映: {len(new_ids)}/{len(all_ids)} 部为新电影，获取详情")
+        logger.info(f"即将上映: {len(new_ids)}/{len(all_ids)} 部需要补齐海报或年份")
         new_details = _fetch_details_concurrent(new_ids)
     else:
-        logger.info(f"即将上映: 全部 {len(all_ids)} 部均在缓存中，跳过详情获取")
+        logger.info(f"即将上映: 全部 {len(all_ids)} 部详情均可用")
         new_details = {}
 
     movies: List[NewMovie] = []
@@ -257,42 +219,29 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
         if not title or not douban_id:
             continue
 
-        # 类型（coming 命令直接返回 types）
         genres = [str(g) for g in item.get("types", [])] if item.get("types") else []
-
-        # 优先使用缓存数据
-        if douban_id in cached_lookup:
-            cached_movie = cached_lookup[douban_id]
-            # 更新标题和类型（可能已变更）
-            movies.append(NewMovie(
-                title=title,
-                year=cached_movie.year,
-                rating=cached_movie.rating,
-                douban_id=douban_id,
-                status='coming',
-                genres=genres or cached_movie.genres,
-                premiered=cached_movie.premiered,
-            ))
-            continue
-
-        # 从详情提取上映日期和评分
+        cached = cached_lookup.get(douban_id)
         detail = new_details.get(douban_id, {})
+        year = str(detail.get("year") or (cached.year if cached else ""))
         from scraper.douban_ranking import _parse_pubdate
         premiered = _parse_pubdate(detail.get("pubdate", [])) if detail else ""
-        # 详情无日期时，使用 coming 命令返回的 release_date（如 "06月15日"）
         if not premiered:
-            premiered = _parse_release_date(item.get("release_date", ""))
-        year = str(detail.get("year", "")) if detail else ""
+            premiered = _parse_release_date(str(item.get("release_date", "")), year)
         if not year and premiered and len(premiered) >= 4:
             year = premiered[:4]
 
-        rating = 0.0
-        if detail and detail.get("rating"):
-            try:
-                rating = float(detail["rating"])
-            except (ValueError, TypeError):
-                pass
+        rating_value = detail.get("rating")
+        if isinstance(rating_value, dict):
+            rating_value = rating_value.get("value")
+        try:
+            rating = float(rating_value or (cached.rating if cached else 0))
+        except (ValueError, TypeError):
+            rating = 0.0
 
+        if not genres and (detail.get("genres") or (cached.genres if cached else [])):
+            genres = [str(g) for g in (detail.get("genres") or cached.genres)]
+
+        poster_url = str(detail.get("cover_url") or (cached.poster_url if cached else ""))
         movies.append(NewMovie(
             title=title,
             year=year,
@@ -300,6 +249,7 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
             douban_id=douban_id,
             status='coming',
             genres=genres,
+            poster_url=poster_url,
             premiered=premiered,
         ))
 
@@ -307,24 +257,32 @@ def fetch_coming_soon(cached_movies: List[NewMovie] = None) -> List[NewMovie]:
     return movies
 
 
-# ─────────────────── 日期解析 ───────────────────
-
-def _parse_release_date(release_date: str) -> str:
-    """解析 coming 命令返回的 release_date（如 '06月15日'）为 'YYYY-MM-DD' 格式"""
+def _parse_release_date(release_date: str, fallback_year: str = "") -> str:
+    """解析豆瓣常见上映日期为 YYYY-MM-DD；无法确定年份时返回空。"""
     import re
     from datetime import datetime
     if not release_date:
         return ""
-    m = re.match(r'(\d{1,2})月(\d{1,2})日', release_date)
-    if not m:
+    text = release_date.strip()
+    full = re.match(r"(\d{4})年(\d{1,2})月(?:(\d{1,2})日)?", text)
+    if full:
+        year, month, day = int(full.group(1)), int(full.group(2)), int(full.group(3) or 1)
+        return f"{year:04d}-{month:02d}-{day:02d}"
+    short = re.match(r"(\d{1,2})(?:月|\.)(\d{1,2})日?", text)
+    if not short:
         return ""
-    month, day = int(m.group(1)), int(m.group(2))
-    now = datetime.now()
-    year = now.year
-    # 如果当前是12月但电影在1-2月，说明是明年的
-    if now.month >= 11 and month <= 2:
-        year += 1
+    month, day = int(short.group(1)), int(short.group(2))
+    year = int(fallback_year) if str(fallback_year).isdigit() else datetime.now().year
+    if not fallback_year:
+        now = datetime.now()
+        if now.month >= 11 and month <= 2:
+            year += 1
     return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _legacy_parse_release_date(release_date: str) -> str:
+    """保留旧函数名的兼容入口。"""
+    return _parse_release_date(release_date)
 
 
 # ─────────────────── 对比函数 ───────────────────

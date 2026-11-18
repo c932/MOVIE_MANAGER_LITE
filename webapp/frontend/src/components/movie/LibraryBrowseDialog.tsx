@@ -10,9 +10,14 @@ const latestYear = new Date().getFullYear() - 1;
 const tabs: [Kind, string][] = [['series', '系列电影'], ['top250', '豆瓣 Top250'], ['imdb_top250', 'IMDb Top250'], ['chart', '豆瓣热门'], ['annual', '豆瓣年度榜单'], ['nowplaying', '正在上映'], ['coming', '即将上映']];
 
 function BrowsePoster({row}: {row: Item}) {
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
+  const localUrl = row.movie_id ? movieApi.posterUrl(row.movie_id, 240, 360) : '';
+  const remoteUrl = row.poster_url ? movieApi.proxyImageUrl(row.poster_url) : '';
+  const source = [localUrl, remoteUrl].find(url => url && !failed.has(url)) || '';
   return <span className="flex h-36 w-24 shrink-0 items-center justify-center overflow-hidden rounded bg-ink-800 text-xs text-ink-400">
-    {row.poster_url && !failed ? <img className="h-full w-full object-cover" src={row.movie_id ? movieApi.posterUrl(row.movie_id, 200, 300) : movieApi.proxyImageUrl(row.poster_url)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} /> : '暂无海报'}
+    {source
+      ? <img className="h-full w-full object-cover" src={source} alt="" loading="lazy" decoding="async" onError={() => setFailed(current => new Set(current).add(source))} />
+      : '暂无海报'}
   </span>;
 }
 

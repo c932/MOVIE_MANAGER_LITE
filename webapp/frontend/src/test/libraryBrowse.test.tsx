@@ -24,6 +24,14 @@ it('整张榜单卡进入已有电影本地详情', async () => {
   expect(movieApi.subject).not.toHaveBeenCalled();
 });
 
+it('已入库电影即使榜单远程海报为空也加载本库海报', async () => {
+  vi.mocked(movieApi.rankings).mockResolvedValue({...response,
+    items: [{...owned, poster_url: ''}, missing]});
+  const {container} = render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  await screen.findByRole('button', {name: '本库电影，查看本库电影'});
+  expect(container.querySelector('img')?.getAttribute('src')).toBe(movieApi.posterUrl('local-id', 240, 360));
+});
+
 it('缺失电影显示简介和中创盘搜，没有播放操作', async () => {
   render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
   fireEvent.click(await screen.findByRole('button', {name: '缺失电影，查看简介'}));

@@ -84,13 +84,64 @@ def test_douban_image_headers(monkeypatch):
 def test_douban_chart_accepts_current_cli_rating_field(monkeypatch):
     import scraper.douban_ranking as ranking
 
-    monkeypatch.setattr(ranking, '_run_douban_cli', lambda *args, **kwargs: [{
-        'id': '123', 'title': '可能的爱', 'rating': '8.6',
-        'cover': 'https://img3.doubanio.com/poster.jpg',
-    }])
+    monkeypatch.setattr(ranking, '_run_douban_cli', lambda *args, **kwargs: [
+        {'id': '123', 'title': '可能的爱', 'rating': '8.6',
+         'cover': 'https://img3.doubanio.com/poster.jpg'},
+        {'id': '456', 'title': '低分电影', 'rating': '5.8',
+         'cover': 'https://img9.doubanio.com/low.jpg'},
+    ])
     items = ranking.fetch_douban_chart(fetch_details=False)
-    assert len(items) == 1
+    assert [item.title for item in items] == ['可能的爱', '低分电影']
     assert items[0].rating == 8.6
+    assert items[1].rating == 5.8
+    assert items[1].poster_url.endswith('/low.jpg')
+
+
+def test_top250_extracts_poster(monkeypatch):
+    import scraper.douban_ranking as ranking
+
+    page = '''<li><em>1</em><img src="https://img3.doubanio.com/top.jpg">
+    <div class="info"><a href="https://movie.douban.com/subject/123/">
+    <span class="title">电影</span></a><span class="rating_num">9.0</span>
+    <p>2025</p></div></li>'''
+    monkeypatch.setattr(ranking, '_fetch_url', lambda url: page)
+    items = ranking.fetch_douban_top250()
+    assert items[0].poster_url == 'https://img3.doubanio.com/top.jpg'
+
+
+def test_now_and_coming_keep_douban_order_and_posters(monkeypatch):
+    import scraper.new_movie_checker as checker
+
+    now = [{'id': '1', 'title': '无评分热映', 'rating': '-', 'release_date': '11.14',
+            'meta': '2026 / 中国大陆 / 剧情 喜剧 / 导演 / 演员',
+            'cover': 'https://img3.doubanio.com/now.jpg'}]
+    coming = [{'id': '2', 'title': '即将上映', 'release_date': '11月19日',
+               'types': ['剧情'], 'regions': ['中国台湾'], 'wish_count': 12}]
+    monkeypatch.setattr(checker, '_run_cli', lambda *args, **kwargs: now if args[0] == 'now' else coming)
+    monkeypatch.setattr(checker, '_fetch_details_concurrent', lambda ids: {'2': {
+        'id': '2', 'year': '2026', 'rating': {'value': 6.8},
+        'cover_url': 'https://img9.doubanio.com/coming.jpg', 'genres': ['剧情']}})
+    playing = checker.fetch_nowplaying()
+    upcoming = checker.fetch_coming_soon()
+    assert playing[0].title == '无评分热映'
+    assert playing[0].poster_url.endswith('/now.jpg')
+    assert playing[0].year == '2026'
+    assert upcoming[0].poster_url.endswith('/coming.jpg')
+    assert upcoming[0].rating == 6.8
+
+
+def test_imdb_top250_extracts_poster(monkeypatch):
+    import scraper.douban_ranking as ranking
+
+    payload = json.dumps([{
+        'name': 'Movie', 'datePublished': '2025-01-01',
+        'aggregateRating': {'ratingValue': 9.0, 'ratingCount': 100000},
+        'url': '/title/tt1234567/',
+        'image': 'https://m.media-amazon.com/images/poster.jpg',
+    }])
+    monkeypatch.setattr(ranking, '_fetch_url', lambda url: payload)
+    items = ranking.fetch_imdb_top250()
+    assert items[0].poster_url == 'https://m.media-amazon.com/images/poster.jpg'
 
 
 def test_fetch_text_retries_transient_failure(monkeypatch):
