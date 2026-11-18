@@ -2,13 +2,29 @@
 @tailwind components;
 @tailwind utilities;
 
+.movie-wall-shell { --mac-ease: cubic-bezier(.22, .82, .24, 1); }
+.mode-sidebar { width: 15rem; overflow: hidden; opacity: 1; transform: translateX(0); transition: width .38s var(--mac-ease), opacity .24s ease, transform .38s var(--mac-ease), border-color .24s ease; }
+.mode-sidebar[data-visible="false"] { width: 0; border-color: transparent; opacity: 0; pointer-events: none; transform: translateX(-18px); }
+.mode-chrome { max-height: 9rem; overflow: hidden; opacity: 1; transition: max-height .36s var(--mac-ease), opacity .22s ease, padding .36s var(--mac-ease), border-color .2s ease; }
+.mode-chrome[data-visible="false"] { max-height: 0; border-color: transparent; padding-top: 0; padding-bottom: 0; opacity: 0; pointer-events: none; }
+.mode-status { max-height: 3rem; overflow: hidden; opacity: 1; transition: max-height .32s var(--mac-ease), opacity .2s ease, padding .32s var(--mac-ease), border-color .2s ease; }
+.mode-status[data-visible="false"] { max-height: 0; border-color: transparent; padding-top: 0; padding-bottom: 0; opacity: 0; pointer-events: none; }
+.movie-intro { height: clamp(290px, 39dvh, 430px); overflow: hidden; opacity: 1; transform: translateY(0); transition: height .4s var(--mac-ease), opacity .24s ease, transform .4s var(--mac-ease), border-color .24s ease; }
+.movie-intro[data-visible="false"] { height: 0; border-color: transparent; opacity: 0; pointer-events: none; transform: translateY(-12px); }
+.movie-intro-inner { height: 100%; min-height: 0; overflow: hidden; }
+.mode-switch { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid #303036; border-radius: 9px; background: #1d1d20; }
+.mode-switch button { border-radius: 6px; padding: 5px 10px; color: #a9a9b2; font-size: 12px; transition: color .2s ease, background .2s ease, box-shadow .2s ease, transform .2s ease; }
+.mode-switch button:hover { color: #f5f5f7; background: #29292d; }
+.mode-switch button.active { color: #fff; background: #414147; box-shadow: 0 1px 3px rgb(0 0 0 / .45), inset 0 1px 0 rgb(255 255 255 / .08); }
 .movie-overlay { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 4vh 3vw; border: 0; background: transparent; color: inherit; }
-.movie-overlay::backdrop { background: rgb(0 0 0 / .7); opacity: 0; transition: opacity .2s ease; }
-.movie-floating-panel { display: flex; flex-direction: column; width: min(1120px, 100%); height: min(760px, 88dvh); margin: auto; background: #18181a; border: 1px solid #3a3a3e; border-radius: 16px; box-shadow: 0 20px 65px rgb(0 0 0 / .5); opacity: 0; transform: translateY(18px) scale(.98); transition: opacity .2s ease, transform .24s cubic-bezier(.2,.7,.2,1); }
+.movie-overlay::backdrop { background: rgb(0 0 0 / 0); backdrop-filter: blur(0); opacity: 0; transition: background .3s ease, backdrop-filter .34s ease, opacity .24s ease; }
+.movie-floating-panel { display: flex; flex-direction: column; width: min(1120px, 100%); height: min(760px, 88dvh); margin: auto; background: #18181a; border: 1px solid #3a3a3e; border-radius: 16px; box-shadow: 0 28px 90px rgb(0 0 0 / .62), 0 8px 24px rgb(0 0 0 / .38); opacity: 0; filter: blur(8px); transform: translateY(28px) scale(.94); transform-origin: 50% 58%; will-change: transform, opacity, filter; transition: opacity .22s ease, filter .32s ease, transform .38s var(--mac-ease); }
 .movie-overlay[data-phase="open"] .movie-floating-panel { opacity: 1; transform: translateY(0) scale(1); }
-.movie-overlay[data-phase="open"]::backdrop { opacity: 1; }
-.movie-overlay[data-phase="closing"] .movie-floating-panel { transition-duration: .18s; }
+.movie-overlay[data-phase="open"] .movie-floating-panel { filter: blur(0); }
+.movie-overlay[data-phase="open"]::backdrop { background: rgb(0 0 0 / .7); backdrop-filter: blur(10px); opacity: 1; }
+.movie-overlay[data-phase="closing"] .movie-floating-panel { transition-duration: .22s; transform: translateY(18px) scale(.97); filter: blur(3px); }
 @media (prefers-reduced-motion: reduce) { .movie-floating-panel, .movie-overlay::backdrop { transition: none !important; } }
+@media (max-width: 767px) { .movie-intro { height: min(46dvh, 390px); } .mode-switch { order: 2; } }
 
 @layer base {
   :root {

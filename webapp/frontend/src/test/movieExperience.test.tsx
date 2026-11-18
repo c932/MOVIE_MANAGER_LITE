@@ -40,6 +40,7 @@ describe('电影墙交互', () => {
     scroll.scrollTop=12345;fireEvent.scroll(scroll);
     await waitFor(()=>expect(within(scroll).queryByRole('button',{name:/^电影0 /})).not.toBeInTheDocument());
     const card=within(scroll).getAllByRole('button')[0];
+    fireEvent.click(screen.getByRole('button', {name: '海报墙'}));
     fireEvent.click(card);
     const dialog=await screen.findByRole('dialog');
     await waitFor(()=>expect(dialog).toHaveAttribute('data-phase','open'));
@@ -56,6 +57,7 @@ describe('电影墙交互', () => {
     const card = await within(scroll).findByRole('button', {name: /第一部/});
     expect(within(scroll).getAllByRole('button')[0]).toBe(card);
     scroll.scrollTop = 540;
+    fireEvent.click(screen.getByRole('button', {name: '海报墙'}));
     fireEvent.click(card);
     const dialog = await screen.findByRole('dialog', {name: '第一部'});
     expect(screen.getByTestId('poster-scroll')).toBe(scroll);
@@ -66,6 +68,29 @@ describe('电影墙交互', () => {
     fireEvent.click(dialog);
     await waitFor(() => expect(screen.queryByRole('dialog', {name: '第一部'})).not.toBeInTheDocument());
     expect(scroll.scrollTop).toBe(540);
+  });
+  it('正常模式顶部显示简介，海报墙与全屏模式按层级收起并统一使用浮窗', async () => {
+    const request = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(document.documentElement, 'requestFullscreen', {configurable: true, value: request});
+    render(<MovieWall />);
+    const intro = screen.getByTestId('movie-intro');
+    const filters = screen.getByTestId('filter-sidebar');
+    await waitFor(() => expect(within(intro).getByText('第一部')).toBeInTheDocument());
+    expect(intro).toHaveAttribute('data-visible', 'true');
+    expect(filters).toHaveAttribute('data-visible', 'true');
+
+    const wall = screen.getByTestId('poster-scroll');
+    fireEvent.click(within(wall).getByRole('button', {name: /第二部/}));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    await waitFor(() => expect(within(intro).getByText('第二部')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', {name: '海报墙'}));
+    expect(intro).toHaveAttribute('data-visible', 'false');
+    expect(filters).toHaveAttribute('data-visible', 'true');
+    fireEvent.click(screen.getByRole('button', {name: '全屏海报墙'}));
+    await waitFor(() => expect(filters).toHaveAttribute('data-visible', 'false'));
+    expect(request).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', {name: '退出全屏'})).toBeInTheDocument();
   });
   it('全屏入口由点击触发，仍可退出', async () => {
     const request = vi.fn().mockResolvedValue(undefined);

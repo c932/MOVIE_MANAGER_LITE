@@ -17,6 +17,8 @@ import { LocalPlayback } from '../components/movie/LocalPlayback';
 import { filterMovies, useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
 
+type ViewMode = 'normal' | 'wall' | 'fullscreen';
+
 export default function MovieWall() {
   const store = useMovieStore();
   const [jobId, setJobId] = useState<string | null>(null);
@@ -28,7 +30,8 @@ export default function MovieWall() {
   const [nasConnected, setNasConnected] = useState(false);
   const [sourceLabel, setSourceLabel] = useState('正在检查 NAS 连接状态…');
   const [sidebar, setSidebar] = useState(false);
-  const [immersive, setImmersive] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('normal');
+  const [overlayOpen, setOverlayOpen] = useState(false);
   const [detail, setDetail] = useState<MovieListItem | null>(null);
   const [properties, setProperties] = useState<MovieListItem | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -39,16 +42,19 @@ export default function MovieWall() {
   const [context, setContext] = useState<{ movie: MovieListItem; x: number; y: number } | null>(null);
   const load = store.load;
   useEffect(() => {
-    const changed = () => { if (!document.fullscreenElement) setImmersive(false); };
+    const changed = () => {
+      if (!document.fullscreenElement) setViewMode(current => current === 'fullscreen' ? 'wall' : current);
+    };
     document.addEventListener('fullscreenchange', changed);
     return () => document.removeEventListener('fullscreenchange', changed);
   }, []);
-  const toggleFullscreen = async () => {
-    if (immersive) {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      setImmersive(false);
-    } else {
-      setImmersive(true);
+  const changeMode = async (next: ViewMode) => {
+    setOverlayOpen(false);
+    if (next !== 'fullscreen' && document.fullscreenElement) {
+      try { await document.exitFullscreen(); } catch { /* browser may already be exiting */ }
+    }
+    setViewMode(next);
+    if (next === 'fullscreen') {
       try { if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen(); }
       catch { setMessage('已进入沉浸海报墙；浏览器未允许系统全屏。'); }
     }
@@ -78,7 +84,16 @@ export default function MovieWall() {
   };
   const updated = (movie: MovieListItem) => { store.updateMovie(movie); setDetail(movie); };
   const selectMovie = store.selectMovie;
-  const selected = useCallback((movie: MovieListItem) => { selectMovie(movie.id); setContext(null); }, [selectMovie]);
+  const selected = useCallback((movie: MovieListItem) => {
+    selectMovie(movie.id);
+    setContext(null);
+    setOverlayOpen(viewMode !== 'normal');
+  }, [selectMovie, viewMode]);
+  const openDetails = useCallback((movie: MovieListItem) => {
+    selectMovie(movie.id);
+    setContext(null);
+    setOverlayOpen(true);
+  }, [selectMovie]);
   const openContext = useCallback((movie: MovieListItem, x: number, y: number) => setContext({movie, x:Math.min(x,window.innerWidth-220), y:Math.min(y,window.innerHeight-320)}), []);
   const refreshPoster = async (movie: MovieListItem) => {
     await movieApi.invalidatePoster(movie.id); setPosterVersion(value => value + 1); setMessage('已刷新后端海报副本');
@@ -88,6 +103,15 @@ export default function MovieWall() {
   const movies = useMemo(() => filterMovies({movies:allMovies, search, searchDuplicate, selectedGenres, selectedCountries, selectedYears, selectedTags, minRating, watchFilter, favoriteFilter, sortMode}).filter(movie => !series || movie.set_name === series),
     [allMovies, search, searchDuplicate, selectedGenres, selectedCountries, selectedYears, selectedTags,
       minRating, watchFilter, favoriteFilter, sortMode, series]);
+  useEffect(() => {
+    if (viewMode !== 'normal' || !movies.length) return;
+    if (!store.selectedId || !movies.some(movie => movie.id === store.selectedId)) selectMovie(movies[0].id);
+  }, [movies, selectMovie, store.selectedId, viewMode]);
+  const activeMovie = detail?.id === store.selectedId
+    ? detail
+    : movies.find(movie => movie.id === store.selectedId)
+      || store.movies.find(movie => movie.id === store.selectedId)
+      || null;
   const openScrape = async (movie: MovieListItem) => {
     const workspace = await scrapeApi.rows();
     const selected = workspace.rows.find(row => row.movie_id === movie.id);
@@ -96,46 +120,56 @@ export default function MovieWall() {
     store.selectMovie(null); setSearchRows([selected,...others]);
   };
   const scrapeSaved = (movie: MovieListItem) => { updated(movie); setPosterVersion(value=>value+1); };
-  return <div className="flex h-dvh overflow-hidden">
-    <aside className={`${immersive ? 'hidden' : sidebar ? 'fixed inset-y-0 left-0 z-30 flex md:static' : 'hidden md:flex'} w-60 shrink-0 flex-col border-r divider bg-ink-900`}>
+  return <div className="movie-wall-shell flex h-dvh overflow-hidden" data-view-mode={viewMode}>
+    <aside data-testid="filter-sidebar" data-visible={viewMode !== 'fullscreen'} aria-hidden={viewMode === 'fullscreen'} inert={viewMode === 'fullscreen'}
+      className={`mode-sidebar shrink-0 flex-col border-r divider bg-ink-900 ${sidebar ? 'fixed inset-y-0 left-0 z-30 flex md:static' : 'hidden md:flex'}`}>
       <div className="flex items-center justify-between border-b divider p-3"><strong>电影墙</strong><button className="btn md:hidden" onClick={() => setSidebar(false)}>关闭筛选</button></div>
       <div className="flex-1 overflow-y-auto"><MovieFilterSidebar /></div>
     </aside>
     <main className="flex min-w-0 flex-1 flex-col">
-      <header className={`${immersive ? 'hidden' : 'flex'} shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2`}>
+      <header data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-chrome flex shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2">
         <button className="btn md:hidden" onClick={() => setSidebar(true)}>筛选</button>
+        <div className="mode-switch mr-1" role="group" aria-label="电影墙显示模式">
+          {([['normal', '正常'], ['wall', '海报墙'], ['fullscreen', '全屏海报墙']] as const).map(([mode, label]) =>
+            <button key={mode} aria-pressed={viewMode === mode} className={viewMode === mode ? 'active' : ''} onClick={() => changeMode(mode)}>{label}</button>)}
+        </div>
         {([['default', '默认'], ['rating', '评分↓'], ['release', '上映时间↓'], ['added', '加入时间↓'], ['random', '随机']] as const).map(([mode, label]) =>
           <button key={mode} className={`btn ${store.sortMode === mode ? 'btn-active' : ''}`} onClick={() => store.setSortMode(mode)}>{label}</button>)}
         <label className="flex items-center gap-2 px-2 text-xs text-ink-300">海报缩放<input aria-label="海报缩放" type="range" min="50" max="130" value={store.posterScale} onChange={e => store.setPosterScale(Number(e.target.value))} className="w-20" /></label>
         <button className="btn" onClick={() => setBrowse('series')}>系列电影</button>
         <button className="btn" onClick={() => setBrowse('top250')}>榜单对比</button>
         <button className="btn" onClick={() => setBrowse('nowplaying')}>新片推荐</button>
-        <button className="btn" onClick={toggleFullscreen}>全屏海报墙</button>
         <button className="btn" onClick={()=>setManagerOpen(true)}>搜索&刮削</button>
         <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}>刷新数据库</button>
         <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? sourceLabel + '，请在设置中配置媒体库' : '扫描已选择的媒体库目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}>扫描 NAS</button>
         <button className="btn" onClick={() => setSettingsOpen(true)}>设置</button>
         <JobProgress job={job} accent="cinema" onCancel={() => { if (job) movieApi.cancel(job.id).catch(e => setMessage((e as Error).message)); }} />
       </header>
-      {immersive && <button className="fixed right-4 top-3 z-30 rounded-lg border border-white/20 bg-black/75 px-4 py-2 text-sm text-white" onClick={toggleFullscreen}>退出全屏</button>}
-      <div className={`${immersive ? 'hidden' : 'flex'} items-center justify-between gap-3 border-b divider px-3 py-2 text-xs text-ink-300`}>
+      {viewMode === 'fullscreen' && <button className="fixed right-4 top-3 z-30 rounded-lg border border-white/20 bg-black/75 px-4 py-2 text-sm text-white backdrop-blur" onClick={() => changeMode('wall')}>退出全屏</button>}
+      <div data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-status flex items-center justify-between gap-3 border-b divider px-3 py-2 text-xs text-ink-300">
         <span>NUC 共享电影库 · 共 {store.movies.length} 部 {series && ` / ${series}`}</span>
         {series && <button className="btn" onClick={() => setSeries('')}>退出系列筛选</button>}
         <span>{sourceLabel}</span>{!sourceAvailable && <button className="btn text-xs" onClick={() => setSettingsOpen(true)}>{nasConnected ? '选择媒体库目录' : '配置 NAS'}</button>}
       </div>
       {(message || store.error) && <div role={store.error ? 'alert' : 'status'} className="flex items-center justify-between gap-2 border-b divider px-3 py-2 text-sm"><span>{store.error || message}</span><button className="btn" onClick={() => { setMessage(''); if (store.error) load(); }}>{store.error ? '重试' : '关闭'}</button></div>}
+      <section data-testid="movie-intro" data-visible={viewMode === 'normal'} aria-hidden={viewMode !== 'normal'} inert={viewMode !== 'normal'} className="movie-intro border-b divider bg-ink-850/70">
+        <div className="movie-intro-inner">
+          {activeMovie
+            ? <MovieDetail key={activeMovie.id} movie={activeMovie} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />
+            : <p className="p-8 text-sm text-ink-300" role="status">{store.loading ? '正在读取电影资料…' : '选择一部电影查看简介'}</p>}
+        </div>
+      </section>
       <VirtualPosterGrid movies={movies} scale={store.posterScale} selectedId={store.selectedId} posterVersion={posterVersion} onSelect={selected} onContextMenu={openContext}>
         {store.loading && !store.movies.length && <p role="status" className="p-8">正在读取共享电影库…</p>}
         {!store.loading && !movies.length && <div className="p-10 text-center text-ink-300"><p>{store.movies.length ? '没有符合条件的电影，请调整搜索或筛选。' : '共享电影库为空。请在桌面设置中开启后端同步，选择仅上传导入已有电影库。'}</p>{!!store.movies.length && <button className="btn mt-3" onClick={() => { store.resetFilters(); setSeries(''); }}>清除筛选</button>}</div>}
       </VirtualPosterGrid>
-      {!immersive && <footer className="shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>}
+      <footer data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-status shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>
     </main>
-    {store.selectedId && (() => {
-      const current = detail?.id === store.selectedId ? detail : store.movies.find(movie => movie.id === store.selectedId) || null;
-      return <FloatingMovieDetail title={current?.title || '电影详情'} onClose={() => store.selectMovie(null)}>{current ? <MovieDetail key={current.id} movie={current} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); store.selectMovie(null); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
+    {viewMode !== 'normal' && overlayOpen && store.selectedId && (() => {
+      return <FloatingMovieDetail title={activeMovie?.title || '电影详情'} onClose={() => setOverlayOpen(false)}>{activeMovie ? <MovieDetail key={activeMovie.id} movie={activeMovie} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
     })()}
     {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
-      <MenuItem onClick={() => selected(context.movie)}>查看完整详情</MenuItem>
+      <MenuItem onClick={() => openDetails(context.movie)}>查看完整详情</MenuItem>
       <LocalPlayback movie={context.movie} menu/>
       <MenuItem onClick={()=>run(()=>openScrape(context.movie))}>搜索匹配 / 刮削电影</MenuItem>
       <MenuItem onClick={() => { setProperties(context.movie); setContext(null); }}>属性</MenuItem>
