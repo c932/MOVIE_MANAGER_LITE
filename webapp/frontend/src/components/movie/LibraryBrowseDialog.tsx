@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { AnnualResponse, MovieListItem, RankingItem, NewMovieItem } from '../../types/api';
 import { Modal } from '../Modal';
+import { FloatingMovieDetail } from './FloatingMovieDetail';
+import { MovieDetail } from './MovieDetail';
 
 type Kind = 'series' | 'top250' | 'imdb_top250' | 'chart' | 'nowplaying' | 'coming' | 'annual';
 type Item = RankingItem | NewMovieItem;
@@ -56,14 +58,20 @@ function MissingMovie({row, onClose}: {row: Item; onClose: () => void}) {
   </Modal>;
 }
 
-export function LibraryBrowseDialog({ movies, initial, onSelect, onClose }: {
+export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpdated, onDeleted, onSeriesClick, onRefreshPoster, onEditFields }: {
   movies: MovieListItem[]; initial: Kind; onSelect: (id: string) => void; onClose: () => void;
+  onUpdated?: (movie: MovieListItem) => void;
+  onDeleted?: (id: string) => void;
+  onSeriesClick?: (name: string) => void;
+  onRefreshPoster?: (id: string) => void;
+  onEditFields?: (movie: MovieListItem) => void;
 }) {
   const [kind, setKind] = useState<Kind>(initial);
   const [year, setYear] = useState(latestYear);
   const [category, setCategory] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [missing, setMissing] = useState<Item | null>(null);
+  const [owned, setOwned] = useState<MovieListItem | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const key = `${kind}-${year}`;
   const current = result?.key === key ? result : null;
@@ -107,7 +115,14 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose }: {
   const groups = new Map<string, MovieListItem[]>();
   for (const movie of movies) if (movie.set_name) groups.set(movie.set_name, [...(groups.get(movie.set_name) || []), movie]);
   function select(row: Item) {
-    if (row.movie_id) {onSelect(row.movie_id); onClose();} else setMissing(row);
+    if (row.movie_id) {
+      const local = movies.find(movie => movie.id === row.movie_id);
+      if (local) { setOwned(local); return; }
+      onSelect(row.movie_id);
+      onClose();
+      return;
+    }
+    setMissing(row);
   }
   return <>
     <Modal title="系列、榜单与新片" wide onClose={onClose}>
@@ -127,12 +142,20 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose }: {
         <section key={name}><h3 className="mb-2 font-semibold">{name}（{members.length} 部）</h3><div className="flex flex-wrap gap-2">
           {members.sort((a, b) => a.year.localeCompare(b.year)).map(movie => <button className="btn border divider" key={movie.id} onClick={() => {onSelect(movie.id); onClose();}}>{movie.title} {movie.year}</button>)}
         </div></section>) : <p>暂无系列资料，同步或刮削包含系列的电影后即可显示。</p>}</div>
-        : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => <button key={`${row.movie_id || row.douban_id || row.title}-${index}-${row.poster_url}`} onClick={() => select(row)} className="flex gap-4 rounded border-b divider p-3 text-left transition-colors hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cinema-400" aria-label={`${row.title}，${row.movie_id ? '查看本库电影' : '查看简介'}`}>
+        : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => <button key={`${row.movie_id || row.douban_id || row.title}-${index}-${row.poster_url}`} onClick={() => select(row)} className="flex gap-4 rounded border-b divider p-3 text-left transition-colors hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cinema-400" aria-label={`${row.title}，查看简介`}>
           <BrowsePoster row={row} /><span className="min-w-0"><span className="block font-semibold">{'rank' in row ? `${row.rank}. ` : ''}{row.title}</span><span className="my-3 block text-xs text-ink-300">{row.year} {row.rating ? `评分 ${row.rating.toFixed(1)}` : ''}</span>
-            <span className={`text-xs ${row.movie_id ? 'text-cinema-400' : 'text-ink-400'}`}>{row.movie_id ? '已入库 · 详情与播放' : '查看简介 · 夸克盘搜'}</span></span>
+            <span className={`text-xs ${row.movie_id ? 'text-cinema-400' : 'text-ink-400'}`}>{row.movie_id ? '已入库 · 查看简介' : '查看简介 · 夸克盘搜'}</span></span>
         </button>)}</div>}
       {kind !== 'series' && current && !current.refreshing && !current.error && !rows.length && <p className="p-6 text-ink-300">暂无榜单资料，请点击“刷新榜单”。</p>}
     </Modal>
     {missing && <MissingMovie key={missing.douban_id || missing.title} row={missing} onClose={() => setMissing(null)} />}
+    {owned && <FloatingMovieDetail title={`${owned.title} · 电影详情`} onClose={() => setOwned(null)}>
+      <MovieDetail movie={owned}
+        onUpdated={movie => { setOwned(movie); onUpdated?.(movie); }}
+        onDeleted={id => { setOwned(null); onDeleted?.(id); }}
+        onSeriesClick={name => { setOwned(null); onSeriesClick?.(name); onClose(); }}
+        onRefreshPoster={id => onRefreshPoster?.(id)}
+        onEditFields={movie => { setOwned(null); onEditFields?.(movie); }} />
+    </FloatingMovieDetail>}
   </>;
 }

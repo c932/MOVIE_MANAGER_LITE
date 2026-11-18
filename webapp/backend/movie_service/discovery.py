@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import html
+import http.cookiejar
 import re
 import time
 import urllib.request
+import urllib.parse
 from pathlib import Path
 
 from utils.library_sync import atomic_json, read_json
@@ -62,6 +66,70 @@ def annual_path(data_dir: Path, year: int) -> Path:
     return data_dir / 'discovery' / f'annual-{year}.json'
 
 
+def fetch_subject_page(douban_id: str) -> str:
+    """读取豆瓣条目页，必要时完成页面自带的工作量校验。"""
+    from scraper.douban_ranking import HEADERS
+    target = f'https://movie.douban.com/subject/{douban_id}/'
+    opener = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+    )
+    headers = {**HEADERS, 'Referer': 'https://movie.douban.com/'}
+    with opener.open(urllib.request.Request(target, headers=headers), timeout=20) as response:
+        page = response.read(8 * 1024 * 1024).decode('utf-8', 'replace')
+        challenge_url = response.geturl()
+    if 'id="cha"' not in page:
+        return page
+    token = re.search(r'id="tok"[^>]*value="([^"]+)', page)
+    challenge = re.search(r'id="cha"[^>]*value="([^"]+)', page)
+    redirect = re.search(r'id="red"[^>]*value="([^"]+)', page)
+    if not token or not challenge or not redirect:
+        raise ValueError('豆瓣安全检查页面格式异常，请稍后重试。')
+    nonce = 1
+    while nonce < 2_000_000:
+        digest = hashlib.sha512((challenge.group(1) + str(nonce)).encode()).hexdigest()
+        if digest.startswith('0000'):
+            break
+        nonce += 1
+    if nonce >= 2_000_000:
+        raise ValueError('豆瓣安全检查未通过，请稍后重试。')
+    body = urllib.parse.urlencode({
+        'tok': token.group(1),
+        'cha': challenge.group(1),
+        'sol': str(nonce),
+        'red': redirect.group(1),
+    }).encode()
+    action = urllib.parse.urljoin(challenge_url, '/c')
+    request = urllib.request.Request(
+        action,
+        data=body,
+        headers={
+            **headers,
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Referer': challenge_url,
+        },
+    )
+    with opener.open(request, timeout=20) as response:
+        page = response.read(8 * 1024 * 1024).decode('utf-8', 'replace')
+    if 'id="cha"' in page:
+        raise ValueError('豆瓣安全检查未通过，请稍后重试。')
+    return page
+
+
+def parse_subject_page(page: str, douban_id: str) -> dict:
+    title = re.search(r'<span[^>]+property="v:itemreviewed"[^>]*>(.*?)</span>', page, re.DOTALL)
+    summary = re.search(r'<span[^>]+property="v:summary"[^>]*>(.*?)</span>', page, re.DOTALL)
+    clean = lambda value: re.sub(r'\s+', ' ', html.unescape(re.sub(r'<[^>]+>', ' ', value))).strip()
+    plot = clean(summary.group(1)) if summary else ''
+    if not plot:
+        raise ValueError('豆瓣暂未返回电影简介，可稍后重试或打开豆瓣条目。')
+    return {
+        'title': clean(title.group(1)) if title else '',
+        'plot': plot,
+        'douban_id': douban_id,
+        'fetched_at': time.time(),
+    }
+
+
 def normalize_legacy(data: dict) -> dict:
     """2017–2022 官方活动页以嵌套 widgets/subjects 提供分类。"""
     widgets = []
@@ -112,14 +180,7 @@ def subject_detail(data_dir: Path, did: str, ctx) -> dict:
     if cached.get('plot') and time.time() - cached.get('fetched_at', 0) < 86400:
         return cached
     ctx.update(message='正在读取电影简介…')
-    from scraper.douban_cli import get_movie_detail
-    data = get_movie_detail(did)
-    if not isinstance(data, dict) or not data.get('summary'):
-        raise ValueError('豆瓣暂未返回电影简介，可稍后重试或打开豆瓣条目。')
-    if data.get('id') and str(data['id']) != did:
-        raise ValueError('豆瓣返回的条目不匹配，请重试。')
-    result = {'title': str(data.get('title') or ''), 'plot': str(data['summary']),
-              'douban_id': did, 'fetched_at': time.time()}
+    result = parse_subject_page(fetch_subject_page(did), did)
     ctx.check_cancelled()
     atomic_json(path, result)
     return result

@@ -34,7 +34,10 @@ def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
             'subject_collection': {'subject_type': 'movie'},
             'subject_collection_items': [{'id': '123', 'title': '电影'}]}}]})
     monkeypatch.setattr(discovery, 'fetch_text', fetch)
-    monkeypatch.setattr('scraper.douban_cli.get_movie_detail', lambda did: {'id': did, 'title': '电影', 'summary': '真实简介'})
+    monkeypatch.setattr(discovery, 'fetch_subject_page', lambda did: '''
+        <span property="v:itemreviewed">电影</span>
+        <span property="v:summary">真实简介</span>
+    ''')
     with movie_client(service_data_dir) as client:
         assert client.get('/api/movie/discovery/annual/2025').json()['categories'] == []
         job = wait_job(client, client.post('/api/movie/discovery/annual/2025/refresh').json()['job_id'])
@@ -46,6 +49,15 @@ def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
         assert job['result']['plot'] == '真实简介'
         assert client.get('/api/movie/movies').json()['movies'] == []
         assert client.post('/api/movie/discovery/subject/not-id').status_code == 400
+
+
+def test_parse_subject_page_cleans_douban_summary():
+    from movie_service.discovery import parse_subject_page
+    page = '''<span property="v:itemreviewed">八仙！</span>
+    <span property="v:summary">　　A &amp; B。<br>下一段</span>'''
+    result = parse_subject_page(page, '123')
+    assert result['title'] == '八仙！'
+    assert result['plot'] == 'A & B。 下一段'
 
 
 def test_ranking_source_timestamp_is_independent(service_data_dir):
