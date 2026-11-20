@@ -121,7 +121,7 @@
     color: #fb86aa;
   }
   .movie-toolbar .btn {
-    @apply whitespace-nowrap px-2;
+    @apply gap-1 whitespace-nowrap px-1.5;
   }
   .movie-toolbar .btn:focus-visible,
   .mode-switch button:focus-visible,

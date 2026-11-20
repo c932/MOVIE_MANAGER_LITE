@@ -141,7 +141,7 @@ export default function MovieWall() {
       <div className="flex-1 overflow-y-auto"><MovieFilterSidebar /></div>
     </aside>
     <main className="flex min-w-0 flex-1 flex-col">
-      <header data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="movie-toolbar mode-chrome flex shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2">
+      <header data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="movie-toolbar mode-chrome flex shrink-0 flex-wrap items-center gap-x-0.5 gap-y-1 border-b divider bg-ink-850 p-2">
         <button className="btn md:hidden" onClick={() => setSidebar(true)}><ActionIcon icon={SlidersHorizontal} /> 筛选</button>
         <div className="mode-switch mr-1" role="group" aria-label="电影墙显示模式">
           {viewModes.map(([mode, label, icon]) =>
