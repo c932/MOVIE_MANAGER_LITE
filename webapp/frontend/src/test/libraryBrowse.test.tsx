@@ -96,12 +96,27 @@ it('缺失电影显示简介、中创盘搜和 B 站入口', async () => {
 it('过期榜单自动刷新，刷新失败保留原条目并允许重试', async () => {
   vi.mocked(movieApi.rankings).mockResolvedValue({...response, fetched_at: 1});
   vi.mocked(movieApi.get).mockResolvedValue({status: 'error', error: '来源暂不可用'} as Job);
-  render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  render(<LibraryBrowseDialog movies={[]} initial="top250" onSelect={vi.fn()} onClose={vi.fn()}/>);
   expect(await screen.findByRole('alert')).toHaveTextContent('来源暂不可用');
   expect(screen.getByRole('button', {name: '本库电影，查看简介'})).toBeInTheDocument();
-  expect(movieApi.fetchRankings).toHaveBeenCalledWith(['chart'], false);
+  expect(movieApi.fetchRankings).toHaveBeenCalledWith(['top250'], false);
   fireEvent.click(screen.getByRole('button', {name: '刷新榜单'}));
   await waitFor(() => expect(movieApi.fetchRankings).toHaveBeenCalledTimes(2));
+});
+
+it.each(['chart', 'nowplaying', 'coming'] as const)('%s 缓存无时间戳时只在点击后刷新', async initial => {
+  const empty = {...response, fetched_at: 0, items: [], owned_count: 0, missing_count: 0};
+  vi.mocked(movieApi.rankings).mockResolvedValue(empty);
+  vi.spyOn(movieApi, 'newMovies').mockResolvedValue(empty);
+  const fetchNewMovies = vi.spyOn(movieApi, 'fetchNewMovies').mockResolvedValue({job_id: 'refresh'});
+  render(<LibraryBrowseDialog movies={[]} initial={initial} onSelect={vi.fn()} onClose={vi.fn()}/>);
+  await screen.findByText('暂无榜单资料，请点击“刷新榜单”。');
+  expect(movieApi.fetchRankings).not.toHaveBeenCalled();
+  expect(fetchNewMovies).not.toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole('button', {name: '刷新榜单'}));
+  const fetchList = initial === 'chart' ? movieApi.fetchRankings : fetchNewMovies;
+  await waitFor(() => expect(fetchList).toHaveBeenCalledExactlyOnceWith([initial], false));
 });
 
 it('年度分类切换不重新请求网络，年份切换读取对应榜单', async () => {

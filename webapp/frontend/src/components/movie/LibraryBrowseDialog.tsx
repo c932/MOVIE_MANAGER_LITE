@@ -99,8 +99,11 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
         cached = await read();
         if (!active) return;
         setResult(cached);
-        const ttl = kind === 'annual' ? 7 * 86400 : kind === 'chart' || isNew ? 6 * 3600 : 86400;
-        if (!refresh && cached.fetched && Date.now() / 1000 - cached.fetched < ttl) return;
+        if (!refresh) {
+          if (kind === 'chart' || isNew) return;
+          const ttl = kind === 'annual' ? 7 * 86400 : 86400;
+          if (cached.fetched && Date.now() / 1000 - cached.fetched < ttl) return;
+        }
         setResult({...cached, refreshing: true});
         const started = kind === 'annual' ? await movieApi.refreshAnnual(year) : isNew ? await movieApi.fetchNewMovies([kind], false) : await movieApi.fetchRankings([kind], false);
         while (active) {

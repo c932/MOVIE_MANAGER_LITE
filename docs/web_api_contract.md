@@ -266,10 +266,10 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 ## 榜单发现接口（2026-11-17）
 
 - 榜单与新片条目补充 `douban_id`；榜单补充 `douban_url`。已入库返回 `movie_id`，网页直接复用本地详情与播放。
-- `GET /rankings/{kind}` 仍只读缓存，不触发真实网络。`fetched_at` 优先使用该来源独立时间戳；旧缓存没有独立时间戳时返回0但保留条目，网页会触发后台刷新。更新某一来源不得给其他来源续期。
+- `GET /rankings/{kind}` 只读缓存。`fetched_at` 优先使用该来源独立时间戳，旧缓存没有独立时间戳时返回 0 并保留条目。独立时间戳用于判断该来源的缓存新鲜度。
 - `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源仍为 `rankings.fetch`；不同来源不会误复用同一任务。热门只抓列表，简介按需读取，避免每次刷新等待几十个详情请求。来源空响应报错，保留旧缓存。成功保存用锁及原子替换。
 - `GET /discovery/annual/{year}` → `{year,fetched_at,source_url?,categories:[{id,title,items:RankingItem[]}]}`。无缓存返回空categories；只读，无隐式网络。年度必须已结束。
 - `POST /discovery/annual/{year}/refresh` → `{job_id}`；官方页面动态发现新版page ID或旧版activity名，按年份独立缓存。网页开放已验证可用的2019年起年度；2018及更早官方接口当前不可用。来源不可用时报中文错误、保留原缓存。
 - `POST /discovery/subject/{douban_id}` → `{job_id}`；任务result为 `{title,plot,douban_id,fetched_at}`，简介缓存一天。服务端读取豆瓣条目正文；遇到页面自动安全检查时完成页面自带的证明工作后继续，结果只读发现，不创建本库电影、不写NAS/NFO。网页中已入库电影的整卡点击打开同等详情浮窗，榜单弹窗和滚动位置保持。
-- 网页热门/新片六小时、Top250一天、年度七天过期后显式提交刷新任务；提供手动刷新和错误提示。
+- 网页只在用户点击「刷新榜单」时提交豆瓣热门、正在上映和即将上映的更新任务。Top250 的缓存期限为一天，年度榜单为七天，过期后后台刷新。所有榜单均提供手动刷新和错误提示。
 - 豆瓣图片使用浏览器UA、豆瓣Referer及图片Accept；图片代理白名单增加IMDb官方media-amazon.com图片域名，仍拒绝任意主机。远程缓存并发使用唯一临时文件。
