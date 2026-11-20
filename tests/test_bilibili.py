@@ -6,7 +6,6 @@ import pytest
 
 from utils import bilibili
 from utils.bilibili import (
-    movie_query,
     open_bilibili_play,
     open_bilibili_search,
     open_bridge_url,
@@ -16,11 +15,10 @@ from utils.bilibili import (
 )
 
 
-def test_movie_query_deduplicates_and_encodes():
-    assert movie_query('沙丘', 'Dune', '2021', play=True) == '沙丘 Dune 2021 电影'
-    assert parse_qs(urlsplit(search_web_url('沙丘 2021')).query) == {
-        'keyword': ['沙丘 2021'], 'order': ['click'],
-    }
+def test_search_url_opens_film_tab_with_only_title():
+    url = urlsplit(search_web_url('抓特务'))
+    assert (url.scheme, url.netloc, url.path) == ('https', 'search.bilibili.com', '/pgc')
+    assert parse_qs(url.query) == {'keyword': ['抓特务']}
 
 
 def test_search_uses_bilibili_web_results():
@@ -30,7 +28,7 @@ def test_search_uses_bilibili_web_results():
         browser=lambda url, new=2: calls.append(url) or True,
     )
     assert mode == 'browser'
-    assert calls == [search_web_url('电影 Movie 2025')]
+    assert calls == [search_web_url('电影')]
 
 
 def test_play_opens_best_video_through_local_client():
@@ -64,12 +62,12 @@ def test_play_opens_same_video_in_browser_if_no_local_handler():
 
 
 def test_find_video_skips_unrelated_and_unavailable_results(monkeypatch):
-    monkeypatch.setattr(bilibili, 'search_videos', lambda keyword: [
+    monkeypatch.setattr(bilibili, '_search_results', lambda keyword: {'video': [
         {'title': '2021 科幻电影合集', 'bvid': 'BV1xx411c7mA'},
         {'title': '《沙丘》2021', 'bvid': 'BV1xx411c7mB'},
         {'title': '沙丘电影解说', 'bvid': 'BV1xx411c7mC'},
         {'title': 'Dune', 'bvid': 'BV1xx411c7mD'},
-    ])
+    ]})
     requests = []
 
     def resolve(bvid):
@@ -82,6 +80,28 @@ def test_find_video_skips_unrelated_and_unavailable_results(monkeypatch):
     video = bilibili.find_play_video('沙丘', 'Dune', '2021')
     assert requests == ['BV1xx411c7mB', 'BV1xx411c7mD']
     assert video['url'] == video_web_url('BV1xx411c7mD')
+
+
+def test_play_prefers_official_movie_search_over_same_title_upload(monkeypatch):
+    queries = []
+
+    def search(keyword):
+        queries.append(keyword)
+        return {
+            'media_ft': [{'title': '<em class="keyword">抓特务</em>', 'season_type': 2, 'season_id': 111193}],
+            'video': [{'title': '抓特务', 'bvid': 'BV1RQM361EFe'}],
+        }
+
+    monkeypatch.setattr(bilibili, '_search_results', search)
+    monkeypatch.setattr(bilibili, 'resolve_video', lambda bvid: pytest.fail('Attempted to resolve a user upload'))
+    opened = []
+    target = 'moviewall://bilibili/play?' + urlencode({
+        'keyword': '抓特务 2026 电影', 'title': '抓特务', 'original_title': 'I Know Who You Are', 'year': '2026',
+        'fallback': 'https://search.bilibili.com/video?keyword=outdated',
+    })
+    assert open_bridge_url(target, browser=lambda url, new=2: opened.append(url) or True) == 'browser'
+    assert queries == ['抓特务']
+    assert opened == [search_web_url('抓特务')]
 
 
 def test_resolve_video_rejects_response_for_different_video(monkeypatch):
@@ -97,8 +117,8 @@ def test_bridge_no_match_opens_search_without_launching_client(hints):
     keyword = '沙丘 Dune 2021 电影'
     calls = []
 
-    def find(title, original_title, year, *, keyword):
-        calls.append((title, original_title, year, keyword))
+    def find(title, original_title, year):
+        calls.append((title, original_title, year))
         return None
 
     target = 'moviewall://bilibili/play?' + urlencode({'keyword': keyword, **hints})
@@ -107,8 +127,8 @@ def test_bridge_no_match_opens_search_without_launching_client(hints):
                            browser=lambda url, new=2: calls.append(url) or True) == 'browser'
     assert calls == [(
         hints.get('title', '沙丘 Dune'), hints.get('original_title', ''),
-        hints.get('year', '2021'), keyword,
-    ), search_web_url(keyword)]
+        hints.get('year', '2021'),
+    ), search_web_url(hints.get('title', '沙丘 Dune'))]
 
 
 def test_bridge_accepts_only_moviewall_bilibili_urls():

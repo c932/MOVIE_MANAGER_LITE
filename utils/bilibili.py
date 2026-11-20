@@ -19,35 +19,16 @@ SEARCH_HEADERS = {
                   'Chrome/124.0.0.0 Safari/537.36',
     'Accept-Language': 'zh-CN,zh;q=0.9',
 }
-SEARCH_PAGE = 'https://search.bilibili.com/video'
-SEARCH_API = 'https://api.bilibili.com/x/web-interface/search/type'
+SEARCH_PAGE = 'https://search.bilibili.com/pgc'
+SEARCH_API = 'https://api.bilibili.com/x/web-interface/search/all/v2'
 VIDEO_WEB = 'https://www.bilibili.com/video/'
 
-_cache: dict[str, tuple[float, list[dict]]] = {}
+_cache: dict[str, tuple[float, dict[str, list[dict]]]] = {}
 _cache_lock = threading.Lock()
 
 
-def movie_query(title: str, original_title: str = '', year: str = '', *, play: bool = False) -> str:
-    values = [str(title or '').strip()]
-    original = str(original_title or '').strip()
-    if original and original.casefold() != values[0].casefold():
-        values.append(original)
-    if str(year or '').strip():
-        values.append(str(year).strip())
-    if play:
-        values.append('电影')
-    seen = set()
-    unique = []
-    for value in values:
-        key = value.casefold()
-        if value and key not in seen:
-            seen.add(key)
-            unique.append(value)
-    return ' '.join(unique)
-
-
 def search_web_url(keyword: str) -> str:
-    query = urllib.parse.urlencode({'keyword': keyword, 'order': 'click'})
+    query = urllib.parse.urlencode({'keyword': keyword.strip()})
     return f'{SEARCH_PAGE}?{query}'
 
 
@@ -68,28 +49,22 @@ def _plain_text(value: object) -> str:
     return re.sub(r'\s+', ' ', text).strip()
 
 
-def search_videos(keyword: str, limit: int = 8) -> list[dict]:
-    """通过搜索结果页取得匿名 Cookie，再调用视频搜索接口。"""
-    keyword = keyword.strip()
+def _search_results(keyword: str) -> dict[str, list[dict]]:
+    """在同一次搜索中取得官方影视和普通视频条目。"""
     if not keyword:
-        return []
-    cache_key = f'{keyword.casefold()}:{limit}'
+        return {}
+    cache_key = keyword.casefold()
     with _cache_lock:
         cached = _cache.get(cache_key)
-        if cached and time.time() - cached[0] < 1800:
-            return [dict(item) for item in cached[1]]
+        if cached and time.monotonic() - cached[0] < 1800:
+            return cached[1]
 
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     page_url = search_web_url(keyword)
     with opener.open(urllib.request.Request(page_url, headers=SEARCH_HEADERS), timeout=5) as response:
         response.read(512 * 1024)
-    api_query = urllib.parse.urlencode({
-        'search_type': 'video',
-        'keyword': keyword,
-        'page': 1,
-        'page_size': max(1, min(limit, 20)),
-    })
+    api_query = urllib.parse.urlencode({'keyword': keyword, 'page': 1})
     with opener.open(urllib.request.Request(
         f'{SEARCH_API}?{api_query}',
         headers={**SEARCH_HEADERS, 'Referer': 'https://search.bilibili.com/'},
@@ -98,25 +73,13 @@ def search_videos(keyword: str, limit: int = 8) -> list[dict]:
     if payload.get('code') != 0:
         raise ValueError(f"B站搜索失败: {payload.get('message') or payload.get('code')}")
 
-    results = []
-    for item in (payload.get('data') or {}).get('result') or []:
-        bvid = str(item.get('bvid') or '').strip()
-        if not re.fullmatch(r'BV[0-9A-Za-z]+', bvid):
-            continue
-        results.append({
-            'bvid': bvid,
-            'aid': int(item.get('aid') or 0),
-            'title': _plain_text(item.get('title')),
-            'author': _plain_text(item.get('author')),
-            'play': int(item.get('play') or 0),
-            'description': _plain_text(item.get('description')),
-            'pic': str(item.get('pic') or ''),
-            'url': video_web_url(bvid),
-        })
-        if len(results) >= limit:
-            break
+    results = {
+        group['result_type']: group.get('data') or []
+        for group in (payload.get('data') or {}).get('result') or []
+        if group.get('result_type') in {'media_ft', 'video'}
+    }
     with _cache_lock:
-        _cache[cache_key] = (time.time(), [dict(item) for item in results])
+        _cache[cache_key] = (time.monotonic(), results)
     return results
 
 
@@ -124,38 +87,38 @@ def _normalized(value: str) -> str:
     return re.sub(r'[\W_]+', '', value.casefold(), flags=re.UNICODE)
 
 
-def find_play_video(
-    title: str, original_title: str = '', year: str = '', *, keyword: str = '',
-) -> dict | None:
-    results = search_videos(keyword or movie_query(title, original_title, year, play=True))
+def find_play_video(title: str, original_title: str = '', year: str = '') -> dict | None:
+    results = _search_results(title.strip() or original_title.strip())
     names = {_normalized(title), _normalized(original_title)} - {''}
     dated_names = {f'{name}{year}' for name in names} | {f'{year}{name}' for name in names} if year else set()
+    matching_names = names | dated_names
+    # 官网影视条目由用户在影视页点「立即观看」，保留官网的选集和会员权限处理。
+    for item in results.get('media_ft', []):
+        if item.get('season_type') == 2 and _normalized(_plain_text(item.get('title'))) in matching_names:
+            return None
+
     dated = []
     undated = []
-    for item in results:
-        candidate = _normalized(item['title'])
-        if candidate in dated_names:
-            dated.append(item)
-        elif candidate in names:
-            undated.append(item)
-
-    seen = set()
-    for item in dated + undated:
-        bvid = item['bvid']
-        if bvid in seen:
+    for item in results.get('video', []):
+        bvid = str(item.get('bvid') or '')
+        if not re.fullmatch(r'BV[0-9A-Za-z]+', bvid):
             continue
-        if len(seen) >= 3:
-            break
-        seen.add(bvid)
+        candidate = _normalized(_plain_text(item.get('title')))
+        if candidate in dated_names:
+            dated.append(bvid)
+        elif candidate in names:
+            undated.append(bvid)
+
+    for bvid in list(dict.fromkeys(dated + undated))[:3]:
         try:
             detail = resolve_video(bvid)
         except (OSError, TypeError, ValueError):
             continue
-        if _normalized(detail['title']) not in names | dated_names:
+        if _normalized(detail['title']) not in matching_names:
             continue
         return {
-            **item,
             **detail,
+            'bvid': bvid,
             'url': video_web_url(bvid),
             'player_uri': video_player_uri(bvid, detail['aid'], detail['cid']),
         }
@@ -224,8 +187,7 @@ def open_bilibili_search(
     *,
     browser: Callable[..., bool] = webbrowser.open,
 ) -> str:
-    keyword = movie_query(title, original_title, year)
-    browser(search_web_url(keyword), new=2)
+    browser(search_web_url(title.strip() or original_title.strip()), new=2)
     return 'browser'
 
 
@@ -236,29 +198,16 @@ def open_bilibili_play(
     *,
     local_launcher: Callable[[str], bool] = _launch_local,
     browser: Callable[..., bool] = webbrowser.open,
-    finder: Callable[..., dict | None] = find_play_video,
-    keyword: str = '',
-    fallback: str = '',
+    finder: Callable[[str, str, str], dict | None] = find_play_video,
 ) -> str:
     try:
-        if keyword:
-            video = finder(title, original_title, year, keyword=keyword)
-        else:
-            video = finder(title, original_title, year)
+        video = finder(title, original_title, year)
     except (OSError, TypeError, ValueError):
         video = None
     player_uri = video['player_uri'] if video else ''
-    web_url = video['url'] if video else (fallback or search_web_url(
-        keyword or movie_query(title, original_title, year, play=True),
-    ))
+    web_url = video['url'] if video else search_web_url(title.strip() or original_title.strip())
     return _open_with_fallback(player_uri, web_url,
                                local_launcher=local_launcher, browser=browser)
-
-
-def _allowed_bilibili_url(url: str) -> bool:
-    parsed = urllib.parse.urlsplit(url)
-    host = (parsed.hostname or '').lower()
-    return parsed.scheme == 'https' and (host == 'bilibili.com' or host.endswith('.bilibili.com'))
 
 
 def _query_text(query: dict[str, list[str]], key: str) -> str:
@@ -274,7 +223,7 @@ def open_bridge_url(
     *,
     local_launcher: Callable[[str], bool] = _launch_local,
     browser: Callable[..., bool] = webbrowser.open,
-    finder: Callable[..., dict | None] = find_play_video,
+    finder: Callable[[str, str, str], dict | None] = find_play_video,
 ) -> str:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != 'moviewall' or parsed.netloc != 'bilibili' or parsed.path not in {'/search', '/play'}:
@@ -284,23 +233,18 @@ def open_bridge_url(
     if not keyword:
         raise ValueError('B站搜索词无效')
 
-    fallback_values = query.get('fallback') or []
-    fallback = fallback_values[0] if len(fallback_values) == 1 else ''
-    if fallback and not _allowed_bilibili_url(fallback):
-        fallback = ''
-    if parsed.path == '/search':
-        browser(fallback or search_web_url(keyword), new=2)
-        return 'browser'
     title = _query_text(query, 'title')
+    if parsed.path == '/search':
+        return open_bilibili_search(title or keyword, browser=browser)
     original_title = _query_text(query, 'original_title')
     year = _query_text(query, 'year')
     if not title:
-        # 旧版网页只发送组合关键词，保留原关键词搜索，同时去除匹配用的附加词。
+        # 旧版网页只发送组合关键词，去除额外加上的年份和「电影」。
         title = keyword.removesuffix(' 电影')
         legacy_title, _, legacy_year = title.rpartition(' ')
         if legacy_title and re.fullmatch(r'\d{4}', legacy_year):
             title, year = legacy_title, legacy_year
     return open_bilibili_play(
-        title, original_title, year, keyword=keyword, fallback=fallback,
+        title, original_title, year,
         local_launcher=local_launcher, browser=browser, finder=finder,
     )

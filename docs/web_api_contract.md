@@ -194,7 +194,7 @@ PUT 接受同结构的任意子集。
 
 ### 3.5.0 完整网页刮削与展示扩展
 
-网页“B站搜索”直接链接至 B 站。自 3.6.1 起，“B站播放”使用 `moviewall://bilibili/play?keyword=...&title=...&original_title=...&year=...`。Windows 电影墙校验候选的 BV、aid、cid 后，通过 `bilipc://page/player` 打开对应视频。协议无法调用时打开同一视频的网页，无可用匹配时打开带片名的网页搜索。旧版的 `keyword`、`fallback` 参数以及 `/search` 入口仍可识别。搜索和视频校验均在客户端执行。
+自 3.6.2 起，网页“B站搜索”只用片名打开 `https://search.bilibili.com/pgc?keyword=...`。“B站播放”使用 `moviewall://bilibili/play?keyword=...&title=...&original_title=...&year=...`。有同名官方电影或无可用视频时打开影视搜索。其余情况下，Windows 电影墙校验 BV、aid、cid 后，通过 `bilipc://page/player` 打开视频。协议无法调用时打开同一视频的网页。旧版只带 `keyword` 的链接和 `/search` 入口仍可识别，3.6.2 根据片名生成影视搜索地址。搜索和视频校验均在客户端执行。
 
 3.5.2 共享协议的 Movie 资料增加可选 `video_width:int=0` / `video_height:int=0`，用于保留已核实像素尺寸；列表DTO继续通过resolution/hdr_type展示，不改变既有字段契约。0表示未知；不会把0×0判为SD。缺尺寸资料允许从规范视频文件名补全，旧缓存不重新扫描媒体目录。
 
