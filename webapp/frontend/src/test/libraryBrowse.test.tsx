@@ -45,13 +45,13 @@ it('已入库电影即使榜单远程海报为空也加载本库海报', async (
   expect(container.querySelector('img')?.getAttribute('src')).toBe(movieApi.posterUrl('local-id', 240, 360));
 });
 
-it('缺失电影显示简介和中创盘搜，没有播放操作', async () => {
+it('缺失电影显示简介、中创盘搜和 B 站入口', async () => {
   render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
   fireEvent.click(await screen.findByRole('button', {name: '缺失电影，查看简介'}));
   const dialog = await screen.findByRole('dialog', {name: '缺失电影 · 电影简介'});
   expect(await within(dialog).findByText('该电影的真实剧情')).toBeInTheDocument();
   expect(within(dialog).getByRole('link', {name: '打开夸克盘搜'})).toHaveAttribute('href', 'https://www.zhongchuangwl.com/s/'+encodeURIComponent('缺失电影')+'/');
-  expect(within(dialog).getByRole('link', {name: '🔎 B站搜索'}).getAttribute('href')).toContain('moviewall://bilibili/search?keyword=');
+  expect(within(dialog).getByRole('link', {name: '🔎 B站搜索'}).getAttribute('href')).toContain('https://search.bilibili.com/');
   expect(within(dialog).getByRole('link', {name: '▶ B站播放'}).getAttribute('href')).toContain('moviewall://bilibili/play?keyword=');
   expect(within(dialog).queryByRole('button', {name: /播放/})).not.toBeInTheDocument();
   expect(movieApi.subject).toHaveBeenCalledWith('456');

@@ -6,13 +6,11 @@ import http.cookiejar
 import json
 import os
 import re
-import subprocess
 import threading
 import time
 import urllib.parse
 import urllib.request
 import webbrowser
-from pathlib import Path
 from typing import Callable
 
 SEARCH_HEADERS = {
@@ -53,16 +51,16 @@ def search_web_url(keyword: str) -> str:
     return f'{SEARCH_PAGE}?{query}'
 
 
-def search_player_uri(keyword: str) -> str:
-    return 'bilibili://search?' + urllib.parse.urlencode({'keyword': keyword})
-
-
 def video_web_url(bvid: str) -> str:
     return VIDEO_WEB + urllib.parse.quote(bvid, safe='')
 
 
-def video_player_uri(bvid: str) -> str:
-    return 'bilibili://video/' + urllib.parse.quote(bvid, safe='')
+def video_player_uri(bvid: str, aid: int, cid: int, page: int = 1) -> str:
+    query = urllib.parse.urlencode({
+        'type': 'ugc', 'bvid': bvid, 'aid': aid, 'cid': cid,
+        'page': page, 'itemId': cid,
+    })
+    return 'bilipc://page/player?' + query
 
 
 def _plain_text(value: object) -> str:
@@ -84,7 +82,7 @@ def search_videos(keyword: str, limit: int = 8) -> list[dict]:
     jar = http.cookiejar.CookieJar()
     opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
     page_url = search_web_url(keyword)
-    with opener.open(urllib.request.Request(page_url, headers=SEARCH_HEADERS), timeout=15) as response:
+    with opener.open(urllib.request.Request(page_url, headers=SEARCH_HEADERS), timeout=5) as response:
         response.read(512 * 1024)
     api_query = urllib.parse.urlencode({
         'search_type': 'video',
@@ -95,7 +93,7 @@ def search_videos(keyword: str, limit: int = 8) -> list[dict]:
     with opener.open(urllib.request.Request(
         f'{SEARCH_API}?{api_query}',
         headers={**SEARCH_HEADERS, 'Referer': 'https://search.bilibili.com/'},
-    ), timeout=15) as response:
+    ), timeout=5) as response:
         payload = json.loads(response.read(4 * 1024 * 1024).decode('utf-8'))
     if payload.get('code') != 0:
         raise ValueError(f"B站搜索失败: {payload.get('message') or payload.get('code')}")
@@ -107,13 +105,13 @@ def search_videos(keyword: str, limit: int = 8) -> list[dict]:
             continue
         results.append({
             'bvid': bvid,
+            'aid': int(item.get('aid') or 0),
             'title': _plain_text(item.get('title')),
             'author': _plain_text(item.get('author')),
             'play': int(item.get('play') or 0),
             'description': _plain_text(item.get('description')),
             'pic': str(item.get('pic') or ''),
             'url': video_web_url(bvid),
-            'player_uri': video_player_uri(bvid),
         })
         if len(results) >= limit:
             break
@@ -126,23 +124,61 @@ def _normalized(value: str) -> str:
     return re.sub(r'[\W_]+', '', value.casefold(), flags=re.UNICODE)
 
 
-def find_play_video(title: str, original_title: str = '', year: str = '') -> dict | None:
-    keyword = movie_query(title, original_title, year, play=True)
-    results = search_videos(keyword)
-    if not results:
-        return None
-    wanted = [value for value in (_normalized(title), _normalized(original_title)) if value]
-    ranked = []
-    for index, item in enumerate(results):
+def find_play_video(
+    title: str, original_title: str = '', year: str = '', *, keyword: str = '',
+) -> dict | None:
+    results = search_videos(keyword or movie_query(title, original_title, year, play=True))
+    names = {_normalized(title), _normalized(original_title)} - {''}
+    dated_names = {f'{name}{year}' for name in names} | {f'{year}{name}' for name in names} if year else set()
+    dated = []
+    undated = []
+    for item in results:
         candidate = _normalized(item['title'])
-        score = sum(4 if value in candidate else 0 for value in wanted)
-        if year and str(year) in item['title']:
-            score += 2
-        if '电影' in item['title'] or '完整' in item['title']:
-            score += 1
-        ranked.append((score, -index, item))
-    ranked.sort(key=lambda value: (value[0], value[1]), reverse=True)
-    return ranked[0][2] if ranked[0][0] > 0 else results[0]
+        if candidate in dated_names:
+            dated.append(item)
+        elif candidate in names:
+            undated.append(item)
+
+    seen = set()
+    for item in dated + undated:
+        bvid = item['bvid']
+        if bvid in seen:
+            continue
+        if len(seen) >= 3:
+            break
+        seen.add(bvid)
+        try:
+            detail = resolve_video(bvid)
+        except (OSError, TypeError, ValueError):
+            continue
+        if _normalized(detail['title']) not in names | dated_names:
+            continue
+        return {
+            **item,
+            **detail,
+            'url': video_web_url(bvid),
+            'player_uri': video_player_uri(bvid, detail['aid'], detail['cid']),
+        }
+    return None
+
+
+def resolve_video(bvid: str) -> dict:
+    """读取视频 aid/cid，确保本地播放器能构造有效播放参数。"""
+    url = 'https://api.bilibili.com/x/web-interface/view?' + urllib.parse.urlencode({'bvid': bvid})
+    with urllib.request.urlopen(urllib.request.Request(
+        url,
+        headers={**SEARCH_HEADERS, 'Referer': video_web_url(bvid)},
+    ), timeout=5) as response:
+        payload = json.loads(response.read(2 * 1024 * 1024).decode('utf-8'))
+    if payload.get('code') != 0 or not isinstance(payload.get('data'), dict):
+        raise ValueError(f"B站视频不可用: {payload.get('message') or bvid}")
+    data = payload['data']
+    if data.get('bvid') != bvid:
+        raise ValueError(f'B站视频编号不匹配: {bvid}')
+    aid, cid = int(data.get('aid') or 0), int(data.get('cid') or 0)
+    if aid <= 0 or cid <= 0:
+        raise ValueError(f'B站视频缺少播放参数: {bvid}')
+    return {'aid': aid, 'cid': cid, 'title': _plain_text(data.get('title'))}
 
 
 def _protocol_registered() -> bool:
@@ -150,88 +186,18 @@ def _protocol_registered() -> bool:
         return False
     try:
         import winreg
-        for root, path in (
-            (winreg.HKEY_CURRENT_USER, r'Software\Classes\bilibili'),
-            (winreg.HKEY_CLASSES_ROOT, 'bilibili'),
-        ):
-            try:
-                with winreg.OpenKey(root, path):
-                    return True
-            except OSError:
-                continue
-    except ImportError:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, 'bilipc') as key:
+            winreg.QueryValueEx(key, 'URL Protocol')
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r'bilipc\shell\open\command') as key:
+            return bool(winreg.QueryValueEx(key, '')[0])
+    except (ImportError, OSError):
         return False
-    return False
-
-
-def _candidate_executables() -> list[Path]:
-    candidates: list[Path] = []
-    for env_name in ('LOCALAPPDATA', 'ProgramFiles', 'ProgramFiles(x86)'):
-        base = os.environ.get(env_name)
-        if base:
-            candidates.append(Path(base) / 'bilibili' / '哔哩哔哩.exe')
-            candidates.append(Path(base) / 'Programs' / 'bilibili' / '哔哩哔哩.exe')
-    if os.name == 'nt':
-        try:
-            import winreg
-            uninstall_paths = (
-                (winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Uninstall'),
-                (winreg.HKEY_LOCAL_MACHINE, r'Software\Microsoft\Windows\CurrentVersion\Uninstall'),
-                (winreg.HKEY_LOCAL_MACHINE, r'Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'),
-            )
-            for root, base_path in uninstall_paths:
-                try:
-                    with winreg.OpenKey(root, base_path) as base_key:
-                        for index in range(winreg.QueryInfoKey(base_key)[0]):
-                            try:
-                                with winreg.OpenKey(base_key, winreg.EnumKey(base_key, index)) as app_key:
-                                    name = str(winreg.QueryValueEx(app_key, 'DisplayName')[0] or '')
-                                    if not re.search(r'bilibili|哔哩哔哩', name, re.IGNORECASE):
-                                        continue
-                                    for value_name in ('DisplayIcon', 'InstallLocation'):
-                                        try:
-                                            value = str(winreg.QueryValueEx(app_key, value_name)[0] or '')
-                                        except OSError:
-                                            continue
-                                        raw = value.split(',', 1)[0].strip().strip('"')
-                                        path = Path(raw)
-                                        if path.suffix.lower() == '.exe':
-                                            candidates.append(path)
-                                        for filename in ('哔哩哔哩.exe', 'bilibili.exe'):
-                                            candidates.append(path / filename)
-                            except OSError:
-                                continue
-                except OSError:
-                    continue
-        except ImportError:
-            pass
-    unique = []
-    seen = set()
-    for path in candidates:
-        normalized = str(path).casefold()
-        if normalized not in seen:
-            seen.add(normalized)
-            unique.append(path)
-    return unique
-
-
-def find_bilibili_executable() -> Path | None:
-    for path in _candidate_executables():
-        if not path.is_file() or '卸载' in path.name:
-            continue
-        if re.search(r'bilibili|哔哩', path.name, re.IGNORECASE):
-            return path
-    return None
 
 
 def _launch_local(uri: str) -> bool:
     try:
         if _protocol_registered():
             os.startfile(uri)
-            return True
-        executable = find_bilibili_executable()
-        if executable:
-            subprocess.Popen([str(executable), uri], close_fds=True)
             return True
     except (OSError, ValueError):
         return False
@@ -245,7 +211,7 @@ def _open_with_fallback(
     local_launcher: Callable[[str], bool],
     browser: Callable[..., bool],
 ) -> str:
-    if local_launcher(player_uri):
+    if player_uri and local_launcher(player_uri):
         return 'app'
     browser(web_url, new=2)
     return 'browser'
@@ -256,12 +222,11 @@ def open_bilibili_search(
     original_title: str = '',
     year: str = '',
     *,
-    local_launcher: Callable[[str], bool] = _launch_local,
     browser: Callable[..., bool] = webbrowser.open,
 ) -> str:
     keyword = movie_query(title, original_title, year)
-    return _open_with_fallback(search_player_uri(keyword), search_web_url(keyword),
-                               local_launcher=local_launcher, browser=browser)
+    browser(search_web_url(keyword), new=2)
+    return 'browser'
 
 
 def open_bilibili_play(
@@ -271,15 +236,21 @@ def open_bilibili_play(
     *,
     local_launcher: Callable[[str], bool] = _launch_local,
     browser: Callable[..., bool] = webbrowser.open,
-    finder: Callable[[str, str, str], dict | None] = find_play_video,
+    finder: Callable[..., dict | None] = find_play_video,
+    keyword: str = '',
+    fallback: str = '',
 ) -> str:
-    keyword = movie_query(title, original_title, year, play=True)
     try:
-        video = finder(title, original_title, year)
-    except Exception:
+        if keyword:
+            video = finder(title, original_title, year, keyword=keyword)
+        else:
+            video = finder(title, original_title, year)
+    except (OSError, TypeError, ValueError):
         video = None
-    player_uri = video['player_uri'] if video else search_player_uri(keyword)
-    web_url = video['url'] if video else search_web_url(keyword)
+    player_uri = video['player_uri'] if video else ''
+    web_url = video['url'] if video else (fallback or search_web_url(
+        keyword or movie_query(title, original_title, year, play=True),
+    ))
     return _open_with_fallback(player_uri, web_url,
                                local_launcher=local_launcher, browser=browser)
 
@@ -290,22 +261,27 @@ def _allowed_bilibili_url(url: str) -> bool:
     return parsed.scheme == 'https' and (host == 'bilibili.com' or host.endswith('.bilibili.com'))
 
 
+def _query_text(query: dict[str, list[str]], key: str) -> str:
+    values = query.get(key, [''])
+    value = values[0].strip()
+    if len(values) != 1 or len(value) > 200 or any(ord(character) < 32 for character in value):
+        raise ValueError('B站链接搜索参数无效')
+    return value
+
+
 def open_bridge_url(
     url: str,
     *,
     local_launcher: Callable[[str], bool] = _launch_local,
     browser: Callable[..., bool] = webbrowser.open,
-    finder: Callable[[str, str, str], dict | None] = find_play_video,
+    finder: Callable[..., dict | None] = find_play_video,
 ) -> str:
     parsed = urllib.parse.urlsplit(url)
     if parsed.scheme != 'moviewall' or parsed.netloc != 'bilibili' or parsed.path not in {'/search', '/play'}:
         raise ValueError('B站链接格式无效')
     query = urllib.parse.parse_qs(parsed.query, keep_blank_values=False, strict_parsing=True)
-    keywords = query.get('keyword') or []
-    if len(keywords) != 1:
-        raise ValueError('B站链接只允许一个搜索词')
-    keyword = keywords[0].strip()
-    if not keyword or len(keyword) > 200 or any(ord(character) < 32 for character in keyword):
+    keyword = _query_text(query, 'keyword')
+    if not keyword:
         raise ValueError('B站搜索词无效')
 
     fallback_values = query.get('fallback') or []
@@ -313,13 +289,18 @@ def open_bridge_url(
     if fallback and not _allowed_bilibili_url(fallback):
         fallback = ''
     if parsed.path == '/search':
-        return _open_with_fallback(search_player_uri(keyword), fallback or search_web_url(keyword),
-                                   local_launcher=local_launcher, browser=browser)
-    try:
-        video = finder(keyword, '', '')
-    except Exception:
-        video = None
-    player_uri = video['player_uri'] if video else search_player_uri(keyword)
-    web_url = video['url'] if video else (fallback or search_web_url(keyword))
-    return _open_with_fallback(player_uri, web_url,
-                               local_launcher=local_launcher, browser=browser)
+        browser(fallback or search_web_url(keyword), new=2)
+        return 'browser'
+    title = _query_text(query, 'title')
+    original_title = _query_text(query, 'original_title')
+    year = _query_text(query, 'year')
+    if not title:
+        # 旧版网页只发送组合关键词，保留原关键词搜索，同时去除匹配用的附加词。
+        title = keyword.removesuffix(' 电影')
+        legacy_title, _, legacy_year = title.rpartition(' ')
+        if legacy_title and re.fullmatch(r'\d{4}', legacy_year):
+            title, year = legacy_title, legacy_year
+    return open_bilibili_play(
+        title, original_title, year, keyword=keyword, fallback=fallback,
+        local_launcher=local_launcher, browser=browser, finder=finder,
+    )

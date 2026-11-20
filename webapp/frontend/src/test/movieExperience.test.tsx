@@ -65,8 +65,13 @@ describe('电影墙交互', () => {
     expect(within(scroll).getByRole('button', {name: /第一部/})).toBe(card);
     const logos = within(dialog).getAllByRole('img').filter(image => ['豆瓣','IMDb','TMDB'].includes(image.getAttribute('alt') || ''));
     expect(logos.map(image => image.getAttribute('alt'))).toEqual(['豆瓣','IMDb','TMDB']);
-    expect(within(dialog).getByRole('link', {name: '🔎 B站搜索'}).getAttribute('href')).toMatch(/^moviewall:\/\/bilibili\/search\?keyword=/);
-    expect(within(dialog).getByRole('link', {name: '▶ B站播放'}).getAttribute('href')).toMatch(/^moviewall:\/\/bilibili\/play\?keyword=/);
+    const search = new URL((within(dialog).getByRole('link', {name: '🔎 B站搜索'}) as HTMLAnchorElement).href);
+    expect(search.origin).toBe('https://search.bilibili.com');
+    expect(search.searchParams.get('keyword')).toBe('第一部 2025');
+    const play = new URL((within(dialog).getByRole('link', {name: '▶ B站播放'}) as HTMLAnchorElement).href);
+    expect(play.href).toMatch(/^moviewall:\/\/bilibili\/play\?/);
+    expect(play.searchParams.get('title')).toBe('第一部');
+    expect(play.searchParams.get('year')).toBe('2025');
     fireEvent.click(dialog);
     await waitFor(() => expect(screen.queryByRole('dialog', {name: '第一部'})).not.toBeInTheDocument());
     expect(scroll.scrollTop).toBe(540);

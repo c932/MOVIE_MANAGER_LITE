@@ -20,7 +20,7 @@ MOVIE_CONFIG = ProductConfig(
     output_prefix="本地电影墙",
     menu_folder="LocalMovieWall",
     shortcut_prefix="MovieWall",
-    default_version="3.6.0",
+    default_version="3.6.1",
     url_protocol="moviewall",
 )
 

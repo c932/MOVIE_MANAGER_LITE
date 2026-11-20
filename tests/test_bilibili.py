@@ -1,13 +1,15 @@
-from urllib.parse import quote
+import io
+import json
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import pytest
 
+from utils import bilibili
 from utils.bilibili import (
     movie_query,
     open_bilibili_play,
     open_bilibili_search,
     open_bridge_url,
-    search_player_uri,
     search_web_url,
     video_player_uri,
     video_web_url,
@@ -16,33 +18,24 @@ from utils.bilibili import (
 
 def test_movie_query_deduplicates_and_encodes():
     assert movie_query('沙丘', 'Dune', '2021', play=True) == '沙丘 Dune 2021 电影'
-    uri = search_player_uri('沙丘 2021')
-    assert uri.startswith('bilibili://search?keyword=')
-    assert '2021' in uri
-    assert 'order=click' in search_web_url('沙丘 2021')
+    assert parse_qs(urlsplit(search_web_url('沙丘 2021')).query) == {
+        'keyword': ['沙丘 2021'], 'order': ['click'],
+    }
 
 
-def test_search_prefers_local_bilibili_and_falls_back_to_browser():
+def test_search_uses_bilibili_web_results():
     calls = []
     mode = open_bilibili_search(
         '电影', original_title='Movie', year='2025',
-        local_launcher=lambda uri: calls.append(('app', uri)) or True,
-        browser=lambda url, new=2: calls.append(('web', url)) or True,
-    )
-    assert mode == 'app'
-    assert calls[0][0] == 'app' and calls[0][1].startswith('bilibili://search?')
-
-    calls.clear()
-    mode = open_bilibili_search(
-        '电影', local_launcher=lambda uri: False,
         browser=lambda url, new=2: calls.append(url) or True,
     )
     assert mode == 'browser'
-    assert calls == [search_web_url('电影')]
+    assert calls == [search_web_url('电影 Movie 2025')]
 
 
 def test_play_opens_best_video_through_local_client():
-    video = {'player_uri': video_player_uri('BV1xx411c7mD'),
+    video = {'player_uri': video_player_uri('BV1xx411c7mD', 123, 456),
+             'aid': 123, 'cid': 456, 'page': 1,
              'url': video_web_url('BV1xx411c7mD')}
     calls = []
     mode = open_bilibili_play(
@@ -52,21 +45,84 @@ def test_play_opens_best_video_through_local_client():
         finder=lambda title, original, year: video,
     )
     assert mode == 'app'
-    assert calls == [video['player_uri']]
+    scheme = urlsplit(calls[0])
+    assert (scheme.scheme, scheme.netloc, scheme.path) == ('bilipc', 'page', '/player')
+    assert parse_qs(scheme.query) == {
+        'type': ['ugc'], 'bvid': ['BV1xx411c7mD'], 'aid': ['123'],
+        'cid': ['456'], 'page': ['1'], 'itemId': ['456'],
+    }
+
+
+def test_play_opens_same_video_in_browser_if_no_local_handler():
+    video = {'player_uri': video_player_uri('BV1xx411c7mD', 123, 456),
+             'url': video_web_url('BV1xx411c7mD')}
+    calls = []
+    assert open_bilibili_play('沙丘', finder=lambda *args: video,
+                              local_launcher=lambda uri: False,
+                              browser=lambda url, new=2: calls.append(url) or True) == 'browser'
+    assert calls == [video['url']]
+
+
+def test_find_video_skips_unrelated_and_unavailable_results(monkeypatch):
+    monkeypatch.setattr(bilibili, 'search_videos', lambda keyword: [
+        {'title': '2021 科幻电影合集', 'bvid': 'BV1xx411c7mA'},
+        {'title': '《沙丘》2021', 'bvid': 'BV1xx411c7mB'},
+        {'title': '沙丘电影解说', 'bvid': 'BV1xx411c7mC'},
+        {'title': 'Dune', 'bvid': 'BV1xx411c7mD'},
+    ])
+    requests = []
+
+    def resolve(bvid):
+        requests.append(bvid)
+        if bvid.endswith('B'):
+            raise ValueError('视频已删除')
+        return {'aid': 123, 'cid': 456, 'title': 'Dune'}
+
+    monkeypatch.setattr(bilibili, 'resolve_video', resolve)
+    video = bilibili.find_play_video('沙丘', 'Dune', '2021')
+    assert requests == ['BV1xx411c7mB', 'BV1xx411c7mD']
+    assert video['url'] == video_web_url('BV1xx411c7mD')
+
+
+def test_resolve_video_rejects_response_for_different_video(monkeypatch):
+    payload = {'code': 0, 'data': {'bvid': 'BV1xx411c7mB', 'aid': 123, 'cid': 456}}
+    monkeypatch.setattr(bilibili.urllib.request, 'urlopen',
+                        lambda *args, **kwargs: io.BytesIO(json.dumps(payload).encode()))
+    with pytest.raises(ValueError):
+        bilibili.resolve_video('BV1xx411c7mA')
+
+
+@pytest.mark.parametrize('hints', [{}, {'title': '沙丘', 'original_title': 'Dune', 'year': '2021'}])
+def test_bridge_no_match_opens_search_without_launching_client(hints):
+    keyword = '沙丘 Dune 2021 电影'
+    calls = []
+
+    def find(title, original_title, year, *, keyword):
+        calls.append((title, original_title, year, keyword))
+        return None
+
+    target = 'moviewall://bilibili/play?' + urlencode({'keyword': keyword, **hints})
+    assert open_bridge_url(target, finder=find,
+                           local_launcher=lambda uri: pytest.fail(f'Unexpected native URI: {uri}'),
+                           browser=lambda url, new=2: calls.append(url) or True) == 'browser'
+    assert calls == [(
+        hints.get('title', '沙丘 Dune'), hints.get('original_title', ''),
+        hints.get('year', '2021'), keyword,
+    ), search_web_url(keyword)]
 
 
 def test_bridge_accepts_only_moviewall_bilibili_urls():
-    target = 'moviewall://bilibili/search?keyword=' + quote('电影', safe='') + '&fallback=' + quote(search_web_url('电影'), safe='')
+    target = 'moviewall://bilibili/search?' + urlencode({'keyword': '电影', 'fallback': search_web_url('电影')})
     calls = []
     assert open_bridge_url(target, local_launcher=lambda uri: calls.append(uri) or True,
-                           browser=lambda url, new=2: False) == 'app'
-    assert calls[0].startswith('bilibili://search?')
+                           browser=lambda url, new=2: calls.append(url) or True) == 'browser'
+    assert calls == [search_web_url('电影')]
     with pytest.raises(ValueError):
         open_bridge_url('moviewall://other/search?keyword=x')
 
 
 def test_bridge_ignores_non_bilibili_fallback():
-    target = 'moviewall://bilibili/search?keyword=' + quote('电影', safe='') + '&fallback=' + quote('https://evil.example/', safe='')
+    target = 'moviewall://bilibili/search?' + urlencode({'keyword': '电影', 'fallback': 'https://evil.example/'})
     calls = []
     open_bridge_url(target, local_launcher=lambda uri: False,
                     browser=lambda url, new=2: calls.append(url) or True)
