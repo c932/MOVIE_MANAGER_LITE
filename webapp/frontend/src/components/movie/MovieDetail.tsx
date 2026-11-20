@@ -1,13 +1,18 @@
 // 电影详情面板 — 右侧上方，展示选中电影的完整信息
 import { useState } from 'react';
-import { CircleCheck, Eye, ExternalLink, FilePenLine, Image, Layers, Star, StarHalf, Trash2 } from 'lucide-react';
+import { CircleCheck, Eye, FilePenLine, Image, Layers, Star, Trash2 } from 'lucide-react';
 import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
-import { ratingOrder, ratingNames } from '../../utils/movieDisplay';
+import { ratingOrder, ratingNames, ratingForSource } from '../../utils/movieDisplay';
+import doubanIcon from '../../assets/douban-icon.png';
+import doubanWordmark from '../../assets/douban-wordmark.png';
+import tmdbLogo from '../../assets/tmdb-logo.svg';
 import { LocalPlayback } from './LocalPlayback';
 import { TechBadges } from './TechBadges';
 import { BilibiliActions } from './BilibiliActions';
+
+const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbLogo};
 
 interface Props {
   movie: MovieListItem | null;
@@ -77,8 +82,6 @@ export function MovieDetail({
     onDeleted(movie.id);
   };
 
-  const ratingSources = ratingOrder.map(source => ({label: ratingNames[source], value: Number(movie.ratings?.[source] || 0)}));
-
   return (
     <div className="flex h-full gap-4 overflow-y-auto p-4 max-sm:flex-col">
       {/* 左：海报 */}
@@ -119,21 +122,15 @@ export function MovieDetail({
         </div>
 
         {/* 评分卡片 */}
-        {ratingSources.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {ratingSources.map((r) => (
-              <div
-                key={r.label}
-                className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-3 py-1.5"
-              >
-                {['TMDB', 'IMDb', '豆瓣'].includes(r.label) ? <img className="h-5 w-14 object-contain" alt={r.label} src={`/logo/${r.label === '豆瓣' ? 'douban.png' : r.label === 'IMDb' ? 'imdb.png' : 'tmdb.jpg'}`} /> : <span className="text-2xs text-ink-300">{r.label}</span>}
-                <span className="font-mono text-sm font-semibold text-gold">
-                  {r.value > 0 ? r.value.toFixed(1) : '—'}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {ratingOrder.map(source => {
+            const value = ratingForSource(movie, source);
+            return <div key={source} className="flex items-center gap-1.5 rounded-lg bg-ink-800 px-3 py-1.5">
+              <img className="h-6 w-14 object-contain" alt={ratingNames[source]} src={ratingLogos[source]} />
+              <span className="font-mono text-sm font-semibold text-gold">{value > 0 ? value.toFixed(1) : '—'}</span>
+            </div>;
+          })}
+        </div>
 
         {/* 榜单排名 */}
         {movie.rank && (movie.rank.douban_top250 || movie.rank.imdb_top250) && (
@@ -216,9 +213,9 @@ export function MovieDetail({
           </button>
 
           {/* 评分输入 */}
-          <div className="flex items-center gap-1">
+          <div className="inline-flex shrink-0 items-center gap-1">
             <input
-              className="input w-16 py-1 text-center"
+              className="input h-[34px] w-20 px-2 text-center tabular-nums"
               type="number"
               min={0}
               max={10}
@@ -229,7 +226,7 @@ export function MovieDetail({
               aria-label="我的评分" onKeyDown={(e) => e.key === 'Enter' && run(submitRating)}
             />
             <button className="btn" disabled={busy} onClick={() => run(submitRating)} title="0-10 分">
-              <ActionIcon icon={StarHalf} /> 评分
+              <ActionIcon icon={Star} /> 评分
             </button>
           </div>
 
@@ -246,7 +243,7 @@ export function MovieDetail({
               target="_blank"
               rel="noreferrer"
             >
-              <ActionIcon icon={ExternalLink} className="text-emerald-400" /> 豆瓣
+              <img className="action-icon rounded-sm" alt="" src={doubanIcon} /> 豆瓣
             </a>
           )}
           <button

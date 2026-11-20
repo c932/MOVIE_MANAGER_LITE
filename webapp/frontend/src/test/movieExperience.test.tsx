@@ -3,7 +3,7 @@ import { render, screen, within, fireEvent, waitFor } from '@testing-library/rea
 import MovieWall from '../pages/MovieWall';
 import { movieApi } from '../api/client';
 import { useMovieStore } from '../stores/movieStore';
-import { preferredRating, localPlayUrl } from '../utils/movieDisplay';
+import { preferredRating, ratingForSource, localPlayUrl } from '../utils/movieDisplay';
 import { LocalPlayback } from '../components/movie/LocalPlayback';
 import type { MovieListItem } from '../types/api';
 
@@ -13,7 +13,7 @@ vi.mock('../api/client', () => ({ movieApi: {
 } }));
 const movie = (id: string, title: string, premiered: string) => ({id, title, original_title: '', year: premiered.slice(0,4), premiered,
   plot: '完整剧情', tagline: '', runtime: '120', file_size: '', set_name: '', genres: ['动作'], countries: ['美国'], tags: [],
-  rating: 7, rating_source: 'douban', ratings: {tmdb: 9, imdb: 8, douban: 7}, user_rating: 0, watched: false, favorite: false,
+  rating: 7, rating_source: 'douban', ratings: {themoviedb: 9, imdb: 8, douban: 7}, user_rating: 0, watched: false, favorite: false,
   directors: [], actors: [], resolution: '4K', hdr_type: 'HDR', video_codec: '', audio_codec: '', imdb_id: '', tmdb_id: '', douban_url: '',
   video_path: '\\\\nas\\movie\\电影 ' + id + '.mkv', nfo_path: id + '.nfo', poster_path: id + '.jpg', fanart_path: '',
   added_time: 0, has_poster: true, has_fanart: false, rank: null} as MovieListItem);
@@ -65,6 +65,7 @@ describe('电影墙交互', () => {
     expect(within(scroll).getByRole('button', {name: /第一部/})).toBe(card);
     const logos = within(dialog).getAllByRole('img').filter(image => ['豆瓣','IMDb','TMDB'].includes(image.getAttribute('alt') || ''));
     expect(logos.map(image => image.getAttribute('alt'))).toEqual(['豆瓣','IMDb','TMDB']);
+    expect(logos[2].parentElement).toHaveTextContent('9.0');
     const searchLink = within(dialog).getByRole<HTMLAnchorElement>('link', {name: 'B站搜索'});
     expect(searchLink.querySelector('.bilibili-icon')).toHaveAttribute('aria-hidden', 'true');
     const search = new URL(searchLink.href);
@@ -116,6 +117,8 @@ describe('电影墙交互', () => {
   it('评分优先豆瓣，无豆瓣用IMDb，播放链接保留完整UNC', () => {
     expect(preferredRating(first)).toEqual({source: 'douban', value: 7});
     expect(preferredRating({...first, ratings: {imdb: 8, tmdb: 9}}).source).toBe('imdb');
+    expect(preferredRating({...first, rating: 0, ratings: {themoviedb: 8.4}})).toEqual({source: 'tmdb', value: 8.4});
+    expect(ratingForSource({...first, ratings: {tmdb: 8.6, themoviedb: 8.4}}, 'tmdb')).toBe(8.6);
     expect(new URL(localPlayUrl(first)).searchParams.get('path')).toBe(first.video_path);
   });
   it('播放在用户手势中使用独立窗口，失败时可见播放列表和完整路径',async()=>{
