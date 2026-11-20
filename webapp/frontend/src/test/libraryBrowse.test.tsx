@@ -26,10 +26,19 @@ beforeEach(() => {
   vi.spyOn(movieApi, 'get').mockResolvedValue({status: 'done', result: {plot: '该电影的真实剧情'}} as Job);
 });
 
-it('整张榜单卡打开本地详情浮窗且不关闭榜单', async () => {
+it('已入库榜单卡可以直接 B 站播放或打开本地详情浮窗', async () => {
   const select = vi.fn(), close = vi.fn();
   render(<LibraryBrowseDialog movies={[localMovie]} initial="chart" onSelect={select} onClose={close}/>);
-  fireEvent.click(await screen.findByRole('button', {name: '本库电影，查看简介'}));
+  const card = await screen.findByRole('article', {name: owned.title});
+  const play = within(card).getByRole('link', {name: 'B站播放'}) as HTMLAnchorElement;
+  const url = new URL(play.href);
+  expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('moviewall://bilibili/play');
+  expect(url.searchParams.get('title')).toBe(owned.title);
+  expect(url.searchParams.get('year')).toBe(owned.year);
+  play.addEventListener('click', event => event.preventDefault());
+  fireEvent.click(play);
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  fireEvent.click(within(card).getByRole('button', {name: '本库电影，查看简介'}));
   expect(await screen.findByRole('dialog', {name: '本库电影 · 电影详情'})).toBeInTheDocument();
   expect(screen.getAllByRole('dialog').length).toBeGreaterThanOrEqual(2);
   expect(select).not.toHaveBeenCalled();

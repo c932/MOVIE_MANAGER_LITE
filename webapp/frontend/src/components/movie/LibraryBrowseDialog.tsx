@@ -158,12 +158,13 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
               {'rank' in row ? `${row.rank}. ` : ''}{row.title}
             </button>
             <p className="my-3 text-xs text-ink-300">{row.year} {row.rating ? `评分 ${row.rating.toFixed(1)}` : ''}</p>
-            {row.movie_id ? <span className="text-xs text-cinema-400">已入库 · 查看简介</span> :
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-300 [&_a]:relative [&_a]:z-[1]">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-300 [&_a]:relative [&_a]:z-[1]">
+              {row.movie_id ? <span className="whitespace-nowrap text-cinema-400">已入库 · 查看简介</span> : <>
                 <span className="whitespace-nowrap text-ink-400">查看简介</span>
                 <a className="whitespace-nowrap hover:underline focus-visible:underline" href={quarkSearchUrl(row.title)} target="_blank" rel="noopener noreferrer">夸克盘搜</a>
-                <BilibiliActions playOnly title={row.title} originalTitle={'original_title' in row ? row.original_title : ''} year={row.year} />
-              </div>}
+              </>}
+              <BilibiliActions playOnly title={row.title} originalTitle={'original_title' in row ? row.original_title : ''} year={row.year} />
+            </div>
           </div>
         </article>)}</div>}
       {kind !== 'series' && current && !current.refreshing && !current.error && !rows.length && <p className="p-6 text-ink-300">暂无榜单资料，请点击“刷新榜单”。</p>}
