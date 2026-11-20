@@ -22,7 +22,7 @@ export function BilibiliActions({
     </a>
     <a role={menu ? 'menuitem' : undefined} className={className}
       href={`moviewall://bilibili/play?${playParams}`} onClick={onRequested}
-      title="需要 Windows 电影墙 3.6.2 或更新版。有官方电影时打开 B 站影视结果。">
+      title="需要 Windows 电影墙 3.6.3 或更新版。优先在 B 站客户端播放，或打开对应的网页播放器。">
       ▶ B站播放
     </a>
   </>;

@@ -82,26 +82,72 @@ def test_find_video_skips_unrelated_and_unavailable_results(monkeypatch):
     assert video['url'] == video_web_url('BV1xx411c7mD')
 
 
-def test_play_prefers_official_movie_search_over_same_title_upload(monkeypatch):
+@pytest.mark.parametrize('has_client', [True, False])
+def test_play_opens_official_original_edition_over_same_title_upload(monkeypatch, has_client):
     queries = []
+    title = '星球大战：曼达洛人与古古'
 
     def search(keyword):
         queries.append(keyword)
         return {
-            'media_ft': [{'title': '<em class="keyword">抓特务</em>', 'season_type': 2, 'season_id': 111193}],
-            'video': [{'title': '抓特务', 'bvid': 'BV1RQM361EFe'}],
+            'media_ft': [{'title': f'<em>{title}</em>', 'season_type': 2, 'season_id': 228358,
+                          'eps': [{'title': '预告', 'id': 12}]}],
+            'video': [{'title': title, 'bvid': 'BV1RQM361EFe'}],
         }
+
+    def get_season(request, timeout):
+        assert request.full_url == 'https://api.bilibili.com/pgc/view/web/season?season_id=228358'
+        return io.BytesIO(json.dumps({'code': 0, 'result': {'season_id': 228358, 'episodes': [
+            {'id': 12, 'title': '预告'}, {'id': 6319572, 'title': '中文版'}, {'id': 6319566, 'title': '原版'},
+        ]}}).encode())
 
     monkeypatch.setattr(bilibili, '_search_results', search)
     monkeypatch.setattr(bilibili, 'resolve_video', lambda bvid: pytest.fail('Attempted to resolve a user upload'))
-    opened = []
+    monkeypatch.setattr(bilibili.urllib.request, 'urlopen', get_season)
+    opened, launched = [], []
     target = 'moviewall://bilibili/play?' + urlencode({
-        'keyword': '抓特务 2026 电影', 'title': '抓特务', 'original_title': 'I Know Who You Are', 'year': '2026',
+        'keyword': title, 'title': title, 'year': '2026',
         'fallback': 'https://search.bilibili.com/video?keyword=outdated',
     })
-    assert open_bridge_url(target, browser=lambda url, new=2: opened.append(url) or True) == 'browser'
-    assert queries == ['抓特务']
-    assert opened == [search_web_url('抓特务')]
+    assert open_bridge_url(
+        target, local_launcher=lambda uri: launched.append(uri) or has_client,
+        browser=lambda url, new=2: opened.append(url) or True,
+    ) == ('app' if has_client else 'browser')
+    assert queries == [title]
+    assert launched == ['bilipc://page/player?type=ogv&epid=6319566&seasonId=228358']
+    assert opened == ([] if has_client else ['https://www.bilibili.com/bangumi/play/ep6319566?theme=movie'])
+
+
+def test_only_trailer_opens_official_title_page_without_native_launch(monkeypatch):
+    monkeypatch.setattr(bilibili, '_search_results', lambda keyword: {
+        'media_ft': [{'title': '抓特务', 'season_type': 2, 'season_id': 111193}],
+    })
+    payload = {'code': 0, 'result': {'season_id': 111193, 'episodes': [{'id': 5512246, 'title': 'PV1 预告'}]}}
+    monkeypatch.setattr(bilibili.urllib.request, 'urlopen',
+                        lambda *args, **kwargs: io.BytesIO(json.dumps(payload).encode()))
+    opened = []
+    assert open_bilibili_play(
+        '抓特务', local_launcher=lambda uri: pytest.fail(f'Unexpected trailer launch: {uri}'),
+        browser=lambda url, new=2: opened.append(url) or True,
+    ) == 'browser'
+    assert opened == ['https://www.bilibili.com/bangumi/play/ss111193?theme=movie']
+
+
+@pytest.mark.parametrize(('year', 'season'), [('2021', 40396), ('', None)])
+def test_uses_year_to_distinguish_same_title_official_movies(monkeypatch, year, season):
+    monkeypatch.setattr(bilibili, '_search_results', lambda keyword: {'media_ft': [
+        {'title': '沙丘', 'season_type': 2, 'season_id': 40752, 'index_show': '1984-12-14上映'},
+        {'title': '沙丘', 'season_type': 2, 'season_id': 40396, 'index_show': '2021-10-22上映'},
+    ]})
+    def get_season(request, timeout):
+        assert season is not None
+        assert parse_qs(urlsplit(request.full_url).query) == {'season_id': [str(season)]}
+        raise OSError('Episode metadata temporarily unavailable')
+
+    monkeypatch.setattr(bilibili.urllib.request, 'urlopen', get_season)
+    opened = []
+    open_bilibili_play('沙丘', year=year, browser=lambda url, new=2: opened.append(url) or True)
+    assert opened == [f'https://www.bilibili.com/bangumi/play/ss{season}?theme=movie' if season else search_web_url('沙丘')]
 
 
 def test_resolve_video_rejects_response_for_different_video(monkeypatch):

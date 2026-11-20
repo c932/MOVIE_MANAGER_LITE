@@ -22,6 +22,8 @@ SEARCH_HEADERS = {
 SEARCH_PAGE = 'https://search.bilibili.com/pgc'
 SEARCH_API = 'https://api.bilibili.com/x/web-interface/search/all/v2'
 VIDEO_WEB = 'https://www.bilibili.com/video/'
+MOVIE_WEB = 'https://www.bilibili.com/bangumi/play/'
+SEASON_API = 'https://api.bilibili.com/pgc/view/web/season'
 
 _cache: dict[str, tuple[float, dict[str, list[dict]]]] = {}
 _cache_lock = threading.Lock()
@@ -87,15 +89,66 @@ def _normalized(value: str) -> str:
     return re.sub(r'[\W_]+', '', value.casefold(), flags=re.UNICODE)
 
 
+def _main_movie_episode(season_id: int) -> int | None:
+    query = urllib.parse.urlencode({'season_id': season_id})
+    request = urllib.request.Request(
+        f'{SEASON_API}?{query}', headers={**SEARCH_HEADERS, 'Referer': f'{MOVIE_WEB}ss{season_id}'},
+    )
+    with urllib.request.urlopen(request, timeout=5) as response:
+        payload = json.loads(response.read(2 * 1024 * 1024).decode('utf-8'))
+    season = payload.get('result')
+    if payload.get('code') != 0 or not isinstance(season, dict) or season.get('season_id') != season_id:
+        return None
+
+    candidates: list[tuple[int, int]] = []
+    for episode in season.get('episodes') or []:
+        epid = episode.get('id')
+        if type(epid) is not int or epid <= 0:
+            continue
+        title = _plain_text(episode.get('title'))
+        label = f"{title} {_plain_text(episode.get('long_title'))}"
+        if re.search(r'预告|先导|花絮|幕后|特辑|片段|试看|\b(?:PV\d*|Trailer|Teaser)\b', label, re.I):
+            continue
+        # 站方有原版和配音版时，默认选择原版，其余影片按正片列表顺序。
+        candidates.append((0 if title in {'原版', '正片'} else 1, epid))
+    return min(candidates, key=lambda entry: entry[0])[1] if candidates else None
+
+
+def _official_play_target(season_id: int) -> dict[str, str]:
+    try:
+        epid = _main_movie_episode(season_id)
+    except (OSError, TypeError, ValueError):
+        epid = None
+    if epid is None:
+        return {'url': f'{MOVIE_WEB}ss{season_id}?theme=movie', 'player_uri': ''}
+    query = urllib.parse.urlencode({'type': 'ogv', 'epid': epid, 'seasonId': season_id})
+    return {
+        'url': f'{MOVIE_WEB}ep{epid}?theme=movie',
+        'player_uri': f'bilipc://page/player?{query}',
+    }
+
+
 def find_play_video(title: str, original_title: str = '', year: str = '') -> dict | None:
-    results = _search_results(title.strip() or original_title.strip())
+    keyword = title.strip() or original_title.strip()
+    results = _search_results(keyword)
     names = {_normalized(title), _normalized(original_title)} - {''}
     dated_names = {f'{name}{year}' for name in names} | {f'{year}{name}' for name in names} if year else set()
     matching_names = names | dated_names
-    # 官网影视条目由用户在影视页点「立即观看」，保留官网的选集和会员权限处理。
+    official: dict[int, dict] = {}
     for item in results.get('media_ft', []):
-        if item.get('season_type') == 2 and _normalized(_plain_text(item.get('title'))) in matching_names:
-            return None
+        season_id = item.get('season_id')
+        if (item.get('season_type') == 2 and type(season_id) is int and season_id > 0
+                and _normalized(_plain_text(item.get('title'))) in matching_names):
+            official[season_id] = item
+    if official:
+        dated_seasons = [sid for sid, item in official.items() if year and (
+            _plain_text(item.get('index_show')).startswith(f'{year}-')
+            or _normalized(_plain_text(item.get('title'))) in dated_names
+        )]
+        seasons = dated_seasons or list(official)
+        if len(seasons) == 1:
+            return _official_play_target(seasons[0])
+        return None
 
     dated = []
     undated = []
