@@ -12,6 +12,10 @@ type Result = {key: string; rows: Item[]; annual?: AnnualResponse; fetched: numb
 const latestYear = new Date().getFullYear() - 1;
 const tabs: [Kind, string][] = [['series', '系列电影'], ['top250', '豆瓣 Top250'], ['imdb_top250', 'IMDb Top250'], ['chart', '豆瓣热门'], ['annual', '豆瓣年度榜单'], ['nowplaying', '正在上映'], ['coming', '即将上映']];
 
+function quarkSearchUrl(title: string) {
+  return `https://www.zhongchuangwl.com/s/${encodeURIComponent(title)}/`;
+}
+
 function BrowsePoster({row}: {row: Item}) {
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const localUrl = row.movie_id ? movieApi.posterUrl(row.movie_id, 240, 360) : '';
@@ -54,7 +58,7 @@ function MissingMovie({row, onClose}: {row: Item; onClose: () => void}) {
       {detail.error && <div role="alert"><p>{detail.error}</p>{did && <button className="btn mt-3" onClick={() => setAttempt(value => value + 1)}>重试简介</button>}</div>}
       {detail.plot}
     </div>
-    <div className="flex flex-wrap gap-3"><a className="btn btn-active" href={`https://www.zhongchuangwl.com/s/${encodeURIComponent(row.title)}/`} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>
+    <div className="flex flex-wrap gap-3"><a className="btn btn-active" href={quarkSearchUrl(row.title)} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>
       <BilibiliActions title={row.title} year={row.year}/>
       {did && <a className="btn" href={`https://movie.douban.com/subject/${did}/`} target="_blank" rel="noopener noreferrer">豆瓣条目</a>}</div>
   </Modal>;
@@ -144,10 +148,24 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
         <section key={name}><h3 className="mb-2 font-semibold">{name}（{members.length} 部）</h3><div className="flex flex-wrap gap-2">
           {members.sort((a, b) => a.year.localeCompare(b.year)).map(movie => <button className="btn border divider" key={movie.id} onClick={() => {onSelect(movie.id); onClose();}}>{movie.title} {movie.year}</button>)}
         </div></section>) : <p>暂无系列资料，同步或刮削包含系列的电影后即可显示。</p>}</div>
-        : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => <button key={`${row.movie_id || row.douban_id || row.title}-${index}-${row.poster_url}`} onClick={() => select(row)} className="flex gap-4 rounded border-b divider p-3 text-left transition-colors hover:bg-ink-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cinema-400" aria-label={`${row.title}，查看简介`}>
-          <BrowsePoster row={row} /><span className="min-w-0"><span className="block font-semibold">{'rank' in row ? `${row.rank}. ` : ''}{row.title}</span><span className="my-3 block text-xs text-ink-300">{row.year} {row.rating ? `评分 ${row.rating.toFixed(1)}` : ''}</span>
-            <span className={`text-xs ${row.movie_id ? 'text-cinema-400' : 'text-ink-400'}`}>{row.movie_id ? '已入库 · 查看简介' : '查看简介 · 夸克盘搜'}</span></span>
-        </button>)}</div>}
+        : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => <article
+          key={`${row.movie_id || row.douban_id || row.title}-${index}-${row.poster_url}`} aria-label={row.title}
+          className="relative flex gap-4 rounded border-b divider p-3 transition-colors hover:bg-ink-800">
+          <BrowsePoster row={row} />
+          <div className="min-w-0">
+            <button type="button" onClick={() => select(row)} aria-label={`${row.title}，查看简介`}
+              className="block text-left font-semibold after:absolute after:inset-0 after:rounded focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-cinema-400">
+              {'rank' in row ? `${row.rank}. ` : ''}{row.title}
+            </button>
+            <p className="my-3 text-xs text-ink-300">{row.year} {row.rating ? `评分 ${row.rating.toFixed(1)}` : ''}</p>
+            {row.movie_id ? <span className="text-xs text-cinema-400">已入库 · 查看简介</span> :
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-300 [&_a]:relative [&_a]:z-[1]">
+                <span className="whitespace-nowrap text-ink-400">查看简介</span>
+                <a className="whitespace-nowrap hover:underline focus-visible:underline" href={quarkSearchUrl(row.title)} target="_blank" rel="noopener noreferrer">夸克盘搜</a>
+                <BilibiliActions playOnly title={row.title} originalTitle={'original_title' in row ? row.original_title : ''} year={row.year} />
+              </div>}
+          </div>
+        </article>)}</div>}
       {kind !== 'series' && current && !current.refreshing && !current.error && !rows.length && <p className="p-6 text-ink-300">暂无榜单资料，请点击“刷新榜单”。</p>}
     </Modal>
     {missing && <MissingMovie key={missing.douban_id || missing.title} row={missing} onClose={() => setMissing(null)} />}

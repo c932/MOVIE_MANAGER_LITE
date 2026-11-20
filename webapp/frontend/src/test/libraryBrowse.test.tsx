@@ -45,6 +45,33 @@ it('已入库电影即使榜单远程海报为空也加载本库海报', async (
   expect(container.querySelector('img')?.getAttribute('src')).toBe(movieApi.posterUrl('local-id', 240, 360));
 });
 
+it.each(['chart', 'nowplaying'] as const)('在 %s 卡片的夸克盘搜后直接提供 B 站播放', async initial => {
+  const movie = {...missing, original_title: 'Other Title'};
+  vi.mocked(movieApi.rankings).mockResolvedValue({...response, items: [movie]});
+  vi.spyOn(movieApi, 'newMovies').mockResolvedValue({...response, items: [
+    {title: missing.title, year: missing.year, poster_url: missing.poster_url, douban_id: missing.douban_id,
+      genre: '', release_date: '', douban_url: '', rating: 0, movie_id: null, in_library: false},
+  ]});
+  const close = vi.fn();
+  render(<LibraryBrowseDialog movies={[]} initial={initial} onSelect={vi.fn()} onClose={close}/>);
+  const card = await screen.findByRole('article', {name: missing.title});
+  const quark = within(card).getByRole('link', {name: '夸克盘搜'});
+  const play = within(card).getByRole('link', {name: 'B站播放'}) as HTMLAnchorElement;
+  expect(quark).toHaveAttribute('href', `https://www.zhongchuangwl.com/s/${encodeURIComponent(missing.title)}/`);
+  expect(quark.compareDocumentPosition(play) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const url = new URL(play.href);
+  expect(`${url.protocol}//${url.host}${url.pathname}`).toBe('moviewall://bilibili/play');
+  expect(url.searchParams.get('title')).toBe(missing.title);
+  expect(url.searchParams.get('original_title')).toBe(initial === 'chart' ? movie.original_title : '');
+  expect(url.searchParams.get('year')).toBe(missing.year);
+
+  play.addEventListener('click', event => event.preventDefault());
+  fireEvent.click(play);
+  expect(screen.getAllByRole('dialog')).toHaveLength(1);
+  expect(movieApi.subject).not.toHaveBeenCalled();
+  expect(close).not.toHaveBeenCalled();
+});
+
 it('缺失电影显示简介、中创盘搜和 B 站入口', async () => {
   render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
   fireEvent.click(await screen.findByRole('button', {name: '缺失电影，查看简介'}));
