@@ -65,11 +65,13 @@ describe('电影墙交互', () => {
     expect(within(scroll).getByRole('button', {name: /第一部/})).toBe(card);
     const logos = within(dialog).getAllByRole('img').filter(image => ['豆瓣','IMDb','TMDB'].includes(image.getAttribute('alt') || ''));
     expect(logos.map(image => image.getAttribute('alt'))).toEqual(['豆瓣','IMDb','TMDB']);
-    const search = new URL((within(dialog).getByRole('link', {name: '🔎 B站搜索'}) as HTMLAnchorElement).href);
+    const searchLink = within(dialog).getByRole<HTMLAnchorElement>('link', {name: 'B站搜索'});
+    expect(searchLink.querySelector('.bilibili-icon')).toHaveAttribute('aria-hidden', 'true');
+    const search = new URL(searchLink.href);
     expect(search.origin).toBe('https://search.bilibili.com');
     expect(search.pathname).toBe('/pgc');
     expect([...search.searchParams.entries()]).toEqual([['keyword', '第一部']]);
-    const play = new URL((within(dialog).getByRole('link', {name: '▶ B站播放'}) as HTMLAnchorElement).href);
+    const play = new URL(within(dialog).getByRole<HTMLAnchorElement>('link', {name: 'B站播放'}).href);
     expect(play.href).toMatch(/^moviewall:\/\/bilibili\/play\?/);
     expect(play.searchParams.get('title')).toBe('第一部');
     expect(play.searchParams.get('year')).toBe('2025');
@@ -118,7 +120,7 @@ describe('电影墙交互', () => {
   });
   it('播放在用户手势中使用独立窗口，失败时可见播放列表和完整路径',async()=>{
     render(<LocalPlayback movie={first}/>);
-    const link=screen.getByRole('link',{name:'▶ 本地播放器播放'});
+    const link=screen.getByRole('link',{name:'本地播放器播放'});
     expect(link).toHaveAttribute('target','_blank');
     expect(new URL(link.getAttribute('href')!).searchParams.get('path')).toBe(first.video_path);
     fireEvent.click(link);

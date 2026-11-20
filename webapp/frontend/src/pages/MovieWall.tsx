@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  CalendarDays, CalendarPlus, Clapperboard, HardDrive, LayoutGrid, Layers, List,
+  Maximize, Minimize, PanelsTopLeft, RefreshCw, Scaling, Search, Settings, Shuffle, SlidersHorizontal, Star, Trophy,
+} from 'lucide-react';
 import { movieApi } from '../api/client';
+import { ActionIcon } from '../components/ActionIcon';
 import { useJobPoll } from '../hooks/useJobPoll';
 import { JobProgress } from '../components/JobProgress';
 import { Modal } from '../components/Modal';
@@ -19,6 +24,14 @@ import { filterMovies, useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
 
 type ViewMode = 'normal' | 'wall' | 'fullscreen';
+
+const viewModes = [
+  ['normal', '正常', PanelsTopLeft], ['wall', '海报墙', LayoutGrid], ['fullscreen', '全屏海报墙', Maximize],
+] as const;
+const sortModes = [
+  ['default', '默认', List], ['rating', '评分↓', Star], ['release', '上映时间↓', CalendarDays],
+  ['added', '加入时间↓', CalendarPlus], ['random', '随机', Shuffle],
+] as const;
 
 export default function MovieWall() {
   const store = useMovieStore();
@@ -128,25 +141,25 @@ export default function MovieWall() {
       <div className="flex-1 overflow-y-auto"><MovieFilterSidebar /></div>
     </aside>
     <main className="flex min-w-0 flex-1 flex-col">
-      <header data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-chrome flex shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2">
-        <button className="btn md:hidden" onClick={() => setSidebar(true)}>筛选</button>
+      <header data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="movie-toolbar mode-chrome flex shrink-0 flex-wrap items-center gap-1 border-b divider bg-ink-850 p-2">
+        <button className="btn md:hidden" onClick={() => setSidebar(true)}><ActionIcon icon={SlidersHorizontal} /> 筛选</button>
         <div className="mode-switch mr-1" role="group" aria-label="电影墙显示模式">
-          {([['normal', '正常'], ['wall', '海报墙'], ['fullscreen', '全屏海报墙']] as const).map(([mode, label]) =>
-            <button key={mode} aria-pressed={viewMode === mode} className={viewMode === mode ? 'active' : ''} onClick={() => changeMode(mode)}>{label}</button>)}
+          {viewModes.map(([mode, label, icon]) =>
+            <button key={mode} aria-pressed={viewMode === mode} className={viewMode === mode ? 'active' : ''} onClick={() => changeMode(mode)}><ActionIcon icon={icon} /> {label}</button>)}
         </div>
-        {([['default', '默认'], ['rating', '评分↓'], ['release', '上映时间↓'], ['added', '加入时间↓'], ['random', '随机']] as const).map(([mode, label]) =>
-          <button key={mode} className={`btn ${store.sortMode === mode ? 'btn-active' : ''}`} onClick={() => store.setSortMode(mode)}>{label}</button>)}
-        <label className="flex items-center gap-2 px-2 text-xs text-ink-300">海报缩放<input aria-label="海报缩放" type="range" min="50" max="130" value={store.posterScale} onChange={e => store.setPosterScale(Number(e.target.value))} className="w-20" /></label>
-        <button className="btn" onClick={() => setBrowse('series')}>系列电影</button>
-        <button className="btn" onClick={() => setBrowse('top250')}>榜单对比</button>
-        <button className="btn" onClick={() => setBrowse('nowplaying')}>新片推荐</button>
-        <button className="btn" onClick={()=>setManagerOpen(true)}>搜索&刮削</button>
-        <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}>刷新数据库</button>
-        <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? sourceLabel + '，请在设置中配置媒体库' : '扫描已选择的媒体库目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}>扫描 NAS</button>
-        <button className="btn" onClick={() => setSettingsOpen(true)}>设置</button>
+        {sortModes.map(([mode, label, icon]) =>
+          <button key={mode} aria-pressed={store.sortMode === mode} className={`btn ${store.sortMode === mode ? 'btn-active' : ''}`} onClick={() => store.setSortMode(mode)}><ActionIcon icon={icon} /> {label}</button>)}
+        <label className="flex items-center gap-2 whitespace-nowrap px-2 text-xs text-ink-300"><ActionIcon icon={Scaling} /> 海报缩放<input aria-label="海报缩放" type="range" min="50" max="130" value={store.posterScale} onChange={e => store.setPosterScale(Number(e.target.value))} className="w-20" /></label>
+        <button className="btn" onClick={() => setBrowse('series')}><ActionIcon icon={Layers} /> 系列电影</button>
+        <button className="btn" onClick={() => setBrowse('top250')}><ActionIcon icon={Trophy} /> 榜单对比</button>
+        <button className="btn" onClick={() => setBrowse('nowplaying')}><ActionIcon icon={Clapperboard} /> 新片推荐</button>
+        <button className="btn" onClick={()=>setManagerOpen(true)}><ActionIcon icon={Search} /> 搜索&刮削</button>
+        <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}><ActionIcon icon={RefreshCw} /> 刷新数据库</button>
+        <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? sourceLabel + '，请在设置中配置媒体库' : '扫描已选择的媒体库目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}><ActionIcon icon={HardDrive} /> 扫描 NAS</button>
+        <button className="btn" onClick={() => setSettingsOpen(true)}><ActionIcon icon={Settings} /> 设置</button>
         <JobProgress job={job} accent="cinema" onCancel={() => { if (job) movieApi.cancel(job.id).catch(e => setMessage((e as Error).message)); }} />
       </header>
-      {viewMode === 'fullscreen' && <button className="fixed right-4 top-3 z-30 rounded-lg border border-white/20 bg-black/75 px-4 py-2 text-sm text-white backdrop-blur" onClick={() => changeMode('wall')}>退出全屏</button>}
+      {viewMode === 'fullscreen' && <button className="fixed right-4 top-3 z-30 inline-flex items-center gap-1.5 rounded-lg border border-white/20 bg-black/75 px-4 py-2 text-sm text-white backdrop-blur" onClick={() => changeMode('wall')}><ActionIcon icon={Minimize} /> 退出全屏</button>}
       <div data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-status flex items-center justify-between gap-3 border-b divider px-3 py-2 text-xs text-ink-300">
         <span>NUC 共享电影库 · 共 {store.movies.length} 部 {series && ` / ${series}`}</span>
         {series && <button className="btn" onClick={() => setSeries('')}>退出系列筛选</button>}

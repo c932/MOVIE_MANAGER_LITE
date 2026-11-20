@@ -1,5 +1,7 @@
 // 电影详情面板 — 右侧上方，展示选中电影的完整信息
 import { useState } from 'react';
+import { CircleCheck, Eye, ExternalLink, FilePenLine, Image, Layers, Star, StarHalf, Trash2 } from 'lucide-react';
+import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
 import { ratingOrder, ratingNames } from '../../utils/movieDisplay';
@@ -192,25 +194,25 @@ export function MovieDetail({
             className="btn w-fit"
             onClick={() => onSeriesClick(movie.set_name)}
           >
-            📚 系列：{movie.set_name}
+            <ActionIcon icon={Layers} /> 系列：{movie.set_name}
           </button>
         )}
 
         {/* 按钮栏 */}
-        <div className="mt-auto flex flex-wrap gap-2 border-t divider pt-3">
+        <div className="movie-detail-actions mt-auto flex flex-wrap items-center gap-1.5 border-t divider pt-3">
           {movie.video_path && <LocalPlayback movie={movie}/>}
           <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
           <button
             className={`btn ${movie.watched ? 'btn-active' : ''}`}
             onClick={() => run(toggleWatched)} disabled={busy}
           >
-            {movie.watched ? '✓ 已观看' : '○ 标记观看'}
+            <ActionIcon icon={movie.watched ? CircleCheck : Eye} /> {movie.watched ? '已观看' : '标记观看'}
           </button>
           <button
             className={`btn ${movie.favorite ? 'btn-active text-gold' : ''}`}
             onClick={() => run(toggleFavorite)} disabled={busy}
           >
-            {movie.favorite ? '★ 已收藏' : '☆ 收藏'}
+            <ActionIcon icon={Star} className={movie.favorite ? 'fill-current' : ''} /> {movie.favorite ? '已收藏' : '收藏'}
           </button>
 
           {/* 评分输入 */}
@@ -227,15 +229,15 @@ export function MovieDetail({
               aria-label="我的评分" onKeyDown={(e) => e.key === 'Enter' && run(submitRating)}
             />
             <button className="btn" disabled={busy} onClick={() => run(submitRating)} title="0-10 分">
-              评分
+              <ActionIcon icon={StarHalf} /> 评分
             </button>
           </div>
 
           <button className="btn" disabled={busy} onClick={() => run(handleRefreshPoster)} title="刷新后端保存的海报副本">
-            🖼 更新海报
+            <ActionIcon icon={Image} /> 更新海报
           </button>
           <button className="btn" onClick={() => onEditFields(movie)}>
-            📝 属性
+            <ActionIcon icon={FilePenLine} /> 属性
           </button>
           {movie.douban_url && (
             <a
@@ -244,14 +246,14 @@ export function MovieDetail({
               target="_blank"
               rel="noreferrer"
             >
-              🌐 豆瓣
+              <ActionIcon icon={ExternalLink} className="text-emerald-400" /> 豆瓣
             </a>
           )}
           <button
             className="btn text-red-400 hover:bg-red-900/30"
             onClick={handleDelete}
           >
-            🗑 删除
+            <ActionIcon icon={Trash2} /> 删除
           </button>
         </div>
         <p className="break-all text-xs text-ink-400">文件：{movie.video_path || '未记录'}</p>

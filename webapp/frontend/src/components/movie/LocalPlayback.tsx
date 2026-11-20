@@ -1,4 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
+import {Play} from 'lucide-react';
+import {ActionIcon} from '../ActionIcon';
 import {Modal} from '../Modal';
 import {movieApi} from '../../api/client';
 import {localPlayUrl} from '../../utils/movieDisplay';
@@ -22,8 +24,8 @@ export function LocalPlayback({movie, menu = false, onRequested}: {movie:MovieLi
     } catch {path.current?.focus();path.current?.select();setMessage('请按 Ctrl+C 复制已选中的视频路径。');}
   }
   return <>
-    <a role={menu?'menuitem':undefined} className={menu?'flex w-full rounded px-3 py-2 text-sm hover:bg-ink-700':'btn btn-primary'}
-      href={localPlayUrl(movie)} target="_blank" rel="noopener noreferrer" onClick={requested}>▶ 本地播放器播放</a>
+    <a role={menu?'menuitem':undefined} className={menu?'flex w-full items-center gap-1.5 rounded px-3 py-2 text-sm hover:bg-ink-700':'btn btn-primary'}
+      href={localPlayUrl(movie)} target="_blank" rel="noopener noreferrer" onClick={requested}><ActionIcon icon={Play} /> 本地播放器播放</a>
     {help&&<Modal title={`本地播放 · ${movie.title}`} onClose={()=>setHelp(false)}>
       <p role="status" className="text-sm">已向浏览器请求打开本地播放器。若弹出“打开电影墙”，请选择允许打开。</p>
       <p className="mt-3 text-sm text-ink-300">如果没有任何反应，可下载下面的播放列表，再从浏览器下载栏打开；也可将视频路径粘贴到播放器中。</p>
