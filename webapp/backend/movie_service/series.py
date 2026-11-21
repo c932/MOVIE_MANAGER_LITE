@@ -127,7 +127,12 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
             if not updated and failure:
                 return path, cached, False, 'failed'
         if not updated:
-            return path, cached, False, ''
+            parts = cached.get('parts', [])
+            for index, part in enumerate(parts):
+                ctx.check_cancelled()
+                if part.get('tmdb_id') not in owned_tmdb_ids:
+                    parts[index] = enrich_part(part)
+            return path, {**cached, 'parts': parts}, bool(parts), ''
         existing = {part['tmdb_id']: part for part in cached.get('parts', [])}
         for index, part in enumerate(updated):
             previous = existing.get(part['tmdb_id'], {})
@@ -154,7 +159,7 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
             atomic_json(path, catalog)
             changed += 1
         failed += error == 'failed'
-    summary = (f'查询到 {len(groups)} 个本地系列，更新了 {changed} 个 TMDB 片单，'
+    summary = (f'查询到 {len(groups)} 个本地系列，补齐 {changed} 个系列资料，'
                f'已缓存 {coverage["posters"]} 张片单海报。')
     if not configured:
         summary += 'NUC 尚未配置 TMDB，已读取本地系列并补存已有片单的海报。'
