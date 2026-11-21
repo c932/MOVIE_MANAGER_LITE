@@ -227,7 +227,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
 
         public_douban = None
         if not (detail.get('actors') and detail.get('genres')
-                and detail.get('plot') and detail['ratings'].get('douban')):
+                and re.search(r"[\u4e00-\u9fff]", detail.get('plot', ''))
+                and detail['ratings'].get('douban')):
             public_douban = douban_public_search(row.title, row.year)
             if public_douban is None and '之' in row.title:
                 public_douban = douban_public_search(row.title.split('之', 1)[0], row.year)
