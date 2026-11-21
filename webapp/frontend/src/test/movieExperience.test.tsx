@@ -105,6 +105,25 @@ describe('电影墙交互', () => {
     expect(request).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', {name: '退出全屏'})).toBeInTheDocument();
   });
+  it.each(['正常', '海报墙'])('从系列列表选片后在%s模式显示对应详情', async mode => {
+    const result = await movieApi.list();
+    vi.mocked(movieApi.list).mockResolvedValue({...result, movies: result.movies.map(movie => ({...movie, set_name: '测试系列'}))});
+    render(<MovieWall />);
+    const intro = screen.getByTestId('movie-intro');
+    await within(intro).findByRole('heading', {name: first.title});
+    fireEvent.click(screen.getByRole('button', {name: mode}));
+    fireEvent.click(screen.getByRole('button', {name: '系列电影'}));
+    const series = await screen.findByRole('dialog', {name: '系列、榜单与新片'});
+    fireEvent.click(within(series).getByRole('button', {name: `${second.title} ${second.year}`}));
+    expect(series).not.toBeInTheDocument();
+    if (mode === '正常') {
+      expect(await within(intro).findByRole('heading', {name: second.title})).toBeInTheDocument();
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    } else {
+      const detail = await screen.findByRole('dialog', {name: second.title});
+      expect(within(detail).getByRole('link', {name: '本地播放器播放'})).toBeInTheDocument();
+    }
+  });
   it('全屏入口由点击触发，仍可退出', async () => {
     const request = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(document.documentElement, 'requestFullscreen', {configurable: true, value: request});
