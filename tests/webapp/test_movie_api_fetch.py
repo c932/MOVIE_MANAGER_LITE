@@ -238,6 +238,7 @@ def test_rankings_fetch_from_network(service_data_dir, monkeypatch):
         ]
 
     monkeypatch.setattr(dr, "fetch_douban_top250", top250)
+    monkeypatch.setattr(dr, "fetch_douban_top250_public", lambda: [])
     monkeypatch.setattr(dr, "fetch_douban_chart", chart)
     monkeypatch.setattr(dr, "fetch_imdb_top250", lambda cached_movies=None: [])
 

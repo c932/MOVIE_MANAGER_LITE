@@ -112,6 +112,7 @@ def test_enrich_top250_builds_cross_source_external_detail(service_data_dir, mon
     from movie_service import browse_cache
     from scraper.douban_ranking import RankedMovie
     from scraper.imdb_ratings import ImdbRatings
+    from scraper.imdb_ratings import ImdbRatings
     from scraper.metadata_sources import DoubanProvider, TmdbProvider
     from scraper.scrape_models import Candidate, Metadata
     from scraper.scrape_settings import ScrapeSettings
@@ -157,6 +158,53 @@ def test_enrich_top250_builds_cross_source_external_detail(service_data_dir, mon
     assert detail['actors'][0]['name'] == '主演'
     assert detail['imdb_id'] == 'tt123'
     assert detail['tmdb_id'] == '999'
+
+
+def test_enrich_top250_uses_public_fallback_without_configured_api(service_data_dir, monkeypatch):
+    from pathlib import Path
+    from movie_service import browse_cache
+    from scraper.douban_ranking import RankedMovie
+    from scraper.imdb_ratings import ImdbRatings
+    from scraper.metadata_sources import DoubanProvider, ProviderError
+    from scraper.public_sources import PublicMovie
+    from scraper.scrape_settings import ScrapeSettings
+
+    class Context:
+        def update(self, **kwargs):
+            assert kwargs['stage'] == '补齐榜单资料'
+
+        def check_cancelled(self):
+            pass
+
+    public_douban = PublicMovie(
+        title='杰伊·比姆', original_title='Jai Bhim', year='2021', rating=8.7, votes=74583,
+        plot='中文剧情', poster_url='https://img9.doubanio.com/poster.webp', subject_id='35652715',
+        directors=['塔·塞·纳纳维尔'], actors=['苏利耶·西瓦库马'],
+    )
+    monkeypatch.setattr(browse_cache, 'douban_public_search', lambda *_: public_douban)
+    monkeypatch.setattr(ImdbRatings, 'rating', lambda self, identity: (8.1, 1200))
+    monkeypatch.setattr(DoubanProvider, 'search', lambda *_args, **_kwargs: (_ for _ in ()).throw(ProviderError('测试直连不可用')))
+    monkeypatch.setattr(browse_cache, 'tmdb_public_search', lambda *_: '999')
+    monkeypatch.setattr(browse_cache, 'tmdb_public_details', lambda *_: {
+        'title': '杰伊·比姆', 'plot': '中文剧情', 'premiered': '2021-11-02', 'year': '2021',
+        'genres': ['剧情'], 'countries': ['印度'], 'directors': ['塔·塞·纳纳维尔'],
+        'actors': [{'name': '苏利耶·西瓦库马', 'role': '', 'thumb': ''}],
+        'poster_url': 'https://image.tmdb.org/t/p/w500/poster.jpg', 'imdb_id': 'tt123',
+        'tmdb_id': '999', 'tmdb_rating': 8.1, 'tmdb_votes': 300,
+    })
+    monkeypatch.setattr(browse_cache, 'cached_remote',
+                        lambda *args, **kwargs: Path(service_data_dir) / 'cover.img')
+    row = RankedMovie('Jai Bhim', '2021', 0.0, 'tt123', 1, 'imdb_top250')
+    result = browse_cache.enrich_top250(
+        service_data_dir, service_data_dir / 'covers', [row], [], [], ScrapeSettings(), Context(),
+    )
+    assert result == {'ratings': 1, 'plots': 1, 'posters': 1}
+    detail = json.loads((service_data_dir / 'discovery' / 'subject-tt123.json').read_text(encoding='utf-8'))
+    assert detail['ratings']['douban'] == 8.7
+    assert detail['ratings']['tmdb'] == 8.1
+    assert detail['genres'] == ['剧情']
+    assert detail['actors'][0]['name'] == '苏利耶·西瓦库马'
+    assert detail['title'] == '杰伊·比姆'
 
 
 def test_parse_subject_page_cleans_douban_summary():

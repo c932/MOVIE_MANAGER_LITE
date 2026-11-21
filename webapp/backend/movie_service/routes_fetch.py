@@ -120,6 +120,20 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
             title = rm.title
             original_title = (matched.original_title if matched else "") or ""
         external = {} if is_owned else cached
+        if not is_owned:
+            source_key = 'imdb' if rm.source == 'imdb_top250' else 'douban'
+            if 0 < float(rm.rating or 0) <= 10:
+                external.setdefault('ratings', {}).setdefault(source_key, float(rm.rating))
+            for key in ("genres", "countries", "directors"):
+                if not external.get(key) and getattr(rm, key, None):
+                    external[key] = list(getattr(rm, key))
+            if not external.get("actors") and getattr(rm, "actors", None):
+                external["actors"] = [{"name": name, "role": "", "thumb": ""} for name in rm.actors]
+            if not external.get("plot") and getattr(rm, "plot", None):
+                external["plot"] = rm.plot
+            if not external.get("poster_url") and getattr(rm, "poster_url", None):
+                external["poster_url"] = rm.poster_url
+        title = external.get("title") or title
         items.append(
             {
                 "rank": int(rm.rank or 0),

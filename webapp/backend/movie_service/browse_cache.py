@@ -5,11 +5,13 @@ from dataclasses import replace
 from pathlib import Path
 import re
 import time
+from threading import Event
 from urllib.parse import urlsplit
 
 from models.movie import Movie
 from scraper.douban_ranking import RankedMovie
 from scraper.metadata_sources import DoubanProvider, ProviderError, TmdbProvider
+from scraper.public_sources import douban_public_search, tmdb_public_details, tmdb_public_search
 from scraper.scrape_models import Candidate
 from scraper.scrape_settings import ScrapeSettings
 from utils.library_sync import atomic_json, read_json
@@ -102,6 +104,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
     tmdb = TmdbProvider(network) if settings.tmdb_api_key or settings.tmdb_token else None
     imdb = ImdbRatings(network)
     douban = DoubanProvider(network)
+    direct_douban_failed = Event()
     normalize = lambda text: re.sub(r'[\W_]+', '', text.casefold())
 
     def metadata_fields(metadata, detail: dict) -> dict:
@@ -139,6 +142,15 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
         old = prior.get(ident)
         movie = local.get(ident)
         detail = cached_browse(data_dir, ident)
+        for key in ('genres', 'countries', 'directors'):
+            if not detail.get(key) and getattr(row, key, None):
+                detail[key] = list(getattr(row, key))
+        if not detail.get('actors') and getattr(row, 'actors', None):
+            detail['actors'] = [{'name': name, 'role': '', 'thumb': ''} for name in row.actors]
+        if not detail.get('plot') and row.plot:
+            detail['plot'] = row.plot
+        if not detail.get('poster_url') and row.poster_url:
+            detail['poster_url'] = row.poster_url
         source = 'imdb' if row.source == 'imdb_top250' else 'douban'
         detail.setdefault('ratings', {}).setdefault(source, float(row.rating or 0))
         if not 0 < detail['ratings'][source] <= 10:
@@ -159,19 +171,21 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
         douban_metadata = None
         needs_douban = not (detail.get('actors') and detail.get('genres')
                             and detail.get('plot') and detail['ratings'].get('douban'))
-        if source == 'douban' and ident.isdigit() and needs_douban:
+        if source == 'douban' and ident.isdigit() and needs_douban and not direct_douban_failed.is_set():
             try:
                 douban_metadata = douban.by_id(ident)
                 metadata_fields(douban_metadata, detail)
             except ProviderError:
+                direct_douban_failed.set()
                 pass
-        elif source == 'imdb' and needs_douban:
+        elif source == 'imdb' and needs_douban and not direct_douban_failed.is_set():
             try:
                 candidate = douban_by_title(row.title, row.year)
                 if candidate:
                     douban_metadata = douban.details(candidate)
                     metadata_fields(douban_metadata, detail)
             except ProviderError:
+                direct_douban_failed.set()
                 pass
 
         if source == 'douban' and douban_metadata and not detail['ratings'].get('imdb') and detail.get('imdb_id'):
@@ -198,6 +212,51 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
             except ProviderError:
                 pass
 
+        public_douban = None
+        if not (detail.get('actors') and detail.get('genres')
+                and detail.get('plot') and detail['ratings'].get('douban')):
+            public_douban = douban_public_search(row.title, row.year)
+            if public_douban:
+                detail['title'] = detail.get('title') or public_douban.title
+                detail['original_title'] = detail.get('original_title') or public_douban.original_title
+                detail['plot'] = detail.get('plot') or public_douban.plot
+                detail['directors'] = detail.get('directors') or public_douban.directors
+                detail['actors'] = detail.get('actors') or [
+                    {'name': name, 'role': '', 'thumb': ''} for name in public_douban.actors
+                ]
+                detail['poster_url'] = detail.get('poster_url') or public_douban.poster_url
+                if public_douban.subject_id:
+                    detail['douban_id'] = public_douban.subject_id
+                if 0 < public_douban.rating <= 10:
+                    detail['ratings']['douban'] = public_douban.rating
+
+        if not detail['ratings'].get('tmdb') or not (detail.get('genres') and detail.get('actors')):
+            query = (public_douban.original_title if public_douban else '') or row.title
+            public_tmdb_id = tmdb_public_search(query, row.year)
+            if public_tmdb_id:
+                public_tmdb = tmdb_public_details(public_tmdb_id)
+                if public_tmdb:
+                    detail['title'] = detail.get('title') or public_tmdb['title']
+                    detail['original_title'] = detail.get('original_title') or public_tmdb['title']
+                    detail['plot'] = detail.get('plot') or public_tmdb['plot']
+                    detail['genres'] = detail.get('genres') or public_tmdb['genres']
+                    detail['countries'] = detail.get('countries') or public_tmdb['countries']
+                    detail['directors'] = detail.get('directors') or public_tmdb['directors']
+                    detail['actors'] = detail.get('actors') or public_tmdb['actors']
+                    detail['poster_url'] = detail.get('poster_url') or public_tmdb['poster_url']
+                    detail['premiered'] = detail.get('premiered') or public_tmdb['premiered']
+                    detail['imdb_id'] = detail.get('imdb_id') or public_tmdb['imdb_id']
+                    detail['tmdb_id'] = detail.get('tmdb_id') or public_tmdb['tmdb_id']
+                    if 0 < public_tmdb['tmdb_rating'] <= 10:
+                        detail['ratings']['tmdb'] = public_tmdb['tmdb_rating']
+                    if detail.get('imdb_id') and not detail['ratings'].get('imdb'):
+                        try:
+                            score = imdb.rating(detail['imdb_id'])[0]
+                            if score and 0 < score <= 10:
+                                detail['ratings']['imdb'] = score
+                        except ProviderError:
+                            pass
+
         urls = dict.fromkeys((detail.get('poster_url') or '', row.poster_url, old.poster_url if old else ''))
         poster = next((url for url in urls if _cache_poster(url, cover_dir)), '')
         if poster:
@@ -210,21 +269,20 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
         detail['ratings'][source] = row.rating if 0 < row.rating <= 10 else detail['ratings'].get(source, 0)
         if not 0 < detail['ratings'].get(source, 0) <= 10:
             detail['ratings'].pop(source, None)
-        if source == 'douban' and not (detail.get('actors') and detail.get('genres')):
-            detail['enrichment_note'] = '豆瓣详情暂不可用，已保留榜单和缓存资料。'
-        elif source == 'imdb' and not detail.get('actors'):
-            detail['enrichment_note'] = 'TMDB 详情暂不可用，已保留 IMDb 榜单资料。'
-        elif not tmdb:
-            detail['enrichment_note'] = 'NUC 未配置 TMDB，无法补齐 TMDB 评分和部分跨来源资料。'
+        missing_sources = [source for source in ('douban', 'imdb', 'tmdb')
+                           if not 0 < detail['ratings'].get(source, 0) <= 10]
+        if missing_sources or not (detail.get('actors') and detail.get('genres')):
+            detail['enrichment_note'] = '部分跨来源资料暂不可用，已保留可用资料。'
         else:
             detail.pop('enrichment_note', None)
-        detail['title'] = row.title
+        detail['title'] = detail.get('title') or row.title
         detail['original_title'] = detail.get('original_title', '')
         detail['year'] = row.year
         detail['premiered'] = detail.get('premiered') or row.premiered
         detail['fetched_at'] = time.time()
         atomic_json(data_dir / 'discovery' / f'subject-{ident}.json', detail)
-        return 0 < row.rating <= 10, bool(detail.get('plot')), bool(poster or (movie and movie.poster_path))
+        return (any(0 < score <= 10 for score in detail['ratings'].values()),
+                bool(detail.get('plot')), bool(poster or (movie and movie.poster_path)))
 
     stats = {'ratings': 0, 'plots': 0, 'posters': 0}
     with ThreadPoolExecutor(max_workers=4) as pool:

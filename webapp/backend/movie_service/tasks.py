@@ -257,6 +257,7 @@ def run_rankings_fetch(
         compare_with_local,
         fetch_douban_chart,
         fetch_douban_top250,
+        fetch_douban_top250_public,
         fetch_imdb_top250,
         load_imdb_cache,
         load_ranking_cache,
@@ -324,6 +325,10 @@ def run_rankings_fetch(
                 http.get_bytes(url, headers=HEADERS).decode('utf-8', errors='replace'))
         else:
             top250 = fetch_douban_top250(cached_movies=all_cached)
+        if "top250" in sources and (not top250 or len(top250) != 250):
+            public_top250 = fetch_douban_top250_public()
+            if public_top250:
+                top250 = public_top250
         ctx.log(f"  Top250 获取完成: {len(top250)} 部电影")
 
     if "chart" in sources:

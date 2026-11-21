@@ -16,6 +16,7 @@ import urllib.request
 import urllib.error
 from urllib.parse import quote
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -43,6 +44,10 @@ class RankedMovie:
     poster_url: str = ""
     premiered: str = ""  # 完整上映日期，如 "2025-11-27"
     plot: str = ""
+    directors: List[str] = field(default_factory=list)
+    actors: List[str] = field(default_factory=list)
+    genres: List[str] = field(default_factory=list)
+    countries: List[str] = field(default_factory=list)
 
 
 # ─────────────────── 匹配工具函数 ───────────────────
@@ -469,6 +474,8 @@ def _movie_to_dict(m: RankedMovie) -> dict:
         "title": m.title, "year": m.year, "rating": m.rating,
         "douban_id": m.douban_id, "rank": m.rank, "source": m.source,
         "poster_url": m.poster_url, "premiered": m.premiered, "plot": m.plot,
+        "directors": m.directors, "actors": m.actors,
+        "genres": m.genres, "countries": m.countries,
     }
 
 
@@ -479,6 +486,10 @@ def _dict_to_movie(d: dict, source: str = "top250") -> RankedMovie:
         rank=int(d.get("rank", 0)), source=d.get("source", source),
         poster_url=d.get("poster_url", ""),
         premiered=d.get("premiered", ""), plot=d.get("plot", ""),
+        directors=list(d.get("directors", []) or []),
+        actors=list(d.get("actors", []) or []),
+        genres=list(d.get("genres", []) or []),
+        countries=list(d.get("countries", []) or []),
     )
 
 
@@ -574,6 +585,65 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None, *, fetch_page=N
             ))
 
     return all_movies
+
+
+def fetch_douban_top250_public() -> List[RankedMovie]:
+    """Read the public Top250 page through Jina Reader when the direct page is blocked."""
+    from .public_sources import fetch_text
+
+    movies: List[RankedMovie] = []
+    seen_ids = set()
+    for page in range(10):
+        try:
+            text = fetch_text(f"https://r.jina.ai/http://movie.douban.com/top250?start={page * 25}")
+        except OSError:
+            continue
+        blocks = re.split(r"\n(?=\d+\.\s+_\d+_)", text)
+        page_start = len(movies)
+        for block in blocks:
+            rank_match = re.match(r"(?P<rank>\d+)\.\s+_(?P<number>\d+)_", block)
+            title_match = re.search(r"Image \d+:\s*(?P<title>[^\]]+)", block)
+            poster_match = re.search(r"\((?P<poster>https?://[^)]+)\)", block)
+            link_match = re.search(r"\((?P<link>https?://movie\.douban\.com/subject/\d+/?)\)", block)
+            director_match = re.search(r"导演:\s*(?P<directors>.*?)\s*主演:", block)
+            actor_match = re.search(r"主演:\s*(?P<actors>.*?)\s*\n", block)
+            meta_match = re.search(r"\n\s*(?P<year>\d{4})/(?P<countries>.*?)/(?P<genres>.*?)\s*\n", block)
+            rating_match = re.search(r"(?P<rating>\d+(?:\.\d+)?)\s+(?P<votes>\d+)人评价", block)
+            plot_match = re.search(r"人评价\s*\n\s*(?P<plot>.*?)\s*(?:\n|$)", block)
+            if not (rank_match and title_match and poster_match and link_match and rating_match):
+                continue
+            subject_id = re.search(r"/subject/(\d+)", link_match.group("link"))
+            if not subject_id:
+                continue
+            if subject_id.group(1) in seen_ids:
+                continue
+            def names(value: str) -> List[str]:
+                return [name.strip() for name in re.split(r"\s*/\s*", value)
+                        if name.strip() and name.strip() not in {"...", "…"}]
+
+            directors = names(director_match.group("directors")) if director_match else []
+            actors = names(actor_match.group("actors")) if actor_match else []
+            countries = [name.strip() for name in re.split(r"\s*/\s*", meta_match.group("countries")) if name.strip()] if meta_match else []
+            genres = [name.strip() for name in re.split(r"\s+", meta_match.group("genres").strip())
+                      if name.strip()] if meta_match else []
+            movies.append(RankedMovie(
+                title=html.unescape(title_match.group("title").strip()),
+                year=meta_match.group("year") if meta_match else "",
+                rating=float(rating_match.group("rating")),
+                douban_id=subject_id.group(1),
+                rank=int(rank_match.group("rank")),
+                source="top250",
+                poster_url=poster_match.group("poster"),
+                plot=html.unescape(plot_match.group("plot").strip()) if plot_match else "",
+                directors=directors,
+                actors=actors,
+                genres=genres,
+                countries=countries,
+            ))
+            seen_ids.add(subject_id.group(1))
+        if len(movies) == page_start:
+            break
+    return movies
 
 
 # ─────────────────── douban-cli 工具函数 ───────────────────
