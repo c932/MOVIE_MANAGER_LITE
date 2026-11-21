@@ -4,10 +4,10 @@ from __future__ import annotations
 import html
 import json
 import re
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
-from urllib.request import Request, urlopen
 
 
 USER_AGENT = (
@@ -31,12 +31,18 @@ class PublicMovie:
 
 
 def fetch_text(url: str, *, timeout: int = 15) -> str:
-    request = Request(url, headers={
-        "User-Agent": USER_AGENT,
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    })
-    with urlopen(request, timeout=timeout) as response:
-        return response.read(3 * 1024 * 1024).decode("utf-8", "replace")
+    result = subprocess.run(
+        [
+            "curl", "-L", "-sS", "--max-time", str(timeout),
+            "-A", USER_AGENT,
+            "-H", "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+            url,
+        ],
+        capture_output=True,
+        timeout=timeout + 5,
+        check=True,
+    )
+    return result.stdout[:3 * 1024 * 1024].decode("utf-8", "replace")
 
 
 def _clean(value: str) -> str:
