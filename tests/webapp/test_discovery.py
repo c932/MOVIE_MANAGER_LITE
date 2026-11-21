@@ -83,6 +83,21 @@ def test_browse_warmup_reuses_success_and_isolates_failed_sources(service_data_d
     assert browse_cache.cached_plot(service_data_dir, 'tt890') == 'IMDb 剧情'
 
 
+def test_rankings_use_cached_alternative_poster(service_data_dir):
+    from scraper.douban_ranking import RankedMovie, save_ranking_cache
+    from utils.library_sync import atomic_json
+
+    movie = RankedMovie('Movie', '2025', 8, 'tt123', 1, 'imdb_top250',
+                        poster_url='https://m.media-amazon.com/removed.jpg')
+    save_ranking_cache([], [], [movie], cache_path=service_data_dir / 'douban_ranking_cache.json')
+    atomic_json(service_data_dir / 'discovery' / 'subject-tt123.json',
+                {'plot': '预存的简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/poster.jpg'})
+    with movie_client(service_data_dir) as client:
+        result = client.get('/api/movie/rankings/imdb_top250').json()['items'][0]
+    assert result['poster_url'] == 'https://image.tmdb.org/t/p/w342/poster.jpg'
+    assert result['plot'] == '预存的简介'
+
+
 def test_parse_subject_page_cleans_douban_summary():
     from movie_service.discovery import parse_subject_page
     page = '''<span property="v:itemreviewed">八仙！</span>

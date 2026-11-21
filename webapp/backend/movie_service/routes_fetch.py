@@ -20,7 +20,7 @@ from pydantic import BaseModel
 
 from wall_common.images import ImageError, cached_remote
 
-from .browse_cache import allowed_poster, cached_plot
+from .browse_cache import allowed_poster, cached_browse, cached_plot
 from .deps import get_store
 from .store import movie_id
 from .tasks import (
@@ -109,6 +109,7 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
     for rm in ranked:
         matched = _find_local_match(rm, local) if local else None
         is_owned = matched is not None
+        cached = cached_browse(store.settings.data_dir, rm.douban_id)
         if getattr(rm, "source", "") == "imdb_top250":
             # IMDB 榜单标题为原文：优先本地中文名，其次翻译表别名
             aliases = [a for a in (_get_title_aliases(rm.title) or []) if a]
@@ -124,8 +125,8 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
                 "original_title": original_title,
                 "year": str(rm.year or ""),
                 "rating": float(rm.rating or 0.0),
-                "poster_url": rm.poster_url or "",
-                "plot": (matched.plot if matched else '') or rm.plot or cached_plot(store.settings.data_dir, rm.douban_id),
+                "poster_url": cached.get('poster_url') or rm.poster_url or "",
+                "plot": (matched.plot if matched else '') or rm.plot or cached.get('plot', ''),
                 "premiered": rm.premiered or '',
                 "rating_source": 'imdb' if rm.source == 'imdb_top250' else 'douban',
                 "douban_id": rm.douban_id if rm.source != 'imdb_top250' else '',

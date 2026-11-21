@@ -21,15 +21,25 @@ def allowed_poster(url: str) -> bool:
     return parsed.scheme in ('http', 'https') and any(host == root or host.endswith('.' + root) for root in IMAGE_PROXY_HOSTS)
 
 
-def cached_plot(data_dir: Path, identity: str) -> str:
+def cached_browse(data_dir: Path, identity: str) -> dict[str, str]:
     if not re.fullmatch(r'(?:tt)?\d{1,12}', identity or ''):
-        return ''
+        return {}
     try:
         cached = read_json(data_dir / 'discovery' / f'subject-{identity}.json', {})
-        plot = cached.get('plot') if isinstance(cached, dict) else None
-        return plot.strip() if isinstance(plot, str) else ''
     except (OSError, ValueError):
-        return ''
+        return {}
+    if not isinstance(cached, dict):
+        return {}
+    plot = cached.get('plot')
+    poster = cached.get('poster_url')
+    return {
+        'plot': plot.strip() if isinstance(plot, str) else '',
+        'poster_url': poster if isinstance(poster, str) and allowed_poster(poster) else '',
+    }
+
+
+def cached_plot(data_dir: Path, identity: str) -> str:
+    return cached_browse(data_dir, identity).get('plot', '')
 
 
 def warm_browse(data_dir: Path, cover_dir: Path, rows: Iterable[dict[str, str]],
@@ -40,10 +50,11 @@ def warm_browse(data_dir: Path, cover_dir: Path, rows: Iterable[dict[str, str]],
     posters = set()
     subjects = {}
     for row in rows:
-        url = row.get('poster_url') or ''
+        identity = row.get('douban_id') or row.get('imdb_id') or ''
+        alternate = cached_browse(data_dir, identity).get('poster_url') if identity.startswith('tt') else ''
+        url = alternate or row.get('poster_url') or ''
         if allowed_poster(url):
             posters.add(url)
-        identity = row.get('douban_id') or row.get('imdb_id') or ''
         if re.fullmatch(r'(?:tt)?\d{1,12}', identity) and (identity.isdigit() or row.get('plot')):
             subjects[identity] = row.get('plot') or subjects.get(identity, '')
 

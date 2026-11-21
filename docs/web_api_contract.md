@@ -266,7 +266,7 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 ## 榜单发现接口（2026-11-17）
 
 - `GET /discovery/series` → `{groups:[{name,source,items}]}`，一次读取全部本地系列及缓存片单。带 `?name=系列名` 时返回单一分组，未知系列返回 404。`source` 为 `tmdb` 或 `local`，成员按上映时间排序，包含 `title`、`original_title`、`year`、`premiered`、`rating`、`poster_url`、`plot`、`movie_id`、`tmdb_id`。未入库成员的 `movie_id` 为 `null`。单一分组在配置 TMDB 后可补取过期片单，失败时沿用 `series_collections/` 中已有缓存。
-- 榜单与新片条目包含 `douban_id`、`douban_url` 和已缓存的 `plot`，榜单另返回 `premiered` 与 `rating_source`。无可用简介时 `plot` 为空。已入库返回 `movie_id`，网页复用详情与本地播放。
+- 榜单与新片条目包含 `douban_id`、`douban_url` 和已缓存的 `plot`，榜单另返回 `premiered` 与 `rating_source`。无可用简介时 `plot` 为空。已核对同一影片 ID 的备用榜单海报可替换失效来源。已入库返回 `movie_id`，网页复用详情与本地播放。
 - `GET /rankings/{kind}` 只读缓存。`fetched_at` 优先使用该来源独立时间戳，旧缓存没有独立时间戳时返回 0 并保留条目。独立时间戳用于判断该来源的缓存新鲜度。
 - `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源为 `rankings.fetch`。来源空响应报错并保留旧缓存。榜单、新片和年度的刷新任务预存可用海报及简介，部分图文获取失败时仍可浏览片单。
 - `GET /discovery/annual/{year}` → `{year,fetched_at,source_url?,categories:[{id,title,items:RankingItem[]}]}`。无缓存返回空categories；只读，无隐式网络。年度必须已结束。
