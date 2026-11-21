@@ -140,7 +140,7 @@ def tmdb_public_details(movie_id: str) -> dict[str, Any]:
     if not re.fullmatch(r"[1-9]\d*", movie_id):
         return {}
     try:
-        text = fetch_text(f"https://www.themoviedb.org/movie/{movie_id}?language=zh-CN", timeout=5)
+        text = fetch_text(f"https://www.themoviedb.org/movie/{movie_id}?language=zh-CN", timeout=8)
     except OSError:
         return {}
     for block in re.findall(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', text, re.DOTALL):
