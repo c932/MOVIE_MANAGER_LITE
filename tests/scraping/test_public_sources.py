@@ -1,6 +1,20 @@
 import json
+import subprocess
 
 from scraper import public_sources
+
+
+def test_fetch_text_converts_curl_timeout_to_os_error(monkeypatch):
+    def run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd="curl", timeout=1)
+
+    monkeypatch.setattr(public_sources.subprocess, "run", run)
+    try:
+        public_sources.fetch_text("https://example.com", timeout=1)
+    except OSError:
+        pass
+    else:
+        raise AssertionError("curl timeout should be caught as OSError")
 
 
 def test_douban_public_search_parses_movie_card(monkeypatch):

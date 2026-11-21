@@ -31,17 +31,23 @@ class PublicMovie:
 
 
 def fetch_text(url: str, *, timeout: int = 15) -> str:
-    result = subprocess.run(
-        [
-            "curl", "-L", "-sS", "--max-time", str(timeout),
-            "-A", USER_AGENT,
-            "-H", "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
-            url,
-        ],
-        capture_output=True,
-        timeout=timeout + 5,
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "curl", "-L", "-sS", "--max-time", str(timeout),
+                "-A", USER_AGENT,
+                "-H", "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8",
+                url,
+            ],
+            capture_output=True,
+            timeout=timeout + 5,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise OSError("公开页请求超时") from exc
+    if result.returncode != 0:
+        message = result.stderr.decode("utf-8", "replace").strip()
+        raise OSError(message or f"公开页请求失败（HTTP {result.returncode}）")
     return result.stdout[:3 * 1024 * 1024].decode("utf-8", "replace")
 
 
