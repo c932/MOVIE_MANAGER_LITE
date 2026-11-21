@@ -109,6 +109,61 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
                 pass
         return detail
 
+    def fetch_tmdb_detail(part: dict[str, Any]) -> dict[str, Any]:
+        ctx.check_cancelled()
+        try:
+            return tmdb_public_details(str(part.get('tmdb_id') or ''))
+        except OSError:
+            return {}
+
+    def fetch_douban_detail(part: dict[str, Any]):
+        ctx.check_cancelled()
+        try:
+            result = douban_public_search(part.get('title', ''), part.get('year', ''))
+            if result is None and '之' in part.get('title', ''):
+                result = douban_public_search(part['title'].split('之', 1)[0], part.get('year', ''))
+            return result
+        except OSError:
+            return None
+
+    def merge_public_details(part: dict[str, Any], public_tmdb: dict[str, Any], public_douban) -> dict[str, Any]:
+        detail = dict(part)
+        detail.setdefault('ratings', {})
+        if public_tmdb:
+            for key in ('title', 'original_title', 'premiered', 'poster_url', 'imdb_id', 'tmdb_id'):
+                if public_tmdb.get(key) and not detail.get(key):
+                    detail[key] = public_tmdb[key]
+            for key in ('genres', 'countries', 'directors'):
+                if public_tmdb.get(key) and not detail.get(key):
+                    detail[key] = public_tmdb[key]
+            if public_tmdb.get('actors') and not detail.get('actors'):
+                detail['actors'] = public_tmdb['actors']
+            detail['plot'] = preferred_plot(detail.get('plot', ''), public_tmdb.get('plot', ''))
+            if 0 < public_tmdb.get('tmdb_rating', 0) <= 10:
+                detail['ratings']['tmdb'] = public_tmdb['tmdb_rating']
+        if public_douban:
+            if public_douban.original_title and not detail.get('original_title'):
+                detail['original_title'] = public_douban.original_title
+            if public_douban.directors and not detail.get('directors'):
+                detail['directors'] = public_douban.directors
+            if public_douban.actors and not detail.get('actors'):
+                detail['actors'] = [{'name': name, 'role': '', 'thumb': ''} for name in public_douban.actors]
+            if public_douban.poster_url and not detail.get('poster_url'):
+                detail['poster_url'] = public_douban.poster_url
+            if public_douban.subject_id:
+                detail['douban_id'] = public_douban.subject_id
+            detail['plot'] = preferred_plot(detail.get('plot', ''), public_douban.plot)
+            if 0 < public_douban.rating <= 10:
+                detail['ratings']['douban'] = public_douban.rating
+        if detail.get('imdb_id') and not detail['ratings'].get('imdb'):
+            try:
+                score = imdb.rating(detail['imdb_id'])[0]
+                if score and 0 < score <= 10:
+                    detail['ratings']['imdb'] = score
+            except ProviderError:
+                pass
+        return detail
+
     def collect(item: tuple[str, list[Movie]]) -> tuple[Path, dict, bool, str]:
         ctx.check_cancelled()
         name, members = item
@@ -145,8 +200,11 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
     unowned_parts = [part for _, catalog, _, _ in catalogs
                      for part in catalog.get('parts', []) if part.get('tmdb_id') not in owned_tmdb_ids]
     ctx.update(stage='补齐系列资料', message=f'正在补齐 {len(unowned_parts)} 部未入库系列电影…')
-    with ThreadPoolExecutor(max_workers=12) as pool:
-        enriched_parts = list(pool.map(enrich_part, unowned_parts))
+    with ThreadPoolExecutor(max_workers=12) as tmdb_pool, ThreadPoolExecutor(max_workers=12) as douban_pool:
+        tmdb_details = list(tmdb_pool.map(fetch_tmdb_detail, unowned_parts))
+        douban_details = list(douban_pool.map(fetch_douban_detail, unowned_parts))
+    enriched_parts = [merge_public_details(part, tmdb_detail, douban_detail)
+                      for part, tmdb_detail, douban_detail in zip(unowned_parts, tmdb_details, douban_details)]
     enriched_by_id = {part['tmdb_id']: part for part in enriched_parts}
     for _, catalog, _, _ in catalogs:
         catalog['parts'] = [enriched_by_id.get(part.get('tmdb_id'), part)
