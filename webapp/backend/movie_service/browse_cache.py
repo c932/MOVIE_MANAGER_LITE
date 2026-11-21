@@ -219,7 +219,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
             if public_douban:
                 detail['title'] = detail.get('title') or public_douban.title
                 detail['original_title'] = detail.get('original_title') or public_douban.original_title
-                detail['plot'] = detail.get('plot') or public_douban.plot
+                if len(public_douban.plot) > len(detail.get('plot', '')):
+                    detail['plot'] = public_douban.plot
                 detail['directors'] = detail.get('directors') or public_douban.directors
                 detail['actors'] = detail.get('actors') or [
                     {'name': name, 'role': '', 'thumb': ''} for name in public_douban.actors
@@ -230,7 +231,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                 if 0 < public_douban.rating <= 10:
                     detail['ratings']['douban'] = public_douban.rating
 
-        if not detail['ratings'].get('tmdb') or not (detail.get('genres') and detail.get('actors')):
+        if (not detail['ratings'].get('tmdb') or not (detail.get('genres') and detail.get('actors'))
+                or len(detail.get('plot', '')) < 80):
             query = (public_douban.original_title if public_douban else '') or row.title
             public_tmdb_id = tmdb_public_search(query, row.year)
             if public_tmdb_id:
@@ -238,7 +240,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                 if public_tmdb:
                     detail['title'] = detail.get('title') or public_tmdb['title']
                     detail['original_title'] = detail.get('original_title') or public_tmdb['title']
-                    detail['plot'] = detail.get('plot') or public_tmdb['plot']
+                    if len(public_tmdb['plot']) > len(detail.get('plot', '')):
+                        detail['plot'] = public_tmdb['plot']
                     detail['genres'] = detail.get('genres') or public_tmdb['genres']
                     detail['countries'] = detail.get('countries') or public_tmdb['countries']
                     detail['directors'] = detail.get('directors') or public_tmdb['directors']
