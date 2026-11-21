@@ -114,6 +114,14 @@ export interface RankingItem {
   premiered?: string;
   rating_source?: 'douban' | 'imdb';
   douban_id?: string;
+  imdb_id?: string;
+  tmdb_id?: string;
+  ratings?: Partial<Record<'douban' | 'imdb' | 'tmdb', number>>;
+  genres?: string[];
+  countries?: string[];
+  directors?: string[];
+  actors?: Actor[];
+  enrichment_note?: string;
   douban_url?: string;
   rank: number;
   title: string;
@@ -146,6 +154,9 @@ export interface NewMovieItem {
   rating: number;
   in_library: boolean;
   movie_id: string | null;
+  ratings?: Partial<Record<'douban' | 'imdb' | 'tmdb', number>>;
+  genres?: string[];
+  actors?: Actor[];
 }
 
 export interface NewMovieResponse {

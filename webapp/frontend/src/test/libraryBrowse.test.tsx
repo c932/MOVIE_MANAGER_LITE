@@ -6,7 +6,10 @@ import type {RankingItem, RankingResponse, Job, MovieListItem, SeriesListing} fr
 
 const owned: RankingItem = {rank: 1, title: '本库电影', year: '2025', original_title: '', rating: 8,
   poster_url: 'https://img3.doubanio.com/a.jpg', douban_id: '123', owned: true, in_library: true, movie_id: 'local-id'};
-const missing: RankingItem = {...owned, rank: 2, title: '缺失电影', plot: '缓存里的电影剧情', douban_id: '456', owned: false, in_library: false, movie_id: null};
+const missing: RankingItem = {...owned, rank: 2, title: '缺失电影', plot: '缓存里的电影剧情', douban_id: '456',
+  ratings: {douban: 8, imdb: 7.8, tmdb: 7.6}, genres: ['剧情', '爱情'], countries: ['美国'],
+  directors: ['导演'], actors: [{name: '主演甲', role: '角色', thumb: ''}],
+  owned: false, in_library: false, movie_id: null};
 const response: RankingResponse = {kind: 'chart', fetched_at: Date.now()/1000, items: [owned, missing], owned_count: 1, missing_count: 1};
 const localMovie: MovieListItem = {
   id: 'local-id', title: '本库电影', original_title: '', year: '2025', premiered: '2025-01-01',
@@ -111,6 +114,13 @@ it('缺失电影显示简介、中创盘搜和 B 站入口', async () => {
   expect(dialog).toHaveClass('movie-overlay');
   expect(within(dialog).getByText('缓存里的电影剧情')).toBeInTheDocument();
   expect(within(dialog).getByRole('link', {name: '打开夸克盘搜'})).toHaveAttribute('href', 'https://www.zhongchuangwl.com/s/'+encodeURIComponent('缺失电影')+'/');
+  expect(within(dialog).getAllByText('8.0').length).toBeGreaterThanOrEqual(1);
+  expect(within(dialog).getByText('7.8')).toBeInTheDocument();
+  expect(within(dialog).getByText('7.6')).toBeInTheDocument();
+  expect(within(dialog).getAllByText('剧情').length).toBeGreaterThanOrEqual(1);
+  expect(within(dialog).getAllByText('爱情').length).toBeGreaterThanOrEqual(1);
+  expect(dialog).toHaveTextContent('导演：导演');
+  expect(dialog).toHaveTextContent('主演：主演甲');
   expect(within(dialog).getByRole('link', {name: 'B站搜索'}).getAttribute('href')).toContain('https://search.bilibili.com/');
   expect(within(dialog).getByRole('link', {name: 'B站播放'}).getAttribute('href')).toContain('moviewall://bilibili/play?keyword=');
   expect(within(dialog).queryByRole('button', {name: /播放/})).not.toBeInTheDocument();

@@ -119,18 +119,27 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
         else:
             title = rm.title
             original_title = (matched.original_title if matched else "") or ""
+        external = {} if is_owned else cached
         items.append(
             {
                 "rank": int(rm.rank or 0),
                 "title": title,
-                "original_title": original_title,
+                "original_title": external.get("original_title") or original_title,
                 "year": str(rm.year or ""),
                 "rating": float(rm.rating or 0.0),
                 "poster_url": cached.get('poster_url') or rm.poster_url or "",
-                "plot": (matched.plot if matched else '') or rm.plot or cached.get('plot', ''),
-                "premiered": rm.premiered or '',
+                "plot": (matched.plot if matched else '') or rm.plot or external.get('plot', ''),
+                "premiered": rm.premiered or external.get('premiered', ''),
                 "rating_source": 'imdb' if rm.source == 'imdb_top250' else 'douban',
                 "douban_id": rm.douban_id if rm.source != 'imdb_top250' else '',
+                "imdb_id": external.get('imdb_id', ''),
+                "tmdb_id": external.get('tmdb_id', ''),
+                "ratings": external.get('ratings', {}),
+                "genres": external.get('genres', []),
+                "countries": external.get('countries', []),
+                "directors": external.get('directors', []),
+                "actors": external.get('actors', []),
+                "enrichment_note": external.get('enrichment_note', ''),
                 "douban_url": f'https://movie.douban.com/subject/{rm.douban_id}/' if rm.douban_id and rm.source != 'imdb_top250' else '',
                 "owned": is_owned,
                 "movie_id": movie_id(matched.nfo_path) if is_owned else None,

@@ -17,7 +17,8 @@ const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbL
 
 interface Props {
   movie: MovieListItem | null;
-  external?: Pick<MovieListItem, 'title' | 'original_title' | 'year' | 'premiered' | 'plot' | 'ratings' | 'genres' | 'douban_url'> & {poster_url: string};
+  external?: Pick<MovieListItem, 'title' | 'original_title' | 'year' | 'premiered' | 'plot' | 'ratings' | 'genres' | 'douban_url'>
+    & {poster_url: string; countries?: string[]; directors?: string[]; actors?: MovieListItem['actors']; enrichment_note?: string};
   unreleased?: boolean;
   posterFallback?: string;
   movies?: MovieListItem[];
@@ -163,7 +164,7 @@ export function MovieDetail({
               {g}
             </span>
           ))}
-          {local?.countries.map((c) => (
+          {movie.countries?.map((c) => (
             <span key={c} className="tag">
               {c}
             </span>
@@ -172,24 +173,25 @@ export function MovieDetail({
 
         {/* 简介 */}
         {(movie.plot || !local) && <p className="text-sm leading-relaxed text-ink-200">{movie.plot || '片源暂未提供简介。'}</p>}
+        {external?.enrichment_note && <p role="status" className="text-xs text-amber-300">{external.enrichment_note}</p>}
 
         {/* 导演/演员 */}
-        {local && <div className="space-y-1 text-xs">
-          {local.directors.length > 0 && (
+        <div className="space-y-1 text-xs">
+          {!!movie.directors?.length && (
             <div>
               <span className="text-ink-400">导演：</span>
-              <span className="text-ink-200">{local.directors.join(' / ')}</span>
+              <span className="text-ink-200">{movie.directors.join(' / ')}</span>
             </div>
           )}
-          {local.actors.length > 0 && (
+          {!!movie.actors?.length && (
             <div>
               <span className="text-ink-400">主演：</span>
               <span className="text-ink-200">
-                {local.actors.slice(0, 8).map((a) => a.name).join(' / ')}
+                {movie.actors.slice(0, 8).map((a) => a.name).join(' / ')}
               </span>
             </div>
           )}
-        </div>}
+        </div>
 
         {/* 系列电影 */}
         {local?.set_name && onSelectSeriesMovie && onSeriesClick && <SeriesShortcuts movie={local} movies={movies} onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />}

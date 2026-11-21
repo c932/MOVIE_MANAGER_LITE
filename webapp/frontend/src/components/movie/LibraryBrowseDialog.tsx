@@ -50,11 +50,19 @@ function BrowsePoster({row}: {row: BrowseItem}) {
 
 function MissingMovie({row, unreleased, onClose}: {row: BrowseItem; unreleased: boolean; onClose: () => void}) {
   const source = ('rating_source' in row && row.rating_source) || ('tmdb_id' in row ? 'tmdb' : 'douban');
+  const ratings = 'ratings' in row && row.ratings && Object.keys(row.ratings).length
+    ? row.ratings : {[source]: row.rating};
+  const genres = 'genres' in row && row.genres?.length ? row.genres
+    : ('genre' in row ? row.genre.split(' / ').filter(Boolean) : []);
+  const countries = 'countries' in row ? row.countries || [] : [];
+  const directors = 'directors' in row ? row.directors || [] : [];
+  const actors = 'actors' in row ? row.actors || [] : [];
+  const enrichmentNote = 'enrichment_note' in row ? row.enrichment_note || '' : '';
   return <FloatingMovieDetail title={`${row.title} · 电影简介`} onClose={onClose}>
     <MovieDetail movie={null} unreleased={unreleased} external={{
       title: row.title, original_title: 'original_title' in row ? row.original_title : '',
       year: row.year, premiered: releaseDate(row), plot: row.plot || '',
-      ratings: {[source]: row.rating}, genres: 'genre' in row ? row.genre.split(' / ').filter(Boolean) : [],
+      ratings, genres, countries, directors, actors, enrichment_note: enrichmentNote,
       douban_url: 'douban_url' in row ? row.douban_url || '' : '', poster_url: row.poster_url,
     }} />
   </FloatingMovieDetail>;

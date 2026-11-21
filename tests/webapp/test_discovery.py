@@ -91,20 +91,30 @@ def test_rankings_use_cached_alternative_poster(service_data_dir):
                         poster_url='https://m.media-amazon.com/removed.jpg')
     save_ranking_cache([], [], [movie], cache_path=service_data_dir / 'douban_ranking_cache.json')
     atomic_json(service_data_dir / 'discovery' / 'subject-tt123.json',
-                {'plot': '预存的简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/poster.jpg'})
+                {'plot': '预存的简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/poster.jpg',
+                 'original_title': 'Movie', 'premiered': '2025-01-01', 'imdb_id': 'tt123', 'tmdb_id': '999',
+                 'ratings': {'imdb': 8.1, 'douban': 8.4, 'tmdb': 7.7}, 'genres': ['剧情'],
+                 'countries': ['印度'], 'directors': ['导演'],
+                 'actors': [{'name': '主演', 'role': '角色', 'thumb': ''}]})
     with movie_client(service_data_dir) as client:
         result = client.get('/api/movie/rankings/imdb_top250').json()['items'][0]
     assert result['poster_url'] == 'https://image.tmdb.org/t/p/w342/poster.jpg'
     assert result['plot'] == '预存的简介'
+    assert result['ratings'] == {'imdb': 8.1, 'douban': 8.4, 'tmdb': 7.7}
+    assert result['genres'] == ['剧情']
+    assert result['countries'] == ['印度']
+    assert result['directors'] == ['导演']
+    assert result['actors'][0]['name'] == '主演'
 
 
-def test_enrich_top250_uses_cached_plot_alternative_poster_and_imdb_rating(service_data_dir, monkeypatch):
+def test_enrich_top250_builds_cross_source_external_detail(service_data_dir, monkeypatch):
     from pathlib import Path
     from movie_service import browse_cache
     from scraper.douban_ranking import RankedMovie
     from scraper.imdb_ratings import ImdbRatings
+    from scraper.metadata_sources import DoubanProvider, TmdbProvider
+    from scraper.scrape_models import Candidate, Metadata
     from scraper.scrape_settings import ScrapeSettings
-    from utils.library_sync import atomic_json
 
     class Context:
         def update(self, **kwargs):
@@ -113,20 +123,40 @@ def test_enrich_top250_uses_cached_plot_alternative_poster_and_imdb_rating(servi
         def check_cancelled(self):
             pass
 
-    atomic_json(service_data_dir / 'discovery' / 'subject-tt123.json',
-                {'plot': '缓存简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/alternate.jpg'})
+    monkeypatch.setattr(DoubanProvider, 'search', lambda self, title, year: [
+        Candidate('douban', '123', '中文电影', 'Movie', '2025')])
+    monkeypatch.setattr(DoubanProvider, 'details', lambda self, candidate: Metadata(
+        'douban', candidate.id,
+        fields={'title': '中文电影', 'original_title': 'Movie', 'year': '2025',
+                'plot': '中文剧情', 'genres': ['剧情'], 'countries': ['印度'],
+                'directors': ['导演'], 'actors': [{'name': '主演', 'role': '角色', 'thumb': ''}]},
+        ids={'douban': '123', 'imdb': 'tt123'}, ratings={'douban': 8.4}))
     monkeypatch.setattr(ImdbRatings, 'rating', lambda self, identity: (8.1, 1200))
+    monkeypatch.setattr(TmdbProvider, 'rating_by_imdb', lambda self, identity: ('999', 7.7, 300))
+    monkeypatch.setattr(TmdbProvider, 'details', lambda self, candidate: Metadata(
+        'tmdb', candidate.id,
+        fields={'title': '中文电影', 'original_title': 'Movie', 'year': '2025',
+                'plot': 'TMDB 中文剧情', 'genres': ['剧情'], 'countries': ['印度'],
+                'directors': ['导演'], 'actors': [{'name': 'TMDB 主演', 'role': '角色', 'thumb': ''}]},
+        ids={'tmdb': '999', 'imdb': 'tt123'}, ratings={'tmdb': 7.7}))
     monkeypatch.setattr(browse_cache, 'cached_remote',
                         lambda *args, **kwargs: Path(service_data_dir) / 'cover.img')
-    row = RankedMovie('Movie', '2025', 0.0, 'tt123', 1, 'imdb_top250')
+    row = RankedMovie('Movie', '2025', 0.0, 'tt123', 1, 'imdb_top250',
+                      poster_url='https://image.tmdb.org/t/p/w342/poster.jpg')
     result = browse_cache.enrich_top250(
         service_data_dir, service_data_dir / 'covers', [row], [], [],
-        ScrapeSettings(), Context(),
+        ScrapeSettings(tmdb_token='test-token'), Context(),
     )
     assert result == {'ratings': 1, 'plots': 1, 'posters': 1}
     assert row.rating == 8.1
-    assert row.plot == '缓存简介'
-    assert row.poster_url == 'https://image.tmdb.org/t/p/w342/alternate.jpg'
+    assert row.plot == '中文剧情'
+    detail = json.loads((service_data_dir / 'discovery' / 'subject-tt123.json').read_text(encoding='utf-8'))
+    assert detail['ratings'] == {'imdb': 8.1, 'douban': 8.4, 'tmdb': 7.7}
+    assert detail['genres'] == ['剧情']
+    assert detail['directors'] == ['导演']
+    assert detail['actors'][0]['name'] == '主演'
+    assert detail['imdb_id'] == 'tt123'
+    assert detail['tmdb_id'] == '999'
 
 
 def test_parse_subject_page_cleans_douban_summary():
