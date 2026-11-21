@@ -4,8 +4,9 @@ import type { MovieListItem, SeriesListing, SeriesMovie } from '../../types/api'
 import { preferredRating } from '../../utils/movieDisplay';
 
 export function localSeriesMovie(movie: MovieListItem): SeriesMovie {
+  const rating = preferredRating(movie);
   return {title: movie.title, original_title: movie.original_title, year: movie.year,
-    premiered: movie.premiered, tmdb_id: movie.tmdb_id, rating: preferredRating(movie).value,
+    premiered: movie.premiered, tmdb_id: movie.tmdb_id, rating: rating.value, rating_source: rating.source,
     poster_url: '', movie_id: movie.id, plot: movie.plot};
 }
 

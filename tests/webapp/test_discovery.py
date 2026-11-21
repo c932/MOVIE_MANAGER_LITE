@@ -98,6 +98,37 @@ def test_rankings_use_cached_alternative_poster(service_data_dir):
     assert result['plot'] == '预存的简介'
 
 
+def test_enrich_top250_uses_cached_plot_alternative_poster_and_imdb_rating(service_data_dir, monkeypatch):
+    from pathlib import Path
+    from movie_service import browse_cache
+    from scraper.douban_ranking import RankedMovie
+    from scraper.imdb_ratings import ImdbRatings
+    from scraper.scrape_settings import ScrapeSettings
+    from utils.library_sync import atomic_json
+
+    class Context:
+        def update(self, **kwargs):
+            assert kwargs['stage'] == '补齐榜单资料'
+
+        def check_cancelled(self):
+            pass
+
+    atomic_json(service_data_dir / 'discovery' / 'subject-tt123.json',
+                {'plot': '缓存简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/alternate.jpg'})
+    monkeypatch.setattr(ImdbRatings, 'rating', lambda self, identity: (8.1, 1200))
+    monkeypatch.setattr(browse_cache, 'cached_remote',
+                        lambda *args, **kwargs: Path(service_data_dir) / 'cover.img')
+    row = RankedMovie('Movie', '2025', 0.0, 'tt123', 1, 'imdb_top250')
+    result = browse_cache.enrich_top250(
+        service_data_dir, service_data_dir / 'covers', [row], [], [],
+        ScrapeSettings(), Context(),
+    )
+    assert result == {'ratings': 1, 'plots': 1, 'posters': 1}
+    assert row.rating == 8.1
+    assert row.plot == '缓存简介'
+    assert row.poster_url == 'https://image.tmdb.org/t/p/w342/alternate.jpg'
+
+
 def test_parse_subject_page_cleans_douban_summary():
     from movie_service.discovery import parse_subject_page
     page = '''<span property="v:itemreviewed">八仙！</span>

@@ -170,6 +170,7 @@ export interface SeriesMovie {
   year: string;
   premiered: string;
   rating: number;
+  rating_source?: string;
   poster_url: string;
   movie_id: string | null;
   tmdb_id: string;

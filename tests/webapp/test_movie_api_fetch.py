@@ -212,7 +212,11 @@ def test_rankings_fetch_from_network(service_data_dir, monkeypatch):
     import scraper.douban_ranking as dr
     from movie_service import browse_cache
 
-    monkeypatch.setattr(browse_cache, 'warm_browse', lambda *_: None)
+    monkeypatch.setattr(browse_cache, 'warm_browse', lambda *_: {'posters': 0, 'plots': 0, 'poster_total': 0, 'plot_total': 0})
+    monkeypatch.setattr(
+        browse_cache, 'enrich_top250',
+        lambda *_, **__: {'ratings': 0, 'plots': 0, 'posters': 0},
+    )
 
     library = build_library(service_data_dir / "library")
 
@@ -249,11 +253,58 @@ def test_rankings_fetch_from_network(service_data_dir, monkeypatch):
         assert job["result"]["from_cache"] is False
         assert job["result"]["total"] == 2
         assert job["result"]["owned"] == 2
+        assert job["result"]["stale_sources"] == []
 
         body = client.get(f"{API}/rankings/chart").json()
         assert body["fetched_at"] > 0
         assert body["items"][0]["title"] == "疯狂动物城"
         assert body["items"][0]["owned"] is True
+
+
+def test_top250_refresh_keeps_previous_full_ranking(service_data_dir, monkeypatch):
+    """豆瓣来源返回不完整时保留原 Top250，并避免推进缓存更新时间。"""
+    import json
+    import scraper.douban_ranking as dr
+    from movie_service import browse_cache
+    from utils.library_sync import atomic_json
+
+    monkeypatch.setattr(browse_cache, 'warm_browse', lambda *_: {'posters': 0, 'plots': 0, 'poster_total': 0, 'plot_total': 0})
+    monkeypatch.setattr(
+        browse_cache, 'enrich_top250',
+        lambda *_, **__: {'ratings': 0, 'plots': 0, 'posters': 0},
+    )
+    cache_path = service_data_dir / "douban_ranking_cache.json"
+    previous = [
+        dr.RankedMovie(title=f"旧电影{rank}", year="2000", rating=8.0, douban_id=str(1000 + rank),
+                       rank=rank, source="top250", poster_url=f"https://img3.doubanio.com/{rank}.jpg",
+                       plot=f"旧简介{rank}")
+        for rank in range(1, 251)
+    ]
+    dr.save_ranking_cache(previous, [], cache_path=cache_path)
+    original_timestamp = json.loads(cache_path.read_text(encoding="utf-8"))["source_timestamps"]["top250"]
+
+    def partial(cached_movies=None, *, fetch_page=None):
+        assert fetch_page is None
+        return [dr.RankedMovie(title="只拿到一部", year="2026", rating=0.0, douban_id="1",
+                               rank=1, source="top250")]
+
+    monkeypatch.setattr(dr, "fetch_douban_top250", partial)
+    monkeypatch.setattr(dr, "fetch_douban_chart", lambda cached_movies=None, *, fetch_details=True: [])
+    monkeypatch.setattr(dr, "fetch_imdb_top250", lambda cached_movies=None: [])
+
+    with movie_client(service_data_dir) as client:
+        response = client.post(
+            f"{API}/rankings/fetch", json={"sources": ["top250"], "use_cache": False}
+        )
+        assert response.status_code == 200, response.text
+        job = wait_job(client, response.json()["job_id"])
+        assert job["status"] == "done", job["error"]
+        assert job["result"]["stale_sources"] == ["top250"]
+        assert job["result"]["total"] == 250
+
+        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        assert cache["source_timestamps"]["top250"] == original_timestamp
+        assert [item["title"] for item in cache["top250"]] == [movie.title for movie in previous]
 
 
 # ─────────────────── 新片 ───────────────────

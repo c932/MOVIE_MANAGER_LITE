@@ -55,6 +55,7 @@ export const jobsApi = (prefix: string) => ({
 export const movieApi = {
   series: (name: string) => request<import('../types/api').SeriesListing>(`/api/movie/discovery/series?${new URLSearchParams({name})}`),
   allSeries: () => request<{groups: import('../types/api').SeriesListing[]}>('/api/movie/discovery/series'),
+  refreshSeries: () => request<{job_id: string}>('/api/movie/discovery/series/refresh', {method: 'POST'}),
   annual: (year: number) => request<import('../types/api').AnnualResponse>(`/api/movie/discovery/annual/${year}`),
   refreshAnnual: (year: number) => request<{job_id: string}>(`/api/movie/discovery/annual/${year}/refresh`, {method: 'POST'}),
   subject: (id: string) => request<{job_id: string}>(`/api/movie/discovery/subject/${id}`, {method: 'POST'}),

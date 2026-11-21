@@ -340,7 +340,7 @@ def _get_cache_path(cache_path=None):
 
 def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
                        imdb_top250: List[RankedMovie] = None, *,
-                       cache_path=None) -> bool:
+                       cache_path=None, preserve_timestamps: frozenset[str] = frozenset()) -> bool:
     """将抓取的榜单数据保存到本地缓存（合并模式，不会覆盖其他来源的已有数据）"""
     try:
         from datetime import datetime
@@ -360,7 +360,7 @@ def save_ranking_cache(top250: List[RankedMovie], chart: List[RankedMovie],
             "source_timestamps": dict(existing.get("source_timestamps", {})),
         }
         for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250)):
-            if items:
+            if items and source not in preserve_timestamps:
                 data['source_timestamps'][source] = data['timestamp']
 
         # 合并 top250：有新数据则覆盖，无新数据则保留旧缓存
@@ -482,7 +482,7 @@ def _dict_to_movie(d: dict, source: str = "top250") -> RankedMovie:
     )
 
 
-def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedMovie]:
+def fetch_douban_top250(cached_movies: List[RankedMovie] = None, *, fetch_page=None) -> List[RankedMovie]:
     """
     抓取豆瓣 Top250 榜单（共 10 页，每页 25 部）
 
@@ -496,7 +496,7 @@ def fetch_douban_top250(cached_movies: List[RankedMovie] = None) -> List[RankedM
         start = page * 25
         url = f'https://movie.douban.com/top250?start={start}'
         try:
-            content = _fetch_url(url)
+            content = (fetch_page or _fetch_url)(url)
         except Exception as e:
             logger.error(f"抓取豆瓣 Top250 第{page+1}页失败: {e}")
             continue

@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
+from scraper.scrape_settings import ScrapeSettings
 from wall_common.jobs import JobContext
 
 from .scanner import file_added_time, scan_library
@@ -243,6 +244,7 @@ def run_rankings_fetch(
     *,
     sources: Sequence[str],
     use_cache: bool = True,
+    settings: ScrapeSettings | None = None,
 ) -> Dict[str, Any]:
     """
     榜单抓取（kind=rankings.fetch）。
@@ -251,6 +253,7 @@ def run_rankings_fetch(
     use_cache=False 的增量分支），进度改为 ctx.update / ctx.log。
     """
     from scraper.douban_ranking import (
+        HEADERS,
         compare_with_local,
         fetch_douban_chart,
         fetch_douban_top250,
@@ -263,6 +266,8 @@ def run_rankings_fetch(
     cache_path = store.ranking_cache_file
     sources = [s for s in sources if s in RANKING_SOURCES]
     local_movies = store.snapshot()
+    stale_sources: list[str] = []
+    coverage: dict[str, dict[str, int]] = {}
 
     def _finish(items: List[Any], from_cache: bool) -> Dict[str, Any]:
         ctx.update(current=len(items), total=len(items), stage="对比本地库",
@@ -277,6 +282,8 @@ def run_rankings_fetch(
             "total": len(items),
             "owned": len(owned),
             "missing": len(missing),
+            "stale_sources": stale_sources,
+            "coverage": coverage,
         }
 
     # 1) 缓存优先（use_cache=True 且缓存存在时直接复用，不发网络请求）
@@ -298,11 +305,10 @@ def run_rankings_fetch(
             return _finish(picked, True)
 
     # 2) 缓存不可用或强制刷新：从网络抓取（增量模式带旧缓存合并详情）
-    all_cached: List[Any] = []
-    if not use_cache:
-        old_top250, old_chart = load_ranking_cache(cache_path)
-        old_imdb = load_imdb_cache(cache_path) if "imdb_top250" in sources else []
-        all_cached = old_top250 + old_chart + old_imdb
+    old_top250, old_chart = load_ranking_cache(cache_path)
+    old_imdb = load_imdb_cache(cache_path) if "imdb_top250" in sources else []
+    all_cached = old_top250 + old_chart + old_imdb
+    settings = settings or ScrapeSettings()
 
     top250: List[Any] = []
     chart: List[Any] = []
@@ -311,7 +317,13 @@ def run_rankings_fetch(
     if "top250" in sources:
         ctx.update(stage="抓取榜单", message="正在抓取豆瓣 Top250 榜单...")
         ctx.check_cancelled()
-        top250 = fetch_douban_top250(cached_movies=all_cached)
+        if settings.proxy:
+            from scraper.scrape_http import HttpClient
+            http = HttpClient(settings, retries=0)
+            top250 = fetch_douban_top250(cached_movies=all_cached, fetch_page=lambda url:
+                http.get_bytes(url, headers=HEADERS).decode('utf-8', errors='replace'))
+        else:
+            top250 = fetch_douban_top250(cached_movies=all_cached)
         ctx.log(f"  Top250 获取完成: {len(top250)} 部电影")
 
     if "chart" in sources:
@@ -328,23 +340,40 @@ def run_rankings_fetch(
 
     ctx.check_cancelled()
 
-    # 保存到缓存（合并模式：未请求的来源保留旧缓存）
-    if any(not items for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250)) if source in sources):
+    # 保留完整旧榜单时仍补查资料，且不推进排名更新时间。
+    from .browse_cache import enrich_top250, warm_browse
+
+    def refresh_top(source, rows, old):
+        if source not in sources:
+            return rows
+        if old and (not rows or (len(old) == 250 and {row.rank for row in rows} != set(range(1, 251)))):
+            stale_sources.append(source)
+            rows = old
+        if rows:
+            coverage[source] = enrich_top250(store.settings.data_dir, store.settings.cover_cache_dir,
+                                             rows, old, local_movies, settings, ctx)
+        return rows
+
+    top250 = refresh_top('top250', top250, old_top250)
+    imdb_top250 = refresh_top('imdb_top250', imdb_top250, old_imdb)
+    if any(not items for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250))
+           if source in sources):
         raise ValueError('榜单来源未返回有效资料，请稍后重试；旧缓存已保留。')
 
-    from .browse_cache import warm_browse
-    warm_browse(store.settings.data_dir, store.settings.cover_cache_dir, (
-        {'poster_url': item.poster_url, 'douban_id': item.douban_id, 'plot': item.plot}
-        for item in top250 + chart + imdb_top250
-    ), ctx)
-    if top250 or chart:
-        with store.lock:
-            save_ranking_cache(top250, chart, imdb_top250 or None, cache_path=cache_path)
-    elif imdb_top250:
-        with store.lock:
-            save_ranking_cache([], [], imdb_top250, cache_path=cache_path)
-
-    return _finish(top250 + chart + imdb_top250, False)
+    if chart:
+        warm_browse(store.settings.data_dir, store.settings.cover_cache_dir, (
+            {'poster_url': item.poster_url, 'douban_id': item.douban_id, 'plot': item.plot} for item in chart
+        ), ctx)
+    with store.lock:
+        if not save_ranking_cache(top250, chart, imdb_top250 or None, cache_path=cache_path,
+                                  preserve_timestamps=frozenset(stale_sources)):
+            raise OSError('榜单缓存保存失败，请稍后重试。')
+    result = _finish(top250 + chart + imdb_top250, False)
+    if coverage:
+        totals = [sum(stats[key] for stats in coverage.values()) for key in ('ratings', 'plots', 'posters')]
+        prefix = '来源暂不可用或返回不完整，已保留部分榜单的原排名。' if stale_sources else '排名已更新。'
+        result['summary'] = f'{prefix}已有评分 {totals[0]} 部、简介 {totals[1]} 部、海报 {totals[2]} 部。'
+    return result
 
 
 # ─────────────────── 新片抓取 ───────────────────

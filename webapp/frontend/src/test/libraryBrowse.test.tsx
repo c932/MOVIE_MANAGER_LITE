@@ -2,7 +2,7 @@ import {beforeEach, expect, it, vi} from 'vitest';
 import {fireEvent, render, screen, waitFor, within} from '@testing-library/react';
 import {LibraryBrowseDialog} from '../components/movie/LibraryBrowseDialog';
 import {movieApi} from '../api/client';
-import type {RankingItem, RankingResponse, Job, MovieListItem} from '../types/api';
+import type {RankingItem, RankingResponse, Job, MovieListItem, SeriesListing} from '../types/api';
 
 const owned: RankingItem = {rank: 1, title: '本库电影', year: '2025', original_title: '', rating: 8,
   poster_url: 'https://img3.doubanio.com/a.jpg', douban_id: '123', owned: true, in_library: true, movie_id: 'local-id'};
@@ -25,6 +25,29 @@ beforeEach(() => {
   vi.spyOn(movieApi, 'fetchRankings').mockResolvedValue({job_id: 'refresh'});
   vi.spyOn(movieApi, 'subject').mockResolvedValue({job_id: 'detail'});
   vi.spyOn(movieApi, 'get').mockResolvedValue({status: 'done', result: {plot: '该电影的真实剧情'}} as Job);
+});
+
+it('系列电影只在点击刷新时更新片单并显示补齐结果', async () => {
+  const groups: SeriesListing[] = [{name: '测试系列', source: 'tmdb', items: [{
+    title: '系列电影', original_title: 'Series Movie', year: '2025', premiered: '2025-01-01',
+    rating: 8, rating_source: 'tmdb', poster_url: 'https://image.tmdb.org/t/p/w342/a.jpg',
+    movie_id: null, tmdb_id: '100', plot: '系列剧情',
+  }]}];
+  const allSeries = vi.spyOn(movieApi, 'allSeries').mockResolvedValue({groups});
+  const refreshSeries = vi.spyOn(movieApi, 'refreshSeries').mockResolvedValue({job_id: 'series-refresh'});
+  vi.mocked(movieApi.get).mockResolvedValue({status: 'done', result: {
+    summary: '已更新 1 个系列，补齐 1 部电影。', settings_required: true,
+  }} as Job);
+  render(<LibraryBrowseDialog movies={[]} initial="series" onClose={vi.fn()}/>);
+
+  expect(await screen.findByRole('article', {name: '系列电影'})).toBeInTheDocument();
+  expect(refreshSeries).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', {name: '刷新榜单'}));
+  await waitFor(() => expect(refreshSeries).toHaveBeenCalledExactlyOnceWith());
+  expect(await screen.findByText('已更新 1 个系列，补齐 1 部电影。')).toBeInTheDocument();
+  expect(screen.getByRole('button', {name: '刮削设置'})).toBeInTheDocument();
+  expect(allSeries.mock.calls.length).toBeGreaterThanOrEqual(3);
+  expect(await screen.findByRole('article', {name: '系列电影'})).toBeInTheDocument();
 });
 
 it('已入库榜单卡可以直接 B 站播放或打开本地详情浮窗', async () => {

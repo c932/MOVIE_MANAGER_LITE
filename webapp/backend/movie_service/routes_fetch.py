@@ -22,6 +22,7 @@ from wall_common.images import ImageError, cached_remote
 
 from .browse_cache import allowed_poster, cached_browse, cached_plot
 from .deps import get_store
+from .routes_scrape_workspace import get_workspace
 from .store import movie_id
 from .tasks import (
     NEWMOVIES_KIND,
@@ -178,7 +179,8 @@ def fetch_rankings(request: Request, payload: RankingsFetchRequest) -> Dict[str,
     job = request.app.state.jobs.submit(
         RANKINGS_KIND + ('.' + sources[0] if len(sources) == 1 else ''),
         lambda ctx: run_rankings_fetch(
-            store, ctx, sources=sources, use_cache=bool(payload.use_cache)
+            store, ctx, sources=sources, use_cache=bool(payload.use_cache),
+            settings=get_workspace(request).settings() if set(sources) & {'top250', 'imdb_top250'} else None,
         ),
         unique=True,
     )

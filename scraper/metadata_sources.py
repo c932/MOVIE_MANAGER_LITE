@@ -117,7 +117,7 @@ class TmdbProvider:
                          _text(item.get('release_date'))[:4], _text(item.get('overview')),
                          _image(item.get('poster_path')))
 
-    def movie_collection(self, identity: str) -> list[dict[str, Any]]:
+    def movie_collection(self, identity: str, *, fill_missing: bool = False) -> list[dict[str, Any]]:
         """以库内电影 ID 为锚点读取官方系列，不按名称猜测系列身份。"""
         if not re.fullmatch(r'[1-9]\d*', identity):
             raise ProviderError('TMDB 电影 ID 无效')
@@ -131,16 +131,30 @@ class TmdbProvider:
         if not re.fullmatch(r'[1-9]\d*', collection_id):
             raise ProviderError('TMDB 系列 ID 无效')
         result = self._get(f'collection/{collection_id}')
+        if _text(result.get('id')) != collection_id:
+            raise ProviderError('TMDB 返回了与请求不符的系列')
+        items = _items(result, 'parts', 'TMDB', required=True)
+        fallbacks = {}
+        if fill_missing and self.settings.language != 'en-US' and any(
+            not item.get('overview') or not item.get('poster_path') for item in items
+        ):
+            try:
+                alternate = self._get(f'collection/{collection_id}', language='en-US')
+                if _text(alternate.get('id')) == collection_id:
+                    fallbacks = {_text(item.get('id')): item for item in _items(alternate, 'parts', 'TMDB')}
+            except ProviderError:
+                pass
         parts = []
-        for item in _items(result, 'parts', 'TMDB', required=True):
+        for item in items:
             candidate = self._candidate(item)
+            alternate = fallbacks.get(candidate.id, {})
             parts.append({'tmdb_id': candidate.id, 'title': candidate.title,
                           'original_title': candidate.original_title, 'year': candidate.year,
                           'premiered': _text(item.get('release_date')),
-                          'plot': _text(item.get('overview')),
+                          'plot': candidate.overview or _text(alternate.get('overview')),
                           'rating': _score(item.get('vote_average')) or 0,
-                          'poster_url': _image(item.get('poster_path'), 'w342')})
-        if _text(result.get('id')) != collection_id or not any(part['tmdb_id'] == identity for part in parts):
+                          'poster_url': _image(item.get('poster_path') or alternate.get('poster_path'), 'w342')})
+        if not any(part['tmdb_id'] == identity for part in parts):
             raise ProviderError('TMDB 返回的片单与该电影不符')
         return parts
 

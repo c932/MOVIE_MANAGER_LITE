@@ -1,18 +1,20 @@
 import { useEffect, useMemo, useState } from 'react';
 import { movieApi } from '../../api/client';
 import type { AnnualResponse, MovieListItem, RankingItem, NewMovieItem, SeriesMovie, SeriesListing } from '../../types/api';
-import { quarkSearchUrl } from '../../utils/movieDisplay';
+import { quarkSearchUrl, ratingOrder, ratingForSource } from '../../utils/movieDisplay';
 import { Modal } from '../Modal';
 import { FloatingMovieDetail } from './FloatingMovieDetail';
 import { MovieDetail } from './MovieDetail';
 import { BilibiliActions } from './BilibiliActions';
 import { LocalPlayback } from './LocalPlayback';
+import { ScrapeSettingsDialog } from './ScrapeSettingsDialog';
 import { localSeriesMovie } from './useSeriesListing';
 
 type Kind = 'series' | 'top250' | 'imdb_top250' | 'chart' | 'nowplaying' | 'coming' | 'annual';
 type Item = RankingItem | NewMovieItem;
 type BrowseItem = Item | SeriesMovie;
-type Result = {key: string; rows: Item[]; annual?: AnnualResponse; fetched: number; error: string; refreshing: boolean};
+type Result = {key: string; rows: Item[]; annual?: AnnualResponse; series?: SeriesListing[]; fetched: number;
+  error: string; refreshing: boolean; progress?: string; summary?: string; settingsRequired?: boolean};
 const latestYear = new Date().getFullYear() - 1;
 const tabs: [Kind, string][] = [['series', '系列电影'], ['top250', '豆瓣 Top250'], ['imdb_top250', 'IMDb Top250'], ['chart', '豆瓣热门'], ['annual', '豆瓣年度榜单'], ['nowplaying', '正在上映'], ['coming', '即将上映']];
 const shanghaiDate = new Intl.DateTimeFormat('sv-SE', {timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit'});
@@ -25,6 +27,13 @@ function isUnreleased(row: BrowseItem, kind: Kind, today: string) {
   const date = releaseDate(row);
   if (/^\d{4}-\d{2}-\d{2}$/.test(date)) return date > today;
   return kind === 'coming' || row.year > today.slice(0, 4);
+}
+
+function detailFromRow(movie: MovieListItem, row: BrowseItem) {
+  const source = ratingOrder.find(value => 'rating_source' in row && value === row.rating_source);
+  const ratings = source && row.rating > 0 && !ratingForSource(movie, source)
+    ? {...movie.ratings, [source]: row.rating} : movie.ratings;
+  return {...movie, plot: movie.plot || row.plot || '', ratings};
 }
 
 function BrowsePoster({row}: {row: BrowseItem}) {
@@ -40,7 +49,7 @@ function BrowsePoster({row}: {row: BrowseItem}) {
 }
 
 function MissingMovie({row, unreleased, onClose}: {row: BrowseItem; unreleased: boolean; onClose: () => void}) {
-  const source = 'tmdb_id' in row ? 'tmdb' : ('rating_source' in row && row.rating_source) || 'douban';
+  const source = ('rating_source' in row && row.rating_source) || ('tmdb_id' in row ? 'tmdb' : 'douban');
   return <FloatingMovieDetail title={`${row.title} · 电影简介`} onClose={onClose}>
     <MovieDetail movie={null} unreleased={unreleased} external={{
       title: row.title, original_title: 'original_title' in row ? row.original_title : '',
@@ -63,7 +72,7 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
   const [today] = useState(() => shanghaiDate.format(new Date()));
   const [seriesQuery, setSeriesQuery] = useState('');
   const [seriesFilter, setSeriesFilter] = useState('all');
-  const [seriesCatalog, setSeriesCatalog] = useState<SeriesListing[] | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [year, setYear] = useState(latestYear);
   const [category, setCategory] = useState('');
   const [refresh, setRefresh] = useState(0);
@@ -83,31 +92,25 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
       (a, b) => (a.premiered || a.year || '9999').localeCompare(b.premiered || b.year || '9999'),
     )}));
   }, [kind, movies]);
-  useEffect(() => {
-    if (kind !== 'series') return;
-    let active = true;
-    movieApi.allSeries().then(({groups}) => { if (active) setSeriesCatalog(groups); },
-      () => { if (active) setSeriesCatalog(null); });
-    return () => { active = false; };
-  }, [kind]);
   const moviesById = useMemo(() => new Map(movies.map(movie => [movie.id, movie])), [movies]);
-  const ownedId = ownedRow?.movie_id;
-  const plot = ownedRow?.plot;
   useEffect(() => {
-    if (!ownedId) return;
+    if (!ownedRow?.movie_id) return;
     let active = true;
-    movieApi.detail(ownedId).then(movie => {
-      if (active) setOwned({...movie, plot: movie.plot || plot || ''});
+    movieApi.detail(ownedRow.movie_id).then(movie => {
+      if (active) setOwned(detailFromRow(movie, ownedRow));
     }, () => { if (active) setDetailError('暂时无法读取本地电影详情。'); });
     return () => { active = false; };
-  }, [ownedId, plot]);
+  }, [ownedRow]);
   const key = `${kind}-${year}`;
   const current = result?.key === key ? result : null;
   useEffect(() => {
     let active = true;
-    if (kind === 'series') return;
     const isNew = kind === 'nowplaying' || kind === 'coming';
     async function read(): Promise<Result> {
+      if (kind === 'series') {
+        const data = await movieApi.allSeries();
+        return {key, rows: [], series: data.groups, fetched: 0, error: '', refreshing: false};
+      }
       if (kind === 'annual') {
         const data = await movieApi.annual(year);
         return {key, rows: [], annual: data, fetched: data.fetched_at, error: '', refreshing: false};
@@ -122,17 +125,25 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
         if (!active) return;
         setResult(cached);
         if (!refresh) {
-          if (kind === 'chart' || isNew) return;
+          if (kind === 'series' || kind === 'chart' || isNew) return;
           const ttl = kind === 'annual' ? 7 * 86400 : 86400;
           if (cached.fetched && Date.now() / 1000 - cached.fetched < ttl) return;
         }
         setResult({...cached, refreshing: true});
-        const started = kind === 'annual' ? await movieApi.refreshAnnual(year) : isNew ? await movieApi.fetchNewMovies([kind], false) : await movieApi.fetchRankings([kind], false);
+        const started = kind === 'series' ? await movieApi.refreshSeries() :
+          kind === 'annual' ? await movieApi.refreshAnnual(year) :
+          isNew ? await movieApi.fetchNewMovies([kind], false) : await movieApi.fetchRankings([kind], false);
         while (active) {
           const job = await movieApi.get(started.job_id);
           if (!active) return;
-          if (job.status === 'done') {const updated = await read(); if (active) setResult(updated); return;}
+          if (job.status === 'done') {
+            const updated = await read();
+            const outcome = job.result as {summary?: string; settings_required?: boolean} | null;
+            if (active) setResult({...updated, summary: outcome?.summary, settingsRequired: outcome?.settings_required});
+            return;
+          }
           if (job.status === 'error' || job.status === 'cancelled') throw new Error(job.error || '刷新已取消');
+          setResult({...cached, refreshing: true, progress: job.message});
           await new Promise(resolve => setTimeout(resolve, 800));
         }
       } catch(e) {if (active) setResult({...cached, error: (e as Error).message, refreshing: false});}
@@ -144,7 +155,7 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
   const selectedCategory = categories.find(item => item.id === category) || categories[0];
   const rows = kind === 'annual' ? selectedCategory?.items || [] : current?.rows || [];
   const query = seriesQuery.trim().toLocaleLowerCase();
-  const groups = (seriesCatalog ?? localGroups)
+  const groups = (current?.series ?? localGroups)
     .map(group => ({...group, items: group.items.filter(row => {
       const matchesText = !query || [group.name, row.title, row.original_title, row.year].some(text => text.toLocaleLowerCase().includes(query));
       return matchesText && (seriesFilter === 'all' || (seriesFilter === 'owned' && !!row.movie_id)
@@ -154,7 +165,7 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
     if (row.movie_id) {
       const local = moviesById.get(row.movie_id);
       setDetailError('');
-      setOwned(local ? {...local, plot: row.plot || local.plot} : null);
+      setOwned(local ? detailFromRow(local, row) : null);
       setOwnedRow(row);
       return;
     }
@@ -191,7 +202,7 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
   }
   return <>
     <Modal title="系列、榜单与新片" wide onClose={onClose}>
-      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([value, label]) => <button key={value} className={`btn ${kind === value ? 'btn-active' : ''}`} aria-pressed={kind === value} onClick={() => {setKind(value); setRefresh(0);}}>{label}</button>)}</div>
+      <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([value, label]) => <button key={value} className={`btn ${kind === value ? 'btn-active' : ''}`} aria-pressed={kind === value} onClick={() => {if (kind !== value) {setKind(value); setRefresh(0);}}}>{label}</button>)}</div>
       {kind === 'series' && <div className="mb-4 flex flex-wrap items-center gap-3">
         <input className="input min-w-0" aria-label="搜索系列或电影" placeholder="搜索系列或电影…" type="search" value={seriesQuery} onChange={event => setSeriesQuery(event.target.value)} />
         <label className="flex items-center gap-2 text-sm">片单状态 <select className="input" value={seriesFilter} onChange={event => setSeriesFilter(event.target.value)}>
@@ -204,10 +215,17 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
         {!!categories.length && <label>分类 <select className="input max-w-full" aria-label="年度电影分类" value={selectedCategory?.id || ''} onChange={e => setCategory(e.target.value)}>{categories.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
         <a className="btn text-sm" target="_blank" rel="noopener noreferrer" href={`https://movie.douban.com/annual/${year}/`}>豆瓣年度原榜</a>
       </div>}
-      {kind !== 'series' && <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs text-ink-300">
-        <span>{current?.fetched ? `更新于 ${new Date(current.fetched * 1000).toLocaleString('zh-CN')}` : '尚无缓存'}{current?.refreshing ? ' · 正在获取最新榜单…' : ''}</span>
-        <button className="btn" disabled={!current || current.refreshing} onClick={() => setRefresh(value => value + 1)}>刷新榜单</button>
-      </div>}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-xs text-ink-300">
+        <div role="status">
+          {kind !== 'series' && (current?.fetched ? `更新于 ${new Date(current.fetched * 1000).toLocaleString('zh-CN')}` : '尚无缓存')}
+          {current?.refreshing && <p>{current.progress || '正在获取最新资料…'}</p>}
+          {current?.summary && <p>{current.summary}</p>}
+        </div>
+        <div className="ml-auto flex flex-wrap gap-2">
+          {current?.settingsRequired && <button className="btn" onClick={() => setSettingsOpen(true)}>刮削设置</button>}
+          <button className="btn" disabled={!current || current.refreshing} onClick={() => setRefresh(value => value + 1)}>刷新榜单</button>
+        </div>
+      </div>
       {current?.error && <p role="alert" className="mb-4 text-red-400">{current.error}{rows.length ? ' 当前显示上次成功获取的榜单。' : ''}</p>}
       {kind !== 'series' && !current && <p role="status">正在加载榜单…</p>}
       {kind === 'series' ? <div className="space-y-6">{groups.length ? groups.map(group => (
@@ -218,6 +236,7 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
       )) : <p className="text-sm text-ink-300">没有符合条件的系列电影。</p>}</div> : cards(rows)}
       {kind !== 'series' && current && !current.refreshing && !current.error && !rows.length && <p className="p-6 text-ink-300">暂无榜单资料，请点击“刷新榜单”。</p>}
     </Modal>
+    {settingsOpen && <ScrapeSettingsDialog onClose={() => setSettingsOpen(false)} />}
     {missing && <MissingMovie row={missing} unreleased={isUnreleased(missing, kind, today)} onClose={() => setMissing(null)} />}
     {ownedRow && <FloatingMovieDetail title={`${owned?.title || ownedRow.title} · 电影详情`} onClose={() => setOwnedRow(null)}>
       {owned ? <MovieDetail key={owned.id} movie={owned} movies={movies} posterFallback={ownedRow.poster_url}
