@@ -62,6 +62,28 @@ def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
         assert client.post('/api/movie/discovery/subject/not-id').status_code == 400
 
 
+def test_annual_refresh_uses_cached_list_when_direct_source_is_blocked(service_data_dir, monkeypatch):
+    from movie_service import discovery
+    from utils.library_sync import atomic_json
+
+    atomic_json(service_data_dir / 'discovery' / 'annual-2025.json', {
+        'year': 2025, 'fetched_at': 1,
+        'categories': [{'id': 'a', 'title': '评分最高华语电影', 'items': [{
+            'rank': 1, 'title': '电影', 'year': '2025', 'rating': 8.5,
+            'douban_id': '123', 'poster_url': 'https://img3.doubanio.com/a.jpg',
+        }]}],
+    })
+    monkeypatch.setattr(discovery, 'fetch_text', lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError('blocked')))
+    from movie_service import browse_cache
+    monkeypatch.setattr(browse_cache, 'enrich_top250', lambda *_args, **_kwargs: {
+        'ratings': 1, 'plots': 1, 'posters': 1,
+    })
+    with movie_client(service_data_dir) as client:
+        job = wait_job(client, client.post('/api/movie/discovery/annual/2025/refresh').json()['job_id'])
+        assert job['status'] == 'done', job
+        assert job['result']['categories'] == 1
+
+
 def test_browse_warmup_reuses_success_and_isolates_failed_sources(service_data_dir, monkeypatch):
     from movie_service import browse_cache, discovery
     from utils.library_sync import atomic_json

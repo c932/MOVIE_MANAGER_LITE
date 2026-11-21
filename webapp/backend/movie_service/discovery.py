@@ -156,20 +156,26 @@ def normalize_legacy(data: dict) -> dict:
 
 def refresh_annual(data_dir: Path, year: int, ctx, settings: ScrapeSettings | None = None) -> dict:
     ctx.update(message=f'正在获取豆瓣 {year} 年度电影榜单…')
-    html = fetch_text(f'https://movie.douban.com/annual/{year}/')
-    page = re.search(r"page\s*:\s*\{\s*['\"]id['\"]\s*:\s*(\d+)", html)
-    ctx.check_cancelled()
-    if page:
-        data = json.loads(fetch_text(f'https://movie.douban.com/j/neu/page/{page.group(1)}/'))
-        if data.get('alias') and data['alias'] != f'movie_{year}':
-            raise ValueError('官方返回的榜单年份不符，旧缓存已保留。')
-    else:
-        legacy = re.search(r'<meta\s+name="url_name"\s+content="(movie_annual\d{4})"', html)
-        if not legacy:
-            raise ValueError('该年度官方页面暂无法读取，请选择其他年份。')
-        response = json.loads(fetch_text(f'https://movie.douban.com/ithil_j/activity/{legacy.group(1)}?with_widgets=1'))
-        data = normalize_legacy(response.get('res') or {})
-    result = parse_annual(data, year)
+    try:
+        html = fetch_text(f'https://movie.douban.com/annual/{year}/')
+        page = re.search(r"page\s*:\s*\{\s*['\"]id['\"]\s*:\s*(\d+)", html)
+        ctx.check_cancelled()
+        if page:
+            data = json.loads(fetch_text(f'https://movie.douban.com/j/neu/page/{page.group(1)}/'))
+            if data.get('alias') and data['alias'] != f'movie_{year}':
+                raise ValueError('官方返回的榜单年份不符，旧缓存已保留。')
+        else:
+            legacy = re.search(r'<meta\s+name="url_name"\s+content="(movie_annual\d{4})"', html)
+            if not legacy:
+                raise ValueError('该年度官方页面暂无法读取，请选择其他年份。')
+            response = json.loads(fetch_text(f'https://movie.douban.com/ithil_j/activity/{legacy.group(1)}?with_widgets=1'))
+            data = normalize_legacy(response.get('res') or {})
+        result = parse_annual(data, year)
+    except (ValueError, OSError):
+        cached = read_json(annual_path(data_dir, year), {'year': year, 'categories': []})
+        if not cached.get('categories'):
+            raise ValueError('豆瓣暂时无法访问，且没有可用的年度缓存。')
+        result = cached
     from .browse_cache import enrich_top250
     from scraper.douban_ranking import RankedMovie
     unique_items = {}
