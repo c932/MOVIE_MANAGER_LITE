@@ -43,6 +43,7 @@ class Draft:
     movie_id: str
     tracks: list[SubtitleFile]
     expires: float
+    size: int
 
 
 class Drafts:
@@ -52,12 +53,15 @@ class Drafts:
 
     def add(self, movie_id: str, tracks: list[SubtitleFile]) -> dict:
         token = uuid4().hex
+        size = sum(len(track.data) for track in tracks)
         with self.lock:
             now = monotonic()
             self.entries = {key: draft for key, draft in self.entries.items() if draft.expires > now}
-            if len(self.entries) >= 6:
-                del self.entries[next(iter(self.entries))]
-            self.entries[token] = Draft(movie_id, tracks, now + 900)
+            limit = 160 * 1024 * 1024
+            available = limit - sum(draft.size for draft in self.entries.values())
+            while self.entries and (len(self.entries) >= 6 or available < size):
+                available += self.entries.pop(next(iter(self.entries))).size
+            self.entries[token] = Draft(movie_id, tracks, now + 900, size)
         return {'token': token, 'tracks': [{'name': t.name, 'language': t.language} for t in tracks]}
 
     def get(self, movie_id: str, payload: Save) -> SubtitleFile:

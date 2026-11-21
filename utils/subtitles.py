@@ -16,7 +16,8 @@ from zipfile import BadZipFile, ZipFile
 
 MAX_PACKAGE = 48 * 1024 * 1024
 MAX_SUBTITLE = 4 * 1024 * 1024
-MAX_PGS = 32 * 1024 * 1024
+MAX_EXTRACTED = 96 * 1024 * 1024
+MAX_PGS = MAX_EXTRACTED
 TEXT_EXTENSIONS = {'.srt', '.ass', '.ssa', '.vtt', '.sub', '.smi'}
 SAVE_EXTENSIONS = TEXT_EXTENSIONS | {'.sup'}
 EXTENSIONS = SAVE_EXTENSIONS | {'.idx'}
@@ -274,8 +275,8 @@ def archive_subtitles(name: str, data: bytes, hint: str = '') -> list[SubtitleFi
     try:
         for member, payload in members:
             total += len(payload)
-            if total > MAX_PACKAGE:
-                raise SubtitleError('字幕包解压后超过 48 MB')
+            if total > MAX_EXTRACTED:
+                raise SubtitleError('字幕包解压后超过 96 MB，请选择文件较少的字幕包')
             track = _track(member, payload, hint)
             if track:
                 tracks.append(track)

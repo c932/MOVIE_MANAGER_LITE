@@ -284,6 +284,6 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 
 - `/search` 接收 `{query}`，返回 `{items, sources}`。候选带 `source`、`id`、`title`、`release`、`language`、`page` 和按影片文件名计算的 `score`。来源状态带站点搜索链接和错误说明。
 - `/download` 接收候选 `{source, id, language}`，下载成功返回 `{token, tracks:[{name, language}]}`，需要原站验证时返回 `{verification_url, message}`。
-- `/import` 接收 multipart 字段 `file`，返回与下载相同的字幕预览。单次包最大 48 MB，支持 ZIP、RAR、7z 及 SRT、ASS、SSA、VTT、文本 SUB、SMI、PGS SUP。压缩包成员不使用原路径写盘。
+- `/import` 接收 multipart 字段 `file`，返回与下载相同的字幕预览。单次上传最大 48 MB，压缩包可解包至 96 MB。支持 ZIP、RAR、7z 及 SRT、ASS、SSA、VTT、文本 SUB、SMI、PGS SUP。压缩包成员不使用原路径写盘。
 - `/save` 接收 `{token, index, language}`，暂存凭证限定当前电影，15 分钟内有效。电影目录无外挂字幕时使用视频文件名，已有外挂时添加语言后缀，重名时添加数字。保存后更新 NFO `<mmlsubtitles>` 和电影库资料。
 - `/detect` 读取并更新库内字幕记录。`/sync` 将当前外挂字幕记录同步到 NFO 和共享电影库。两者与 `/save` 均返回 `{job_id}`，成功结果为 `{movie, saved_name}`。NAS 写入遵守共享的既有权限设置。

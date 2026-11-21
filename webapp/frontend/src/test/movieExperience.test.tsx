@@ -33,7 +33,7 @@ describe('电影墙交互', () => {
   it('首页提供 PC 版安装包下载', () => {
     render(<MovieWall />);
     const link = screen.getByRole<HTMLAnchorElement>('link', {name: '下载 PC 版'});
-    expect(link).toHaveAttribute('href', '/downloads/LocalMovieWall-3.7.0-win64.msi');
+    expect(link).toHaveAttribute('href', '/downloads/LocalMovieWall-3.7.1-win64.msi');
     expect(link).toHaveAttribute('download');
   });
   it('字幕来自已选候选，确认保存后更新海报卡语言', async () => {
