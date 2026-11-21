@@ -290,6 +290,7 @@ def test_top250_refresh_keeps_previous_full_ranking(service_data_dir, monkeypatc
                                rank=1, source="top250")]
 
     monkeypatch.setattr(dr, "fetch_douban_top250", partial)
+    monkeypatch.setattr(dr, "fetch_douban_top250_public", lambda: [])
     monkeypatch.setattr(dr, "fetch_douban_chart", lambda cached_movies=None, *, fetch_details=True: [])
     monkeypatch.setattr(dr, "fetch_imdb_top250", lambda cached_movies=None: [])
 

@@ -207,6 +207,35 @@ def test_enrich_top250_uses_public_fallback_without_configured_api(service_data_
     assert detail['title'] == '杰伊·比姆'
 
 
+def test_enrich_top250_keeps_cached_full_plot_over_short_quote(service_data_dir, monkeypatch):
+    from pathlib import Path
+    from movie_service import browse_cache
+    from scraper.douban_ranking import RankedMovie
+    from scraper.scrape_settings import ScrapeSettings
+    from utils.library_sync import atomic_json
+
+    class Context:
+        def update(self, **kwargs):
+            pass
+
+        def check_cancelled(self):
+            pass
+
+    atomic_json(service_data_dir / 'discovery' / 'subject-123.json', {
+        'plot': '这是已经核实的完整电影简介。', 'poster_url': 'https://image.tmdb.org/t/p/w342/poster.jpg',
+        'ratings': {'douban': 9.2, 'imdb': 7.8, 'tmdb': 7.7}, 'genres': ['喜剧'],
+        'directors': ['导演'], 'actors': [{'name': '主演', 'role': '', 'thumb': ''}],
+    })
+    monkeypatch.setattr(browse_cache, 'cached_remote',
+                        lambda *args, **kwargs: Path(service_data_dir) / 'cover.img')
+    row = RankedMovie('电影', '1995', 9.2, '123', 1, 'top250', plot='短评。')
+    browse_cache.enrich_top250(
+        service_data_dir, service_data_dir / 'covers', [row], [], [], ScrapeSettings(), Context(),
+    )
+    detail = json.loads((service_data_dir / 'discovery' / 'subject-123.json').read_text(encoding='utf-8'))
+    assert detail['plot'] == '这是已经核实的完整电影简介。'
+
+
 def test_parse_subject_page_cleans_douban_summary():
     from movie_service.discovery import parse_subject_page
     page = '''<span property="v:itemreviewed">八仙！</span>

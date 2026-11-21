@@ -147,15 +147,13 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                 detail[key] = list(getattr(row, key))
         if not detail.get('actors') and getattr(row, 'actors', None):
             detail['actors'] = [{'name': name, 'role': '', 'thumb': ''} for name in row.actors]
-        if not detail.get('plot') and row.plot:
-            detail['plot'] = row.plot
         if not detail.get('poster_url') and row.poster_url:
             detail['poster_url'] = row.poster_url
         source = 'imdb' if row.source == 'imdb_top250' else 'douban'
         detail.setdefault('ratings', {}).setdefault(source, float(row.rating or 0))
         if not 0 < detail['ratings'][source] <= 10:
             detail['ratings'].pop(source, None)
-        row.plot = row.plot or detail.get('plot') or (movie.plot if movie else '') or (old.plot if old else '')
+        row.plot = detail.get('plot') or row.plot or (movie.plot if movie else '') or (old.plot if old else '')
         if not row.plot and detail.get('plot'):
             row.plot = detail['plot']
         if not 0 < row.rating <= 10:
@@ -195,7 +193,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                     detail['ratings']['imdb'] = score
             except ProviderError:
                 pass
-        row.plot = row.plot or detail.get('plot', '')
+        row.plot = detail.get('plot') or row.plot
 
         if tmdb and (not detail['ratings'].get('tmdb') or not (detail.get('actors') and detail.get('genres'))):
             try:
@@ -216,6 +214,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
         if not (detail.get('actors') and detail.get('genres')
                 and detail.get('plot') and detail['ratings'].get('douban')):
             public_douban = douban_public_search(row.title, row.year)
+            if public_douban is None and '之' in row.title:
+                public_douban = douban_public_search(row.title.split('之', 1)[0], row.year)
             if public_douban:
                 detail['title'] = detail.get('title') or public_douban.title
                 detail['original_title'] = detail.get('original_title') or public_douban.original_title
@@ -256,6 +256,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                                 detail['ratings']['imdb'] = score
                         except ProviderError:
                             pass
+        row.plot = detail.get('plot') or row.plot
 
         urls = dict.fromkeys((detail.get('poster_url') or '', row.poster_url, old.poster_url if old else ''))
         poster = next((url for url in urls if _cache_poster(url, cover_dir)), '')
@@ -264,8 +265,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
             row.poster_url = poster
         else:
             row.poster_url = row.poster_url or (old.poster_url if old else '')
-        if row.plot:
-            detail['plot'] = row.plot
+        detail['plot'] = detail.get('plot') or row.plot
         detail['ratings'][source] = row.rating if 0 < row.rating <= 10 else detail['ratings'].get(source, 0)
         if not 0 < detail['ratings'].get(source, 0) <= 10:
             detail['ratings'].pop(source, None)
