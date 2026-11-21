@@ -61,7 +61,7 @@ def douban_public_search(query: str, year: str) -> PublicMovie | None:
         return None
     url = "https://r.jina.ai/http://www.douban.com/search?cat=1002&q=" + quote(query)
     try:
-        text = fetch_text(url, timeout=10)
+        text = fetch_text(url, timeout=5)
     except OSError:
         return None
     query_key = re.sub(r"[\W_]+", "", query.casefold())
@@ -118,7 +118,7 @@ def tmdb_public_search(query: str, year: str) -> str:
         return ""
     url = "https://www.themoviedb.org/search?query=" + quote(query) + "&language=zh-CN"
     try:
-        text = fetch_text(url, timeout=10)
+        text = fetch_text(url, timeout=5)
     except OSError:
         return ""
     pattern = re.compile(
@@ -140,7 +140,7 @@ def tmdb_public_details(movie_id: str) -> dict[str, Any]:
     if not re.fullmatch(r"[1-9]\d*", movie_id):
         return {}
     try:
-        text = fetch_text(f"https://www.themoviedb.org/movie/{movie_id}?language=zh-CN", timeout=10)
+        text = fetch_text(f"https://www.themoviedb.org/movie/{movie_id}?language=zh-CN", timeout=5)
     except OSError:
         return {}
     for block in re.findall(r'<script[^>]+type="application/ld\+json"[^>]*>(.*?)</script>', text, re.DOTALL):

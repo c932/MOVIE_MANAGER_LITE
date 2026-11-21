@@ -200,7 +200,7 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
     unowned_parts = [part for _, catalog, _, _ in catalogs
                      for part in catalog.get('parts', []) if part.get('tmdb_id') not in owned_tmdb_ids]
     ctx.update(stage='补齐系列资料', message=f'正在补齐 {len(unowned_parts)} 部未入库系列电影…')
-    with ThreadPoolExecutor(max_workers=12) as tmdb_pool, ThreadPoolExecutor(max_workers=12) as douban_pool:
+    with ThreadPoolExecutor(max_workers=16) as tmdb_pool, ThreadPoolExecutor(max_workers=16) as douban_pool:
         tmdb_details = list(tmdb_pool.map(fetch_tmdb_detail, unowned_parts))
         douban_details = list(douban_pool.map(fetch_douban_detail, unowned_parts))
     enriched_parts = [merge_public_details(part, tmdb_detail, douban_detail)
