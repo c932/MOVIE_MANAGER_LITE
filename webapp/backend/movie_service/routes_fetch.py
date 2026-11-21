@@ -119,7 +119,7 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
         else:
             title = rm.title
             original_title = (matched.original_title if matched else "") or ""
-        external = {} if is_owned else cached
+        external = cached
         if not is_owned:
             source_key = 'imdb' if rm.source == 'imdb_top250' else 'douban'
             if 0 < float(rm.rating or 0) <= 10:
