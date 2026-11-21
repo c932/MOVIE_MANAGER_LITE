@@ -29,6 +29,12 @@ beforeEach(() => {
   vi.mocked(movieApi.detail).mockImplementation(async id => id === 'a' ? first : second);
 });
 describe('电影墙交互', () => {
+  it('首页提供 PC 版安装包下载', () => {
+    render(<MovieWall />);
+    const link = screen.getByRole<HTMLAnchorElement>('link', {name: '下载 PC 版'});
+    expect(link).toHaveAttribute('href', '/downloads/LocalMovieWall-3.6.3-win64.msi');
+    expect(link).toHaveAttribute('download');
+  });
   it('1333部电影只渲染可见行，滚动和打开详情不创建整库卡片', async () => {
     const many = Array.from({length:1333},(_,i)=>({...first,id:'movie-'+i,title:'电影'+i}));
     vi.mocked(movieApi.list).mockResolvedValue({movies:many,total:1333,cache_info:{timestamp:'',movie_count:1333,movie_paths:[]}});

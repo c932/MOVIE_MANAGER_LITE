@@ -113,6 +113,7 @@ NUC 已安装 cifs-utils/smbclient。Root 所有的 `/usr/local/libexec/movie-wa
 - 代码：`/home/manfred/ai-local/services/movie-wall`，Python 3.11 独立 `.venv`。
 - 数据：`/mnt/data/AI/movie-wall-data/library.sqlite3`；海报：同目录 `shared_posters/`。SQLite WAL 和版本库在重启后保留。JSON 仅用于兼容及已有缓存，不作为共享库事实来源。
 - 网页：`/mnt/data/AI/movie-wall-web`，由 Caddy 提供；API 反代 `127.0.0.1:8010`。
+- 首页工具栏的「下载 PC 版」指向 `/downloads/LocalMovieWall-3.6.3-win64.msi`，文件存放在网页目录 `downloads/`。
 - 服务：`/etc/systemd/system/movie-wall.service`，账号 manfred，已配置开机自动启动。查看：`systemctl status movie-wall`，日志：`journalctl -u movie-wall -n 60`。
 - Caddy 站点模板：`deploy/movie-wall.caddy`。新增站点前备份 `/etc/caddy/Caddyfile.movie-wall-时间戳.bak`，验证成功才 reload。保留所有其他站点。
 
