@@ -127,12 +127,7 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
             if not updated and failure:
                 return path, cached, False, 'failed'
         if not updated:
-            parts = cached.get('parts', [])
-            for index, part in enumerate(parts):
-                ctx.check_cancelled()
-                if part.get('tmdb_id') not in owned_tmdb_ids:
-                    parts[index] = enrich_part(part)
-            return path, {**cached, 'parts': parts}, bool(parts), ''
+            return path, cached, bool(cached.get('parts', [])), ''
         existing = {part['tmdb_id']: part for part in cached.get('parts', [])}
         for index, part in enumerate(updated):
             previous = existing.get(part['tmdb_id'], {})
@@ -140,8 +135,6 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
                           'genres', 'countries', 'directors', 'actors', 'douban_id', 'imdb_id', 'ratings'):
                 if not part.get(field) and previous.get(field):
                     part[field] = previous[field]
-            if part['tmdb_id'] not in owned_tmdb_ids:
-                updated[index] = enrich_part(part)
         return path, {'anchor': anchor, 'parts': updated, 'fetched_at': time.time()}, True, ''
 
     catalogs = []
@@ -149,6 +142,15 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
         for count, result in enumerate(pool.map(collect, groups.items()), 1):
             catalogs.append(result)
             ctx.update(current=count, total=len(groups), stage='更新系列', message=f'正在更新系列片单（{count}/{len(groups)}）…')
+    unowned_parts = [part for _, catalog, _, _ in catalogs
+                     for part in catalog.get('parts', []) if part.get('tmdb_id') not in owned_tmdb_ids]
+    ctx.update(stage='补齐系列资料', message=f'正在补齐 {len(unowned_parts)} 部未入库系列电影…')
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        enriched_parts = list(pool.map(enrich_part, unowned_parts))
+    enriched_by_id = {part['tmdb_id']: part for part in enriched_parts}
+    for _, catalog, _, _ in catalogs:
+        catalog['parts'] = [enriched_by_id.get(part.get('tmdb_id'), part)
+                            for part in catalog.get('parts', [])]
     coverage = warm_browse(store.settings.data_dir, store.settings.cover_cache_dir,
                           (part for _, catalog, _, _ in catalogs for part in catalog.get('parts', [])), ctx)
     ctx.check_cancelled()
