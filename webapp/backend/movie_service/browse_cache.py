@@ -302,7 +302,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                 bool(detail.get('plot')), bool(poster or (movie and movie.poster_path)))
 
     stats = {'ratings': 0, 'plots': 0, 'posters': 0}
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=8) as pool:
         for count, flags in enumerate(pool.map(fill, rows), 1):
             for key, included in zip(stats, flags):
                 stats[key] += included
