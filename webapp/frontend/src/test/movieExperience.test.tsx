@@ -134,6 +134,8 @@ describe('电影墙交互', () => {
     fireEvent.click(within(missing).getByRole('button'));
     const unownedDetail = await screen.findByRole('dialog', {name: '缺少的续集 · 电影简介'});
     expect(within(unownedDetail).getByText('已缓存的续集剧情')).toBeInTheDocument();
+    expect(within(unownedDetail).queryByRole('link', {name: '打开夸克盘搜'})).not.toBeInTheDocument();
+    expect(within(unownedDetail).queryByRole('link', {name: 'B站播放'})).not.toBeInTheDocument();
     fireEvent.click(within(unownedDetail).getByRole('button', {name: '关闭电影详情'}));
     await waitFor(() => expect(unownedDetail).not.toBeInTheDocument());
     fireEvent.change(within(series).getByRole('searchbox'), {target: {value: name}});
@@ -145,6 +147,12 @@ describe('电影墙交互', () => {
     const detail = await screen.findByRole('dialog', {name: `${second.title} · 电影详情`});
     fireEvent.click(within(within(detail).getByRole('region', {name: '系列各部'})).getByRole('button', {name: first.title}));
     await screen.findByRole('dialog', {name: `${first.title} · 电影详情`});
+    fireEvent.click(within(within(screen.getByRole('dialog', {name: `${first.title} · 电影详情`}))
+      .getByRole('region', {name: '系列各部'}))
+      .getByRole('button', {name: /缺少的续集/}));
+    const externalDetail = await screen.findByRole('dialog', {name: '缺少的续集 · 电影简介'});
+    expect(within(externalDetail).getByText('已缓存的续集剧情')).toBeInTheDocument();
+    fireEvent.click(within(externalDetail).getByRole('button', {name: '关闭电影详情'}));
     fireEvent.click(within(detail).getByRole('button', {name: '关闭电影详情'}));
     await waitFor(() => expect(detail).not.toBeInTheDocument());
     expect(screen.getByRole('dialog', {name: '系列、榜单与新片'})).toBe(series);

@@ -176,12 +176,20 @@ export interface AnnualResponse {
 
 export interface SeriesMovie {
   plot?: string;
+  set_name?: string;
   title: string;
   original_title: string;
   year: string;
   premiered: string;
   rating: number;
   rating_source?: string;
+  ratings?: Partial<Record<'douban' | 'imdb' | 'tmdb', number>>;
+  genres?: string[];
+  countries?: string[];
+  directors?: string[];
+  actors?: Actor[];
+  douban_id?: string;
+  imdb_id?: string;
   poster_url: string;
   movie_id: string | null;
   tmdb_id: string;

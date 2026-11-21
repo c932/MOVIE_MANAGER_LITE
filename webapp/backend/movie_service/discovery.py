@@ -10,6 +10,7 @@ import time
 import urllib.request
 import urllib.parse
 from pathlib import Path
+from scraper.scrape_settings import ScrapeSettings
 
 from utils.library_sync import atomic_json, read_json
 
@@ -153,7 +154,7 @@ def normalize_legacy(data: dict) -> dict:
     return {'widgets': widgets}
 
 
-def refresh_annual(data_dir: Path, year: int, ctx) -> dict:
+def refresh_annual(data_dir: Path, year: int, ctx, settings: ScrapeSettings | None = None) -> dict:
     ctx.update(message=f'正在获取豆瓣 {year} 年度电影榜单…')
     html = fetch_text(f'https://movie.douban.com/annual/{year}/')
     page = re.search(r"page\s*:\s*\{\s*['\"]id['\"]\s*:\s*(\d+)", html)
@@ -169,12 +170,21 @@ def refresh_annual(data_dir: Path, year: int, ctx) -> dict:
         response = json.loads(fetch_text(f'https://movie.douban.com/ithil_j/activity/{legacy.group(1)}?with_widgets=1'))
         data = normalize_legacy(response.get('res') or {})
     result = parse_annual(data, year)
-    from .browse_cache import warm_browse
-    warm_browse(data_dir, data_dir / 'web_cache' / 'covers',
-                (item for category in result['categories'] for item in category['items']), ctx)
+    from .browse_cache import enrich_top250
+    from scraper.douban_ranking import RankedMovie
+    unique_items = {}
+    for category in result['categories']:
+        for item in category['items']:
+            unique_items.setdefault(item['douban_id'], item)
+    rows = [RankedMovie(title=item['title'], year=item['year'], rating=item['rating'],
+                        douban_id=item['douban_id'], rank=item['rank'], source='annual',
+                        poster_url=item['poster_url'])
+            for item in unique_items.values()]
+    coverage = enrich_top250(data_dir, data_dir / 'web_cache' / 'covers', rows, [], [],
+                              settings or ScrapeSettings(), ctx)
     ctx.check_cancelled()
     atomic_json(annual_path(data_dir, year), result)
-    return {'year': year, 'categories': len(result['categories'])}
+    return {'year': year, 'categories': len(result['categories']), **coverage}
 
 
 def subject_detail(data_dir: Path, did: str, ctx) -> dict:

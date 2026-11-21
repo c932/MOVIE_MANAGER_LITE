@@ -25,6 +25,9 @@ def test_annual_official_categories_and_movie_year(service_data_dir):
 
 def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
     from movie_service import discovery
+    from movie_service import browse_cache
+    from utils.library_sync import atomic_json
+    monkeypatch.setenv('MML_SCRAPE_CONFIG', str(service_data_dir / 'scrape_config.json'))
     calls = []
     def fetch(url):
         calls.append(url)
@@ -34,20 +37,27 @@ def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
             'subject_collection': {'subject_type': 'movie'},
             'subject_collection_items': [{'id': '123', 'title': '电影'}]}}]})
     monkeypatch.setattr(discovery, 'fetch_text', fetch)
-    monkeypatch.setattr(discovery, 'fetch_subject_page', lambda did: '''
-        <span property="v:itemreviewed">电影</span>
-        <span property="v:summary">真实简介</span>
-    ''')
+    monkeypatch.setattr(
+        browse_cache, 'enrich_top250',
+        lambda *_args, **_kwargs: (
+            atomic_json(service_data_dir / 'discovery' / 'subject-123.json', {
+                'plot': '公开页中文简介', 'poster_url': 'https://image.tmdb.org/t/p/w342/poster.jpg',
+                'ratings': {'douban': 8.5, 'imdb': 8.1, 'tmdb': 7.7},
+                'genres': ['剧情'], 'countries': ['美国'], 'directors': ['导演'],
+                'actors': [{'name': '主演', 'role': '', 'thumb': ''}],
+            }) or {'ratings': 1, 'plots': 1, 'posters': 1}
+        ),
+    )
     with movie_client(service_data_dir) as client:
         assert client.get('/api/movie/discovery/annual/2025').json()['categories'] == []
         job = wait_job(client, client.post('/api/movie/discovery/annual/2025/refresh').json()['job_id'])
         assert job['status'] == 'done', job
         body = client.get('/api/movie/discovery/annual/2025').json()
         assert body['categories'][0]['items'][0]['title'] == '电影'
-        assert body['categories'][0]['items'][0]['plot'] == '真实简介'
+        assert body['categories'][0]['items'][0]['plot'] == '公开页中文简介'
+        assert body['categories'][0]['items'][0]['ratings'] == {'douban': 8.5, 'imdb': 8.1, 'tmdb': 7.7}
+        assert body['categories'][0]['items'][0]['genres'] == ['剧情']
         assert len(calls) == 2
-        job = wait_job(client, client.post('/api/movie/discovery/subject/123').json()['job_id'])
-        assert job['result']['plot'] == '真实简介'
         assert client.get('/api/movie/movies').json()['movies'] == []
         assert client.post('/api/movie/discovery/subject/not-id').status_code == 400
 

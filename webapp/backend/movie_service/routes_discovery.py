@@ -60,8 +60,9 @@ def annual(request: Request, year: int):
 @router.post('/discovery/annual/{year}/refresh')
 def refresh_annual(request: Request, year: int):
     validate_year(year)
+    settings = get_workspace(request).settings()
     job = request.app.state.jobs.submit(f'discovery.annual.{year}',
-        lambda ctx: discovery.refresh_annual(request.app.state.settings.data_dir, year, ctx), unique=True)
+        lambda ctx: discovery.refresh_annual(request.app.state.settings.data_dir, year, ctx, settings), unique=True)
     return {'job_id': job.id}
 
 

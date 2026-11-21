@@ -59,9 +59,11 @@ function MissingMovie({row, unreleased, onClose}: {row: BrowseItem; unreleased: 
   const actors = 'actors' in row ? row.actors || [] : [];
   const enrichmentNote = 'enrichment_note' in row ? row.enrichment_note || '' : '';
   return <FloatingMovieDetail title={`${row.title} · 电影简介`} onClose={onClose}>
-    <MovieDetail movie={null} unreleased={unreleased} external={{
+    <MovieDetail movie={null} unreleased={unreleased} hideExternalActions={!!('set_name' in row && row.set_name)} external={{
       title: row.title, original_title: 'original_title' in row ? row.original_title : '',
       year: row.year, premiered: releaseDate(row), plot: row.plot || '',
+      set_name: 'set_name' in row ? row.set_name : '',
+      tmdb_id: 'tmdb_id' in row ? row.tmdb_id : '',
       ratings, genres, countries, directors, actors, enrichment_note: enrichmentNote,
       douban_url: 'douban_url' in row ? row.douban_url || '' : '', poster_url: row.poster_url,
     }} />
@@ -252,7 +254,14 @@ export function LibraryBrowseDialog({ movies, initial, onClose, onUpdated, onDel
         onUpdated={movie => { setOwned(movie); onUpdated?.(movie); }}
         onDeleted={id => { setOwnedRow(null); onDeleted?.(id); }}
         onSeriesClick={name => { setOwnedRow(null); onSeriesClick?.(name); onClose(); }}
-        onSelectSeriesMovie={id => { const movie = moviesById.get(id); if (movie) select(localSeriesMovie(movie)); }}
+        onSelectSeriesMovie={part => {
+          if (part.movie_id) {
+            const movie = moviesById.get(part.movie_id);
+            if (movie) select(localSeriesMovie(movie));
+          } else {
+            setMissing(part);
+          }
+        }}
         onRefreshPoster={id => onRefreshPoster?.(id)}
         onEditFields={movie => { setOwnedRow(null); onEditFields?.(movie); }} />
         : <p className="p-4 text-sm" role={detailError ? 'alert' : 'status'}>{detailError || '正在读取本地电影详情…'}</p>}

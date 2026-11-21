@@ -22,6 +22,7 @@ import { LocalPlayback } from '../components/movie/LocalPlayback';
 import { BilibiliActions } from '../components/movie/BilibiliActions';
 import { filterMovies, useMovieStore } from '../stores/movieStore';
 import type { MovieListItem } from '../types/api';
+import type { SeriesMovie } from '../types/api';
 
 type ViewMode = 'normal' | 'wall' | 'fullscreen';
 
@@ -53,6 +54,7 @@ export default function MovieWall() {
   const [busy, setBusy] = useState(false);
   const [posterVersion, setPosterVersion] = useState(0);
   const [series, setSeries] = useState('');
+  const [externalSeries, setExternalSeries] = useState<SeriesMovie | null>(null);
   const [context, setContext] = useState<{ movie: MovieListItem; x: number; y: number } | null>(null);
   const load = store.load;
   useEffect(() => {
@@ -104,6 +106,16 @@ export default function MovieWall() {
     setOverlayOpen(viewMode !== 'normal');
   }, [selectMovie, viewMode]);
   const selected = useCallback((movie: MovieListItem) => showSelectedMovie(movie.id), [showSelectedMovie]);
+  const selectSeriesPart = useCallback((part: SeriesMovie) => {
+    if (part.movie_id) {
+      setExternalSeries(null);
+      showSelectedMovie(part.movie_id);
+      return;
+    }
+    setContext(null);
+    setExternalSeries(part);
+    setOverlayOpen(true);
+  }, [showSelectedMovie]);
   const openDetails = useCallback((movie: MovieListItem) => {
     selectMovie(movie.id);
     setContext(null);
@@ -170,7 +182,7 @@ export default function MovieWall() {
       <section data-testid="movie-intro" data-visible={viewMode === 'normal'} aria-hidden={viewMode !== 'normal'} inert={viewMode !== 'normal'} className="movie-intro border-b divider bg-ink-850/70">
         <div className="movie-intro-inner">
           {activeMovie
-            ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={showSelectedMovie} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />
+            ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={selectSeriesPart} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />
             : <p className="p-8 text-sm text-ink-300" role="status">{store.loading ? '正在读取电影资料…' : '选择一部电影查看简介'}</p>}
         </div>
       </section>
@@ -180,8 +192,19 @@ export default function MovieWall() {
       </VirtualPosterGrid>
       <footer data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-status shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>
     </main>
-    {viewMode !== 'normal' && overlayOpen && store.selectedId && (() => {
-      return <FloatingMovieDetail title={activeMovie?.title || '电影详情'} onClose={() => setOverlayOpen(false)}>{activeMovie ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={showSelectedMovie} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
+    {overlayOpen && externalSeries && <FloatingMovieDetail title={`${externalSeries.title} · 电影简介`} onClose={() => { setExternalSeries(null); setOverlayOpen(false); }}>
+      <MovieDetail movie={null} external={{
+        title: externalSeries.title, original_title: externalSeries.original_title, year: externalSeries.year,
+        premiered: externalSeries.premiered, plot: externalSeries.plot || '', ratings: externalSeries.ratings || {},
+        genres: externalSeries.genres || [], countries: externalSeries.countries || [],
+        directors: externalSeries.directors || [], actors: externalSeries.actors || [],
+        douban_url: externalSeries.douban_id ? `https://movie.douban.com/subject/${externalSeries.douban_id}/` : '',
+        poster_url: externalSeries.poster_url, set_name: externalSeries.set_name || '', tmdb_id: externalSeries.tmdb_id,
+      }} hideExternalActions movies={allMovies} onSelectSeriesMovie={selectSeriesPart}
+        onSeriesClick={name => { setSeries(name); setExternalSeries(null); setOverlayOpen(false); }} />
+    </FloatingMovieDetail>}
+    {viewMode !== 'normal' && overlayOpen && store.selectedId && !externalSeries && (() => {
+      return <FloatingMovieDetail title={activeMovie?.title || '电影详情'} onClose={() => setOverlayOpen(false)}>{activeMovie ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={selectSeriesPart} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
     })()}
     {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
       <MenuItem onClick={() => openDetails(context.movie)}>查看完整详情</MenuItem>

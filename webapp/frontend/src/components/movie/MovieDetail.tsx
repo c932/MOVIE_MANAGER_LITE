@@ -4,6 +4,7 @@ import { CircleCheck, Eye, FilePenLine, Image, Star, Trash2 } from 'lucide-react
 import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
+import type { SeriesMovie } from '../../types/api';
 import { ratingOrder, ratingNames, ratingForSource, quarkSearchUrl } from '../../utils/movieDisplay';
 import doubanIcon from '../../assets/douban-icon.png';
 import doubanWordmark from '../../assets/douban-wordmark.png';
@@ -12,20 +13,22 @@ import { LocalPlayback } from './LocalPlayback';
 import { TechBadges } from './TechBadges';
 import { BilibiliActions } from './BilibiliActions';
 import { SeriesShortcuts } from './SeriesShortcuts';
+import { useSeriesListing } from './useSeriesListing';
 
 const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbLogo};
 
 interface Props {
   movie: MovieListItem | null;
   external?: Pick<MovieListItem, 'title' | 'original_title' | 'year' | 'premiered' | 'plot' | 'ratings' | 'genres' | 'douban_url'>
-    & {poster_url: string; countries?: string[]; directors?: string[]; actors?: MovieListItem['actors']; enrichment_note?: string};
+    & {poster_url: string; countries?: string[]; directors?: string[]; actors?: MovieListItem['actors']; enrichment_note?: string; set_name?: string; tmdb_id?: string};
   unreleased?: boolean;
+  hideExternalActions?: boolean;
   posterFallback?: string;
   movies?: MovieListItem[];
   onUpdated?: (movie: MovieListItem) => void;
   onDeleted?: (id: string) => void;
   onSeriesClick?: (setName: string) => void;
-  onSelectSeriesMovie?: (id: string) => void;
+  onSelectSeriesMovie?: (part: SeriesMovie) => void;
   onRefreshPoster?: (id: string) => void;
   onEditFields?: (movie: MovieListItem) => void;
 }
@@ -34,6 +37,7 @@ export function MovieDetail({
   movie: local,
   external,
   unreleased = false,
+  hideExternalActions = false,
   posterFallback = '',
   movies = [],
   onUpdated,
@@ -48,6 +52,8 @@ export function MovieDetail({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [failedPoster, setFailedPoster] = useState('');
+  const seriesName = local?.set_name || external?.set_name || '';
+  const {items: seriesItems} = useSeriesListing(seriesName, movies);
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -194,13 +200,19 @@ export function MovieDetail({
         </div>
 
         {/* 系列电影 */}
-        {local?.set_name && onSelectSeriesMovie && onSeriesClick && <SeriesShortcuts movie={local} movies={movies} onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />}
+        {!!seriesName && !!seriesItems.length && onSelectSeriesMovie && (
+          <SeriesShortcuts seriesName={seriesName} items={seriesItems} currentId={local?.id || external?.tmdb_id || ''}
+            onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />
+        )}
 
         {/* 按钮栏 */}
         <div className="movie-detail-actions mt-auto flex flex-wrap items-center gap-1.5 border-t divider pt-3">
           {local?.video_path && <LocalPlayback movie={local}/>}
-          {!local && <a className="btn" href={quarkSearchUrl(movie.title)} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>}
-          <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
+          {!local && !hideExternalActions && <>
+            <a className="btn" href={quarkSearchUrl(movie.title)} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>
+            <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
+          </>}
+          {local && <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>}
           {local && <>
           <button
             className={`btn ${local.watched ? 'btn-active' : ''}`}

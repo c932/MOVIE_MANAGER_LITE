@@ -9,6 +9,8 @@ from typing import Any
 
 from models.movie import Movie
 from scraper.metadata_sources import ProviderError, TmdbProvider
+from scraper.imdb_ratings import ImdbRatings
+from scraper.public_sources import douban_public_search, tmdb_public_details
 from scraper.scrape_settings import ScrapeSettings
 from utils.genres import preferred_rating
 from utils.library_sync import atomic_json, read_json
@@ -42,6 +44,70 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
     groups = group_series(store.snapshot())
     configured = bool(settings.tmdb_api_key or settings.tmdb_token)
     provider = TmdbProvider(replace(settings, timeout=min(settings.timeout, 8))) if configured else None
+    imdb = ImdbRatings(replace(settings, timeout=min(settings.timeout, 10)))
+    owned_tmdb_ids = {movie.tmdb_id for movie in store.snapshot() if movie.tmdb_id}
+
+    def preferred_plot(current: str, candidate: str) -> str:
+        if not candidate:
+            return current
+        if not current:
+            return candidate
+        candidate_chinese = bool(re.search(r"[\u4e00-\u9fff]", candidate))
+        current_chinese = bool(re.search(r"[\u4e00-\u9fff]", current))
+        if candidate_chinese and not current_chinese:
+            return candidate
+        if candidate_chinese == current_chinese and len(candidate) > len(current):
+            return candidate
+        return current
+
+    def enrich_part(part: dict[str, Any]) -> dict[str, Any]:
+        ctx.check_cancelled()
+        detail = dict(part)
+        detail.setdefault('ratings', {})
+        try:
+            public_tmdb = tmdb_public_details(str(part.get('tmdb_id') or ''))
+            if public_tmdb:
+                for key in ('title', 'original_title', 'premiered', 'poster_url', 'imdb_id', 'tmdb_id'):
+                    if public_tmdb.get(key) and not detail.get(key):
+                        detail[key] = public_tmdb[key]
+                for key in ('genres', 'countries', 'directors'):
+                    if public_tmdb.get(key) and not detail.get(key):
+                        detail[key] = public_tmdb[key]
+                if public_tmdb.get('actors') and not detail.get('actors'):
+                    detail['actors'] = public_tmdb['actors']
+                detail['plot'] = preferred_plot(detail.get('plot', ''), public_tmdb.get('plot', ''))
+                if 0 < public_tmdb.get('tmdb_rating', 0) <= 10:
+                    detail['ratings']['tmdb'] = public_tmdb['tmdb_rating']
+        except OSError:
+            pass
+        try:
+            public_douban = douban_public_search(part.get('title', ''), part.get('year', ''))
+            if public_douban is None and '之' in part.get('title', ''):
+                public_douban = douban_public_search(part['title'].split('之', 1)[0], part.get('year', ''))
+            if public_douban:
+                if public_douban.original_title and not detail.get('original_title'):
+                    detail['original_title'] = public_douban.original_title
+                if public_douban.directors and not detail.get('directors'):
+                    detail['directors'] = public_douban.directors
+                if public_douban.actors and not detail.get('actors'):
+                    detail['actors'] = [{'name': name, 'role': '', 'thumb': ''} for name in public_douban.actors]
+                if public_douban.poster_url and not detail.get('poster_url'):
+                    detail['poster_url'] = public_douban.poster_url
+                if public_douban.subject_id:
+                    detail['douban_id'] = public_douban.subject_id
+                detail['plot'] = preferred_plot(detail.get('plot', ''), public_douban.plot)
+                if 0 < public_douban.rating <= 10:
+                    detail['ratings']['douban'] = public_douban.rating
+        except OSError:
+            pass
+        if detail.get('imdb_id') and not detail['ratings'].get('imdb'):
+            try:
+                score = imdb.rating(detail['imdb_id'])[0]
+                if score and 0 < score <= 10:
+                    detail['ratings']['imdb'] = score
+            except ProviderError:
+                pass
+        return detail
 
     def collect(item: tuple[str, list[Movie]]) -> tuple[Path, dict, bool, str]:
         ctx.check_cancelled()
@@ -63,11 +129,14 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
         if not updated:
             return path, cached, False, ''
         existing = {part['tmdb_id']: part for part in cached.get('parts', [])}
-        for part in updated:
+        for index, part in enumerate(updated):
             previous = existing.get(part['tmdb_id'], {})
-            for field in ('rating', 'plot', 'poster_url', 'premiered', 'year'):
+            for field in ('rating', 'plot', 'poster_url', 'premiered', 'year', 'original_title',
+                          'genres', 'countries', 'directors', 'actors', 'douban_id', 'imdb_id', 'ratings'):
                 if not part.get(field) and previous.get(field):
                     part[field] = previous[field]
+            if part['tmdb_id'] not in owned_tmdb_ids:
+                updated[index] = enrich_part(part)
         return path, {'anchor': anchor, 'parts': updated, 'fetched_at': time.time()}, True, ''
 
     catalogs = []
@@ -109,12 +178,12 @@ def series_listing(data_dir: Path, name: str, members: list[Movie], library: lis
     for part in {item['tmdb_id']: item for item in parts}.values():
         movie = by_tmdb.get(part['tmdb_id'])
         if movie is None:
-            items.append({**part, 'movie_id': None, 'rating_source': 'tmdb'})
+            items.append({**part, 'movie_id': None, 'set_name': name,
+                          'rating_source': part.get('rating_source', 'tmdb')})
         else:
             matched.add(movie.nfo_path)
-            items.append(_local_row(movie, poster_url=part['poster_url'], catalog_score=part['rating'],
-                                    catalog_plot=part.get('plot', '')))
-    items.extend(_local_row(movie) for movie in members if movie.nfo_path not in matched)
+            items.append(_local_row(movie, part=part))
+    items.extend(_local_row(movie, part={}) for movie in members if movie.nfo_path not in matched)
     items.sort(key=lambda row: (row['premiered'] or row['year'] or '9999', row['title']))
     return {'name': name, 'source': 'tmdb' if parts else 'local', 'items': items}
 
@@ -123,12 +192,17 @@ def _movie_order(movie: Movie) -> str:
     return movie.premiered or movie.year or '9999'
 
 
-def _local_row(movie: Movie, *, poster_url: str = '', catalog_score: float = 0,
-               catalog_plot: str = '') -> dict[str, Any]:
+def _local_row(movie: Movie, *, part: dict[str, Any]) -> dict[str, Any]:
     rating, source = preferred_rating(movie)
     if not rating:
-        rating = movie.ratings.get('themoviedb') or catalog_score
+        rating = movie.ratings.get('themoviedb') or part.get('rating', 0)
         source = 'tmdb'
-    return {'movie_id': movie_id(movie.nfo_path), 'tmdb_id': movie.tmdb_id, 'title': movie.title,
-            'original_title': movie.original_title, 'year': movie.year, 'premiered': movie.premiered,
-            'rating': rating, 'rating_source': source, 'poster_url': poster_url, 'plot': movie.plot or catalog_plot}
+    result = {'movie_id': movie_id(movie.nfo_path), 'tmdb_id': movie.tmdb_id, 'title': movie.title,
+              'original_title': movie.original_title, 'year': movie.year, 'premiered': movie.premiered,
+              'rating': rating, 'rating_source': source,
+              'poster_url': part.get('poster_url', ''), 'plot': movie.plot or part.get('plot', ''),
+              'set_name': movie.set_name}
+    for key in ('genres', 'countries', 'directors', 'actors', 'ratings', 'douban_id', 'imdb_id'):
+        if part.get(key) and not result.get(key):
+            result[key] = part[key]
+    return result

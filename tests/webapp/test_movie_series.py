@@ -1,6 +1,7 @@
 from hashlib import sha256
 
 from models.movie import Movie
+from scraper.public_sources import PublicMovie
 from scraper.metadata_sources import TmdbProvider
 from scraper.scrape_settings import ScrapeSettings
 from utils.library_sync import atomic_json
@@ -36,6 +37,7 @@ def test_series_reads_official_cache_and_matches_entire_library(service_data_dir
         assert [item['movie_id'] for item in result['items']] == [movie_id('first.nfo'), movie_id('second.nfo'), None]
         assert [item['title'] for item in result['items']] == ['本地第一部', '本地第二部', '尚未收录的第三部']
         assert result['items'][2]['rating'] == 7.5
+        assert result['items'][2]['set_name'] == name
         assert client.get(f'{API}/discovery/series').json() == {'groups': [result]}
         assert client.get(f'{API}/discovery/series', params={'name': '未知系列'}).status_code == 404
 
@@ -75,6 +77,22 @@ def test_series_refresh_fills_assets_and_preserves_previous_plot(service_data_di
         ]}
 
     monkeypatch.setattr(TmdbProvider, '_get', get)
+    public_douban = PublicMovie(
+        title='第二部', original_title='Second', year='2004', rating=8.8, votes=1200,
+        plot='公开页中文简介', poster_url='https://img9.doubanio.com/second.webp', subject_id='456',
+        directors=['导演'], actors=['主演'],
+    )
+    monkeypatch.setattr('movie_service.series.douban_public_search', lambda *_args, **_kwargs: public_douban)
+    monkeypatch.setattr('movie_service.series.tmdb_public_details', lambda *_args, **_kwargs: {
+        'title': '第二部', 'plot': '公开页中文简介', 'premiered': '2004-01-01', 'year': '2004',
+        'genres': ['剧情'], 'countries': ['美国'], 'directors': ['导演'],
+        'actors': [{'name': '主演', 'role': '', 'thumb': ''}],
+        'poster_url': 'https://image.tmdb.org/t/p/w342/second.jpg', 'imdb_id': 'tt456',
+        'tmdb_id': '2', 'tmdb_rating': 7.8, 'tmdb_votes': 300,
+    })
+    monkeypatch.setattr('movie_service.series.ImdbRatings', lambda *_args, **_kwargs: type('Ratings', (), {
+        'rating': lambda self, identity: (8.1, 1200),
+    })())
     monkeypatch.setattr(browse_cache, 'cached_remote', lambda *args, **kwargs: service_data_dir / 'cover.img')
     atomic_json(service_data_dir / 'scrape_config.json', {'tmdb_token': 'test-token'})
     monkeypatch.setenv('MML_SCRAPE_CONFIG', str(service_data_dir / 'scrape_config.json'))
@@ -102,4 +120,7 @@ def test_series_refresh_fills_assets_and_preserves_previous_plot(service_data_di
         assert items[0]['plot'] == '上次已取得的简介'
         assert items[1]['title'] == '第二部'
         assert items[1]['rating'] == 7.8
-        assert items[1]['plot'] == '第二部简介'
+        assert items[1]['plot'] == '公开页中文简介'
+        assert items[1]['ratings'] == {'tmdb': 7.8, 'douban': 8.8, 'imdb': 8.1}
+        assert items[1]['genres'] == ['剧情']
+        assert items[1]['actors'][0]['name'] == '主演'
