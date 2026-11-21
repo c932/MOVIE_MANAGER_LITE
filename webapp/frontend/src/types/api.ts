@@ -158,3 +158,20 @@ export interface AnnualResponse {
   source_url?: string;
   categories: { id: string; title: string; items: RankingItem[] }[];
 }
+
+export interface SeriesMovie {
+  title: string;
+  original_title: string;
+  year: string;
+  premiered: string;
+  rating: number;
+  poster_url: string;
+  movie_id: string | null;
+  tmdb_id: string;
+}
+
+export interface SeriesListing {
+  name: string;
+  source: 'tmdb' | 'local';
+  items: SeriesMovie[];
+}

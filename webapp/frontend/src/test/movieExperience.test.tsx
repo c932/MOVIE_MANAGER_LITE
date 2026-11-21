@@ -8,7 +8,8 @@ import { LocalPlayback } from '../components/movie/LocalPlayback';
 import type { MovieListItem } from '../types/api';
 
 vi.mock('../api/client', () => ({ movieApi: {
-  list: vi.fn(), detail: vi.fn(), systemInfo: vi.fn(), posterUrl: (id: string) => '/poster/' + id,
+  list: vi.fn(), detail: vi.fn(), series: vi.fn(), systemInfo: vi.fn(), posterUrl: (id: string) => '/poster/' + id,
+  proxyImageUrl: (url: string) => '/proxy/' + encodeURIComponent(url),
   playlistUrl: (id: string) => '/api/movie/movies/'+id+'/playlist.m3u8',
 } }));
 const movie = (id: string, title: string, premiered: string) => ({id, title, original_title: '', year: premiered.slice(0,4), premiered,
@@ -105,24 +106,40 @@ describe('电影墙交互', () => {
     expect(request).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', {name: '退出全屏'})).toBeInTheDocument();
   });
-  it.each(['正常', '海报墙'])('从系列列表选片后在%s模式显示对应详情', async mode => {
+  it('系列卡片补齐缺失电影，详情切换同系列影片后返回原位置', async () => {
+    const name = '测试系列';
+    const members = [first, second].map(movie => ({...movie, set_name: name}));
     const result = await movieApi.list();
-    vi.mocked(movieApi.list).mockResolvedValue({...result, movies: result.movies.map(movie => ({...movie, set_name: '测试系列'}))});
+    vi.mocked(movieApi.list).mockResolvedValue({...result, movies: members});
+    vi.mocked(movieApi.detail).mockImplementation(async id => members.find(movie => movie.id === id)!);
+    vi.mocked(movieApi.series).mockResolvedValue({name, source: 'tmdb', items: [
+      ...members.map(movie => ({...movie, movie_id: movie.id, poster_url: ''})),
+      {...members[0], title: '缺少的续集', movie_id: null, tmdb_id: '333', poster_url: 'https://image.tmdb.org/t/p/w342/movie.jpg', rating: 8.4},
+    ]});
     render(<MovieWall />);
     const intro = screen.getByTestId('movie-intro');
-    await within(intro).findByRole('heading', {name: first.title});
-    fireEvent.click(screen.getByRole('button', {name: mode}));
+    const shortcuts = await within(intro).findByRole('region', {name: '系列各部'});
+    fireEvent.click(within(shortcuts).getByRole('button', {name: second.title}));
+    await within(intro).findByRole('heading', {name: second.title});
+    fireEvent.click(screen.getByRole('button', {name: '海报墙'}));
     fireEvent.click(screen.getByRole('button', {name: '系列电影'}));
     const series = await screen.findByRole('dialog', {name: '系列、榜单与新片'});
-    fireEvent.click(within(series).getByRole('button', {name: `${second.title} ${second.year}`}));
-    expect(series).not.toBeInTheDocument();
-    if (mode === '正常') {
-      expect(await within(intro).findByRole('heading', {name: second.title})).toBeInTheDocument();
-      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    } else {
-      const detail = await screen.findByRole('dialog', {name: second.title});
-      expect(within(detail).getByRole('link', {name: '本地播放器播放'})).toBeInTheDocument();
-    }
+    const missing = await within(series).findByRole('article', {name: '缺少的续集'});
+    expect(missing).toHaveTextContent('8.4');
+    expect(within(missing).getAllByRole('link').map(link => link.textContent?.trim())).toEqual(['夸克盘搜', 'B站播放']);
+    expect(within(missing).queryByRole('button')).not.toBeInTheDocument();
+    const local = within(series).getByRole('article', {name: second.title});
+    expect(within(local).getByRole('link', {name: '本地播放'})).toBeInTheDocument();
+    series.scrollTop = 240;
+    fireEvent.click(within(local).getByRole('button', {name: `${second.title}，查看简介`}));
+    const detail = await screen.findByRole('dialog', {name: `${second.title} · 电影详情`});
+    fireEvent.click(within(within(detail).getByRole('region', {name: '系列各部'})).getByRole('button', {name: first.title}));
+    await screen.findByRole('dialog', {name: `${first.title} · 电影详情`});
+    fireEvent.click(within(detail).getByRole('button', {name: '关闭电影详情'}));
+    await waitFor(() => expect(detail).not.toBeInTheDocument());
+    expect(screen.getByRole('dialog', {name: '系列、榜单与新片'})).toBe(series);
+    expect(within(series).getByRole('combobox', {name: '系列'})).toHaveValue(name);
+    expect(series.scrollTop).toBe(240);
   });
   it('全屏入口由点击触发，仍可退出', async () => {
     const request = vi.fn().mockResolvedValue(undefined);

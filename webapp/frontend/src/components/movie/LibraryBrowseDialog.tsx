@@ -1,22 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { movieApi } from '../../api/client';
-import type { AnnualResponse, MovieListItem, RankingItem, NewMovieItem } from '../../types/api';
+import type { AnnualResponse, MovieListItem, RankingItem, NewMovieItem, SeriesMovie } from '../../types/api';
+import { quarkSearchUrl } from '../../utils/movieDisplay';
 import { Modal } from '../Modal';
 import { FloatingMovieDetail } from './FloatingMovieDetail';
 import { MovieDetail } from './MovieDetail';
 import { BilibiliActions } from './BilibiliActions';
+import { LocalPlayback } from './LocalPlayback';
+import { useSeriesListing } from './useSeriesListing';
 
 type Kind = 'series' | 'top250' | 'imdb_top250' | 'chart' | 'nowplaying' | 'coming' | 'annual';
 type Item = RankingItem | NewMovieItem;
+type BrowseItem = Item | SeriesMovie;
 type Result = {key: string; rows: Item[]; annual?: AnnualResponse; fetched: number; error: string; refreshing: boolean};
 const latestYear = new Date().getFullYear() - 1;
 const tabs: [Kind, string][] = [['series', '系列电影'], ['top250', '豆瓣 Top250'], ['imdb_top250', 'IMDb Top250'], ['chart', '豆瓣热门'], ['annual', '豆瓣年度榜单'], ['nowplaying', '正在上映'], ['coming', '即将上映']];
 
-function quarkSearchUrl(title: string) {
-  return `https://www.zhongchuangwl.com/s/${encodeURIComponent(title)}/`;
-}
-
-function BrowsePoster({row}: {row: Item}) {
+function BrowsePoster({row}: {row: BrowseItem}) {
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const localUrl = row.movie_id ? movieApi.posterUrl(row.movie_id, 240, 360) : '';
   const remoteUrl = row.poster_url ? movieApi.proxyImageUrl(row.poster_url) : '';
@@ -64,8 +64,9 @@ function MissingMovie({row, onClose}: {row: Item; onClose: () => void}) {
   </Modal>;
 }
 
-export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpdated, onDeleted, onSeriesClick, onRefreshPoster, onEditFields }: {
+export function LibraryBrowseDialog({ movies, initial, initialSeries = '', onSelect, onClose, onUpdated, onDeleted, onSeriesClick, onRefreshPoster, onEditFields }: {
   movies: MovieListItem[]; initial: Kind; onSelect: (id: string) => void; onClose: () => void;
+  initialSeries?: string;
   onUpdated?: (movie: MovieListItem) => void;
   onDeleted?: (id: string) => void;
   onSeriesClick?: (name: string) => void;
@@ -73,12 +74,27 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
   onEditFields?: (movie: MovieListItem) => void;
 }) {
   const [kind, setKind] = useState<Kind>(initial);
+  const [selectedSeries, setSelectedSeries] = useState(initialSeries);
   const [year, setYear] = useState(latestYear);
   const [category, setCategory] = useState('');
   const [refresh, setRefresh] = useState(0);
   const [missing, setMissing] = useState<Item | null>(null);
   const [owned, setOwned] = useState<MovieListItem | null>(null);
   const [result, setResult] = useState<Result | null>(null);
+  const seriesNames = useMemo(() => [...new Set(movies.map(movie => movie.set_name).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'zh')), [movies]);
+  const seriesName = seriesNames.includes(selectedSeries) ? selectedSeries : seriesNames[0] || '';
+  const series = useSeriesListing(kind === 'series' ? seriesName : '', movies);
+  const moviesById = useMemo(() => new Map(movies.map(movie => [movie.id, movie])), [movies]);
+  const ownedId = owned?.id;
+  useEffect(() => {
+    if (kind !== 'series' || !ownedId) return;
+    let active = true;
+    movieApi.detail(ownedId).then(movie => {
+      if (active) setOwned(current => current?.id === ownedId ? movie : current);
+    }, () => { /* 库内摘要仍可浏览和播放。 */ });
+    return () => { active = false; };
+  }, [kind, ownedId]);
   const key = `${kind}-${year}`;
   const current = result?.key === key ? result : null;
   useEffect(() => {
@@ -120,22 +136,30 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
   }, [kind, year, key, refresh]);
   const categories = current?.annual?.categories || [];
   const selectedCategory = categories.find(item => item.id === category) || categories[0];
-  const rows = kind === 'annual' ? selectedCategory?.items || [] : current?.rows || [];
-  const groups = new Map<string, MovieListItem[]>();
-  for (const movie of movies) if (movie.set_name) groups.set(movie.set_name, [...(groups.get(movie.set_name) || []), movie]);
-  function select(row: Item) {
+  const rows = kind === 'series' ? series.items : kind === 'annual' ? selectedCategory?.items || [] : current?.rows || [];
+  function select(row: BrowseItem) {
     if (row.movie_id) {
-      const local = movies.find(movie => movie.id === row.movie_id);
+      const local = moviesById.get(row.movie_id);
       if (local) { setOwned(local); return; }
       onSelect(row.movie_id);
       onClose();
       return;
     }
-    setMissing(row);
+    if (!('tmdb_id' in row)) setMissing(row);
   }
   return <>
     <Modal title="系列、榜单与新片" wide onClose={onClose}>
       <div className="mb-4 flex flex-wrap gap-2">{tabs.map(([value, label]) => <button key={value} className={`btn ${kind === value ? 'btn-active' : ''}`} aria-pressed={kind === value} onClick={() => {setKind(value); setRefresh(0);}}>{label}</button>)}</div>
+      {kind === 'series' && (seriesNames.length ? <div className="mb-4 flex flex-wrap items-center gap-3">
+        <label className="flex min-w-0 items-center gap-2 text-sm">系列 <select className="input min-w-0" value={seriesName} onChange={event => setSelectedSeries(event.target.value)}>
+          {seriesNames.map(name => <option key={name} value={name}>{name}</option>)}
+        </select></label>
+        <p role="status" className="text-xs text-ink-300">
+          {series.loading ? '正在核对 TMDB 片单…' : series.source === 'tmdb'
+            ? `共 ${rows.length} 部 · 未入库 ${rows.filter(row => !row.movie_id).length} 部`
+            : '暂无 TMDB 系列资料，当前显示本地片单。'}
+        </p>
+      </div> : <p className="text-sm text-ink-300">暂无系列资料。</p>)}
       {kind === 'annual' && <div className="mb-4 flex flex-wrap items-center gap-3">
         <label>年度 <select className="input" aria-label="榜单年度" value={year} onChange={e => {setYear(Number(e.target.value)); setCategory(''); setRefresh(0);}}>{Array.from({length: Math.max(1, latestYear - 2018)}, (_, i) => latestYear - i).map(value => <option key={value} value={value}>{value}</option>)}</select></label>
         {!!categories.length && <label>分类 <select className="input max-w-full" aria-label="年度电影分类" value={selectedCategory?.id || ''} onChange={e => setCategory(e.target.value)}>{categories.map(item => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>}
@@ -147,37 +171,41 @@ export function LibraryBrowseDialog({ movies, initial, onSelect, onClose, onUpda
       </div>}
       {current?.error && <p role="alert" className="mb-4 text-red-400">{current.error}{rows.length ? ' 当前显示上次成功获取的榜单。' : ''}</p>}
       {kind !== 'series' && !current && <p role="status">正在加载榜单…</p>}
-      {kind === 'series' ? <div className="space-y-5">{groups.size ? [...groups].sort(([a], [b]) => a.localeCompare(b, 'zh')).map(([name, members]) =>
-        <section key={name}><h3 className="mb-2 font-semibold">{name}（{members.length} 部）</h3><div className="flex flex-wrap gap-2">
-          {members.sort((a, b) => a.year.localeCompare(b.year)).map(movie => <button className="btn border divider" key={movie.id} onClick={() => {onSelect(movie.id); onClose();}}>{movie.title} {movie.year}</button>)}
-        </div></section>) : <p>暂无系列资料，同步或刮削包含系列的电影后即可显示。</p>}</div>
-        : <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => <article
-          key={`${row.movie_id || row.douban_id || row.title}-${index}-${row.poster_url}`} aria-label={row.title}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">{rows.map((row, index) => {
+        const seriesRow = 'tmdb_id' in row;
+        const local = seriesRow && row.movie_id ? moviesById.get(row.movie_id) : undefined;
+        return <article
+          key={seriesRow ? row.movie_id || row.tmdb_id : `${row.movie_id || row.title}-${index}-${row.poster_url}`} aria-label={row.title}
           className="relative flex gap-4 rounded border-b divider p-3 transition-colors hover:bg-ink-800">
           <BrowsePoster row={row} />
           <div className="min-w-0">
-            <button type="button" onClick={() => select(row)} aria-label={`${row.title}，查看简介`}
+            {seriesRow && !row.movie_id ? <h3 className="font-semibold">{row.title}</h3> : <button type="button" onClick={() => select(row)} aria-label={`${row.title}，查看简介`}
               className="block text-left font-semibold after:absolute after:inset-0 after:rounded focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-cinema-400">
               {'rank' in row ? `${row.rank}. ` : ''}{row.title}
-            </button>
+            </button>}
             <p className="my-3 text-xs text-ink-300">{row.year} {row.rating ? `评分 ${row.rating.toFixed(1)}` : ''}</p>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-300 [&_a]:relative [&_a]:z-[1]">
-              {row.movie_id ? <span className="whitespace-nowrap text-cinema-400">已入库 · 查看简介</span> : <>
-                <span className="whitespace-nowrap text-ink-400">查看简介</span>
+              {row.movie_id ? <>
+                <span className="whitespace-nowrap text-cinema-400">已入库 · 查看简介</span>
+                {local?.video_path && <LocalPlayback movie={local} compact />}
+              </> : <>
+                <span className="whitespace-nowrap text-ink-400">{seriesRow ? '未入库' : '查看简介'}</span>
                 <a className="whitespace-nowrap hover:underline focus-visible:underline" href={quarkSearchUrl(row.title)} target="_blank" rel="noopener noreferrer">夸克盘搜</a>
               </>}
               <BilibiliActions playOnly title={row.title} originalTitle={'original_title' in row ? row.original_title : ''} year={row.year} />
             </div>
           </div>
-        </article>)}</div>}
+        </article>;
+      })}</div>
       {kind !== 'series' && current && !current.refreshing && !current.error && !rows.length && <p className="p-6 text-ink-300">暂无榜单资料，请点击“刷新榜单”。</p>}
     </Modal>
     {missing && <MissingMovie key={missing.douban_id || missing.title} row={missing} onClose={() => setMissing(null)} />}
     {owned && <FloatingMovieDetail title={`${owned.title} · 电影详情`} onClose={() => setOwned(null)}>
-      <MovieDetail movie={owned}
+      <MovieDetail key={owned.id} movie={owned} movies={movies}
         onUpdated={movie => { setOwned(movie); onUpdated?.(movie); }}
         onDeleted={id => { setOwned(null); onDeleted?.(id); }}
         onSeriesClick={name => { setOwned(null); onSeriesClick?.(name); onClose(); }}
+        onSelectSeriesMovie={id => { const movie = moviesById.get(id); if (movie) setOwned(movie); }}
         onRefreshPoster={id => onRefreshPoster?.(id)}
         onEditFields={movie => { setOwned(null); onEditFields?.(movie); }} />
     </FloatingMovieDetail>}

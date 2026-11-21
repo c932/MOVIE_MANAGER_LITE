@@ -265,6 +265,7 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 
 ## 榜单发现接口（2026-11-17）
 
+- `GET /discovery/series?name=系列名` → `{name,source,items}`。`source` 为 `tmdb` 或 `local`，`items` 按上映时间排序，字段为 `title`、`original_title`、`year`、`premiered`、`rating`、`poster_url`、`movie_id`、`tmdb_id`。以库内电影的 TMDB ID 查询官方片单，通过 TMDB ID 与整个库匹配，未入库时 `movie_id` 为 `null`。公开片单缓存位于 `series_collections/`，服务端已配置 TMDB 时在缓存过期后补取，读取失败时沿用已有片单。未知本地系列返回 404。此接口不修改电影库或 NFO。
 - 榜单与新片条目补充 `douban_id`；榜单补充 `douban_url`。已入库返回 `movie_id`，网页直接复用本地详情与播放。
 - `GET /rankings/{kind}` 只读缓存。`fetched_at` 优先使用该来源独立时间戳，旧缓存没有独立时间戳时返回 0 并保留条目。独立时间戳用于判断该来源的缓存新鲜度。
 - `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源仍为 `rankings.fetch`；不同来源不会误复用同一任务。热门只抓列表，简介按需读取，避免每次刷新等待几十个详情请求。来源空响应报错，保留旧缓存。成功保存用锁及原子替换。

@@ -170,7 +170,7 @@ export default function MovieWall() {
       <section data-testid="movie-intro" data-visible={viewMode === 'normal'} aria-hidden={viewMode !== 'normal'} inert={viewMode !== 'normal'} className="movie-intro border-b divider bg-ink-850/70">
         <div className="movie-intro-inner">
           {activeMovie
-            ? <MovieDetail key={activeMovie.id} movie={activeMovie} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />
+            ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={showSelectedMovie} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />
             : <p className="p-8 text-sm text-ink-300" role="status">{store.loading ? '正在读取电影资料…' : '选择一部电影查看简介'}</p>}
         </div>
       </section>
@@ -181,7 +181,7 @@ export default function MovieWall() {
       <footer data-visible={viewMode !== 'fullscreen'} inert={viewMode === 'fullscreen'} className="mode-status shrink-0 border-t divider px-3 py-2 text-xs text-ink-400">显示 {movies.length} 部 · 网页与桌面共享资料，桌面可保留离线副本</footer>
     </main>
     {viewMode !== 'normal' && overlayOpen && store.selectedId && (() => {
-      return <FloatingMovieDetail title={activeMovie?.title || '电影详情'} onClose={() => setOverlayOpen(false)}>{activeMovie ? <MovieDetail key={activeMovie.id} movie={activeMovie} onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
+      return <FloatingMovieDetail title={activeMovie?.title || '电影详情'} onClose={() => setOverlayOpen(false)}>{activeMovie ? <MovieDetail key={activeMovie.id} movie={activeMovie} movies={allMovies} onUpdated={updated} onDeleted={setDeleteId} onSelectSeriesMovie={showSelectedMovie} onSeriesClick={name => { setSeries(name); selectMovie(null); setOverlayOpen(false); }} onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} /> : <p className="p-8" role="status">正在读取电影资料…</p>}</FloatingMovieDetail>;
     })()}
     {context && <><div className="fixed inset-0 z-40" onClick={() => setContext(null)} /><div role="menu" aria-label="电影操作" className="fixed z-50 w-52 rounded-lg border border-ink-700 bg-ink-800 p-1 shadow-2xl" style={{ left: Math.max(0, context.x), top: Math.max(0, context.y) }} onKeyDown={e => { if (e.key === 'Escape') setContext(null); }}>
       <MenuItem onClick={() => openDetails(context.movie)}>查看完整详情</MenuItem>
@@ -202,7 +202,7 @@ export default function MovieWall() {
       <dl className="space-y-3 break-all text-sm">{Object.entries({ 标题: properties.title, 原名: properties.original_title, 年份: properties.year, 上映日期: properties.premiered, 系列: properties.set_name, 国家地区: properties.countries.join(' / '), 导演: properties.directors.join(' / '), 类型: properties.genres.join(' / '), 视频: properties.video_path, NFO: properties.nfo_path, 海报: properties.poster_path, 分辨率: properties.resolution, HDR: properties.hdr_type }).map(([key, value]) => <div key={key}><dt className="text-ink-400">{key}</dt><dd className="select-text">{value || '未记录'}</dd></div>)}</dl>
     </Modal>}
     {deleteId && <Modal title="从共享数据库删除" onClose={() => !busy && setDeleteId(null)}><p>删除「{store.movies.find(movie => movie.id === deleteId)?.title}」的共享记录？同步下载的客户端也会收到删除；不会删除 NAS 上的文件。</p><div className="mt-5 flex justify-end gap-2"><button className="btn" disabled={busy} onClick={() => setDeleteId(null)}>取消</button><button className="btn bg-red-900/50" disabled={busy} onClick={() => run(async () => { await movieApi.delete(deleteId); store.removeMovie(deleteId); setDeleteId(null); setMessage('已从共享数据库删除'); })}>确认删除记录</button></div></Modal>}
-    {browse && <LibraryBrowseDialog movies={store.movies} initial={browse} onSelect={showSelectedMovie} onClose={() => setBrowse(null)}
+    {browse && <LibraryBrowseDialog movies={store.movies} initial={browse} initialSeries={activeMovie?.set_name} onSelect={showSelectedMovie} onClose={() => setBrowse(null)}
       onUpdated={updated} onDeleted={setDeleteId} onSeriesClick={name => { setSeries(name); setBrowse(null); }}
       onRefreshPoster={() => setPosterVersion(value => value + 1)} onEditFields={setProperties} />}
     {managerOpen&&<ScrapeManager onClose={()=>setManagerOpen(false)} onSaved={scrapeSaved} onSettings={()=>setSettingsOpen(true)}/>}

@@ -117,6 +117,32 @@ class TmdbProvider:
                          _text(item.get('release_date'))[:4], _text(item.get('overview')),
                          _image(item.get('poster_path')))
 
+    def movie_collection(self, identity: str) -> list[dict[str, Any]]:
+        """以库内电影 ID 为锚点读取官方系列，不按名称猜测系列身份。"""
+        if not re.fullmatch(r'[1-9]\d*', identity):
+            raise ProviderError('TMDB 电影 ID 无效')
+        movie = self._get(f'movie/{identity}')
+        if _text(movie.get('id')) != identity:
+            raise ProviderError('TMDB 返回了不同的电影 ID')
+        collection = movie.get('belongs_to_collection')
+        if not isinstance(collection, dict):
+            return []
+        collection_id = _text(collection.get('id'))
+        if not re.fullmatch(r'[1-9]\d*', collection_id):
+            raise ProviderError('TMDB 系列 ID 无效')
+        result = self._get(f'collection/{collection_id}')
+        parts = []
+        for item in _items(result, 'parts', 'TMDB', required=True):
+            candidate = self._candidate(item)
+            parts.append({'tmdb_id': candidate.id, 'title': candidate.title,
+                          'original_title': candidate.original_title, 'year': candidate.year,
+                          'premiered': _text(item.get('release_date')),
+                          'rating': _score(item.get('vote_average')) or 0,
+                          'poster_url': _image(item.get('poster_path'), 'w342')})
+        if _text(result.get('id')) != collection_id or not any(part['tmdb_id'] == identity for part in parts):
+            raise ProviderError('TMDB 返回的片单与该电影不符')
+        return parts
+
     def search(self, query: str, year: str = '', page: int = 1) -> list[Candidate]:
         page = _page(page)
         query = query.strip()

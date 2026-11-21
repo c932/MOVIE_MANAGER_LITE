@@ -2,15 +2,27 @@
 from datetime import datetime
 import re
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from . import discovery
 from .deps import get_store
 from .routes_fetch import _ranked_items
+from .routes_scrape_workspace import get_workspace
+from .series import series_listing
 from scraper.douban_ranking import RankedMovie
 from utils.library_sync import read_json
 
 router = APIRouter()
+
+
+@router.get('/discovery/series')
+def series(request: Request, name: str = Query(min_length=1, max_length=300)):
+    store = get_store(request)
+    library = store.snapshot()
+    members = [movie for movie in library if movie.set_name == name]
+    if not members:
+        raise HTTPException(404, '媒体库中没有该系列')
+    return series_listing(store.settings.data_dir, name, members, library, get_workspace(request).settings())
 
 
 def validate_year(year: int) -> None:

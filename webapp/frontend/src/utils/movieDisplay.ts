@@ -25,3 +25,7 @@ export function preferredRating(movie: MovieListItem) {
 export function localPlayUrl(movie: MovieListItem) {
   return `moviewall://play?path=${encodeURIComponent(movie.video_path)}`;
 }
+
+export function quarkSearchUrl(title: string) {
+  return `https://www.zhongchuangwl.com/s/${encodeURIComponent(title)}/`;
+}

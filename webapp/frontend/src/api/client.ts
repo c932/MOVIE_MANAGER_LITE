@@ -53,6 +53,7 @@ export const jobsApi = (prefix: string) => ({
 
 // ── 电影墙 ────────────────────────────────────────────
 export const movieApi = {
+  series: (name: string) => request<import('../types/api').SeriesListing>(`/api/movie/discovery/series?${new URLSearchParams({name})}`),
   annual: (year: number) => request<import('../types/api').AnnualResponse>(`/api/movie/discovery/annual/${year}`),
   refreshAnnual: (year: number) => request<{job_id: string}>(`/api/movie/discovery/annual/${year}/refresh`, {method: 'POST'}),
   subject: (id: string) => request<{job_id: string}>(`/api/movie/discovery/subject/${id}`, {method: 'POST'}),

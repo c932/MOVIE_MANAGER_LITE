@@ -1,6 +1,6 @@
 // 电影详情面板 — 右侧上方，展示选中电影的完整信息
 import { useState } from 'react';
-import { CircleCheck, Eye, FilePenLine, Image, Layers, Star, Trash2 } from 'lucide-react';
+import { CircleCheck, Eye, FilePenLine, Image, Star, Trash2 } from 'lucide-react';
 import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
@@ -11,23 +11,28 @@ import tmdbLogo from '../../assets/tmdb-logo.svg';
 import { LocalPlayback } from './LocalPlayback';
 import { TechBadges } from './TechBadges';
 import { BilibiliActions } from './BilibiliActions';
+import { SeriesShortcuts } from './SeriesShortcuts';
 
 const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbLogo};
 
 interface Props {
   movie: MovieListItem | null;
+  movies: MovieListItem[];
   onUpdated: (movie: MovieListItem) => void;
   onDeleted: (id: string) => void;
   onSeriesClick: (setName: string) => void;
+  onSelectSeriesMovie: (id: string) => void;
   onRefreshPoster: (id: string) => void;
   onEditFields: (movie: MovieListItem) => void;
 }
 
 export function MovieDetail({
   movie,
+  movies,
   onUpdated,
   onDeleted,
   onSeriesClick,
+  onSelectSeriesMovie,
   onRefreshPoster,
   onEditFields,
 }: Props) {
@@ -186,14 +191,7 @@ export function MovieDetail({
         </div>
 
         {/* 系列电影 */}
-        {movie.set_name && (
-          <button
-            className="btn w-fit"
-            onClick={() => onSeriesClick(movie.set_name)}
-          >
-            <ActionIcon icon={Layers} /> 系列：{movie.set_name}
-          </button>
-        )}
+        {movie.set_name && <SeriesShortcuts movie={movie} movies={movies} onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />}
 
         {/* 按钮栏 */}
         <div className="movie-detail-actions mt-auto flex flex-wrap items-center gap-1.5 border-t divider pt-3">
