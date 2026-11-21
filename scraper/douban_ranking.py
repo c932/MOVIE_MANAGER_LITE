@@ -631,7 +631,7 @@ def fetch_douban_top250_public() -> List[RankedMovie]:
                 year=meta_match.group("year") if meta_match else "",
                 rating=float(rating_match.group("rating")),
                 douban_id=subject_id.group(1),
-                rank=int(rank_match.group("rank")),
+                rank=page * 25 + int(rank_match.group("rank")),
                 source="top250",
                 poster_url=poster_match.group("poster"),
                 plot=html.unescape(plot_match.group("plot").strip()) if plot_match else "",

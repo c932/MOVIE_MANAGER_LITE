@@ -25,6 +25,8 @@ def test_fetch_douban_top250_public_parses_entries(monkeypatch):
     result = douban_ranking.fetch_douban_top250_public()
     assert len(result) == 2
     assert result[0].title == "肖申克的救赎"
+    assert result[0].rank == 1
+    assert result[1].rank == 2
     assert result[0].douban_id == "1292052"
     assert result[0].rating == 9.7
     assert result[0].plot == "希望让人自由。"
