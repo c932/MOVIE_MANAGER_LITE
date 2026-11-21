@@ -169,7 +169,7 @@ export default function MovieWall() {
         <button className="btn" onClick={()=>setManagerOpen(true)}><ActionIcon icon={Search} /> 搜索&刮削</button>
         <button className="btn" disabled={busy} onClick={() => run(async () => { await load(); setPosterVersion(value => value + 1); setMessage('已读取最新共享数据库'); })}><ActionIcon icon={RefreshCw} /> 刷新数据库</button>
         <button className="btn" disabled={!sourceAvailable || busy || !!jobId} title={!sourceAvailable ? sourceLabel + '，请在设置中配置媒体库' : '扫描已选择的媒体库目录'} onClick={() => run(async () => { setJobId((await movieApi.refresh(false)).job_id); })}><ActionIcon icon={HardDrive} /> 扫描 NAS</button>
-        <a className="btn" href="/downloads/LocalMovieWall-3.6.3-win64.msi" download title="下载 Windows 安装包"><ActionIcon icon={Download} /> 下载 PC 版</a>
+        <a className="btn" href="/downloads/LocalMovieWall-3.7.0-win64.msi" download title="下载 Windows 安装包"><ActionIcon icon={Download} /> 下载 PC 版</a>
         <button className="btn" onClick={() => setSettingsOpen(true)}><ActionIcon icon={Settings} /> 设置</button>
         <JobProgress job={job} accent="cinema" onCancel={() => { if (job) movieApi.cancel(job.id).catch(e => setMessage((e as Error).message)); }} />
       </header>

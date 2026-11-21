@@ -2119,6 +2119,9 @@ class MainWindow(QMainWindow):
     def _on_movie_updated(self, movie):
         """电影NFO编辑后更新缓存"""
         logger.info(f"电影信息已更新: {movie.title}")
+        for card in self._card_pool.values():
+            if card.movie.nfo_path == movie.nfo_path:
+                card.refresh_metadata(movie)
         
         # 更新缓存
         movie_paths = self.config.get_movie_paths()

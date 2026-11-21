@@ -1,6 +1,6 @@
 // 电影详情面板 — 右侧上方，展示选中电影的完整信息
 import { useState } from 'react';
-import { CircleCheck, Eye, FilePenLine, Image, Star, Trash2 } from 'lucide-react';
+import { Captions, CircleCheck, Eye, FilePenLine, Image, Star, Trash2 } from 'lucide-react';
 import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
@@ -14,6 +14,8 @@ import { TechBadges } from './TechBadges';
 import { BilibiliActions } from './BilibiliActions';
 import { SeriesShortcuts } from './SeriesShortcuts';
 import { useSeriesListing } from './useSeriesListing';
+import { SubtitleDialog } from './SubtitleDialog';
+import { subtitleSummary } from '../../utils/subtitles';
 
 const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbLogo};
 
@@ -52,6 +54,7 @@ export function MovieDetail({
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [failedPoster, setFailedPoster] = useState('');
+  const [subtitlesOpen, setSubtitlesOpen] = useState(false);
   const seriesName = local?.set_name || external?.set_name || '';
   const {items: seriesItems} = useSeriesListing(seriesName, movies);
   const run = async (action: () => Promise<void>) => {
@@ -131,6 +134,7 @@ export function MovieDetail({
             {(movie.premiered || movie.year) && <span>{movie.premiered || movie.year}</span>}
             {local?.runtime && <span>{local.runtime} 分钟</span>}
             {local?.file_size && <span>{local.file_size}</span>}
+            {local?.video_path && <span>{subtitleSummary(local.subtitles)}</span>}
             {!local && <span>未入库</span>}
           </div>
           {local && <div className="mt-3"><TechBadges resolution={local.resolution} hdrType={local.hdr_type} /></div>}
@@ -208,6 +212,9 @@ export function MovieDetail({
         {/* 按钮栏 */}
         <div className="movie-detail-actions mt-auto flex flex-wrap items-center gap-1.5 border-t divider pt-3">
           {local?.video_path && <LocalPlayback movie={local}/>}
+          {local?.video_path && <button className="btn" onClick={() => setSubtitlesOpen(true)}>
+            <ActionIcon icon={Captions} /> 字幕
+          </button>}
           {!local && !hideExternalActions && <>
             <a className="btn" href={quarkSearchUrl(movie.title)} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>
             <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
@@ -271,6 +278,7 @@ export function MovieDetail({
         </div>
         {local && <p className="break-all text-xs text-ink-400">文件：{local.video_path || '未记录'}</p>}
       </div>
+      {subtitlesOpen && local && <SubtitleDialog movie={local} onClose={() => setSubtitlesOpen(false)} onUpdated={onUpdated} />}
     </div>
   );
 }

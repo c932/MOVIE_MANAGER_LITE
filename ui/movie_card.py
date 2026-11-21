@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPixmap, QPainter, QColor, QPainterPath, QCursor
 
 from models.movie import Movie
 from utils.image_loader import ImageLoader, ImageCache
+from utils.subtitles import subtitle_summary
 from ui.tech_badges import TechBadges
 
 
@@ -87,6 +88,12 @@ class MovieCard(QWidget):
                 }
         """)
         self._refresh_rating()
+
+        self.subtitle_badge = QLabel(self.poster_container)
+        self.subtitle_badge.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.subtitle_badge.setStyleSheet(
+            'background: rgba(0, 0, 0, 190); color: white; padding: 2px 5px; border-radius: 4px; font-size: 11px;')
+        self._refresh_subtitles()
         
         # === 排名角标容器（左下角，水平并排）===
         self._rank_badges = []
@@ -157,6 +164,17 @@ class MovieCard(QWidget):
         self.title_label.setText(movie.title or "")
         self.tech_badges_container.set_values(movie.resolution, movie.hdr_type)
         self._refresh_rating()
+        self._refresh_subtitles()
+
+    def _refresh_subtitles(self) -> None:
+        label = subtitle_summary(self.movie.subtitles)
+        self.subtitle_badge.setVisible(bool(self.movie.subtitles))
+        self.subtitle_badge.setToolTip(label)
+        width = self.poster_width - 22
+        self.subtitle_badge.setText(self.subtitle_badge.fontMetrics().elidedText(
+            label, Qt.TextElideMode.ElideRight, width))
+        self.subtitle_badge.adjustSize()
+        self.subtitle_badge.move(6, 56)
 
     def _refresh_rating(self) -> None:
         if self.movie.rating > 0:

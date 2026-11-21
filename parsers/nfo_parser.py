@@ -9,6 +9,7 @@ import logging
 
 from models.movie import Movie, Actor
 from utils.countries import localize_countries
+from utils.subtitles import inspect_subtitles
 from utils.video_technical import resolution_from_dimensions, normalize_movie_technical, technical_from_filename
 
 logger = logging.getLogger(__name__)
@@ -188,6 +189,7 @@ class NFOParser:
                 if match is not None:
                     movie.video_path = str(match)
 
+            movie.subtitles = inspect_subtitles(Path(movie.video_path) if movie.video_path else None, root)
             normalize_movie_technical(movie)
             
             # === 绑定本地资产（海报和背景图）===

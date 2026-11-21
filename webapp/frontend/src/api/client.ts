@@ -1,4 +1,6 @@
 // API 客户端 — 封装 fetch，自动 JSON 解析 + 错误处理
+import type {SubtitleCandidate, SubtitleDraft, SubtitleSearch} from '../types/api';
+
 
 export class ApiError extends Error {
   status: number;
@@ -14,8 +16,10 @@ export async function request<T>(
   options?: RequestInit,
 ): Promise<T> {
   const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
     ...options,
+    headers: options?.body instanceof FormData
+      ? options.headers
+      : { 'Content-Type': 'application/json', ...options?.headers },
   });
 
   if (res.status === 204) return undefined as T;
@@ -53,6 +57,20 @@ export const jobsApi = (prefix: string) => ({
 
 // ── 电影墙 ────────────────────────────────────────────
 export const movieApi = {
+  subtitleSearch: (id: string, query: string) => request<SubtitleSearch>(`/api/movie/movies/${id}/subtitles/search`, {method: 'POST', body: JSON.stringify({query})}),
+  subtitleDownload: (id: string, {source, id: candidateId, language}: SubtitleCandidate) =>
+    request<SubtitleDraft | {verification_url: string; message: string}>(`/api/movie/movies/${id}/subtitles/download`, {
+      method: 'POST', body: JSON.stringify({source, id: candidateId, language}),
+    }),
+  subtitleImport: (id: string, file: File) => {
+    const form = new FormData();
+    form.append('file', file);
+    return request<SubtitleDraft>(`/api/movie/movies/${id}/subtitles/import`, {method: 'POST', body: form});
+  },
+  subtitleSave: (id: string, token: string, index: number, language: string) =>
+    request<{job_id: string}>(`/api/movie/movies/${id}/subtitles/save`, {method: 'POST', body: JSON.stringify({token, index, language})}),
+  subtitleInspect: (id: string, action: 'detect' | 'sync') =>
+    request<{job_id: string}>(`/api/movie/movies/${id}/subtitles/${action}`, {method: 'POST'}),
   series: (name: string) => request<import('../types/api').SeriesListing>(`/api/movie/discovery/series?${new URLSearchParams({name})}`),
   allSeries: () => request<{groups: import('../types/api').SeriesListing[]}>('/api/movie/discovery/series'),
   refreshSeries: () => request<{job_id: string}>('/api/movie/discovery/series/refresh', {method: 'POST'}),

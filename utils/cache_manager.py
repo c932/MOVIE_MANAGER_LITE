@@ -169,6 +169,7 @@ class CacheManager:
             'audio_codec': movie.audio_codec,
             'video_width': movie.video_width,
             'video_height': movie.video_height,
+            'subtitles': movie.subtitles,
             
             # 外部链接和ID
             'imdb_id': movie.imdb_id,
@@ -226,6 +227,7 @@ class CacheManager:
             audio_codec=data.get('audio_codec', ''),
             video_width=data.get('video_width', 0),
             video_height=data.get('video_height', 0),
+            subtitles=data.get('subtitles'),
             
             # 外部链接和ID
             imdb_id=data.get('imdb_id', ''),

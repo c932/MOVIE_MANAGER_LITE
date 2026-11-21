@@ -19,6 +19,7 @@ from parsers.nfo_parser import NFOParser
 from utils.poster_cache_manager import PosterCacheManager
 from utils.image_loader import ImageLoader
 from utils.network_mode import is_offline_cache_only
+from utils.subtitles import subtitle_summary
 from ui.tech_badges import TechBadges
 from pathlib import Path
 
@@ -1018,6 +1019,16 @@ class MovieDetailPanel(QWidget):
         except Exception as e:
             logger.error(f"播放失败: {e}")
 
+    def _open_subtitles(self, movie: Movie, button: QPushButton):
+        from ui.subtitle_dialog import SubtitleDialog
+        dialog = SubtitleDialog(movie, self)
+        dialog.exec()
+        if dialog.changed:
+            movie.subtitles = dialog.tracks
+            button.setToolTip(subtitle_summary(movie.subtitles))
+            self.movie_updated.emit(movie)
+        dialog.deleteLater()
+
     def _open_bilibili_search(self, movie: Movie):
         try:
             from utils.bilibili import open_bilibili_search
@@ -1094,6 +1105,13 @@ class MovieDetailPanel(QWidget):
         bili_play.triggered.connect(lambda: self._open_bilibili_play(movie))
         bili_btn.setMenu(bili_menu)
         layout.addWidget(bili_btn)
+
+        if movie.video_path and movie.nfo_path:
+            subtitle_button = QPushButton('字幕')
+            subtitle_button.setStyleSheet(btn_style)
+            subtitle_button.setToolTip(subtitle_summary(movie.subtitles))
+            subtitle_button.clicked.connect(lambda: self._open_subtitles(movie, subtitle_button))
+            layout.addWidget(subtitle_button)
         
         # 收藏按钮
         favorite_btn = QPushButton()

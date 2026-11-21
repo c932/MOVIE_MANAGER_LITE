@@ -31,6 +31,26 @@ export interface RankInfo {
   imdb_top250: number | null;
 }
 
+export interface SubtitleTrack { file: string; language: string }
+export interface SubtitleCandidate {
+  source: string;
+  id: string;
+  title: string;
+  release: string;
+  language: string;
+  page: string;
+  score: number;
+}
+export interface SubtitleSearch {
+  items: SubtitleCandidate[];
+  sources: {source: string; name: string; url: string; message: string}[];
+}
+export interface SubtitleDraft {
+  token: string;
+  tracks: {name: string; language: string}[];
+}
+export interface SubtitleUpdate { movie: MovieListItem; saved_name: string }
+
 export interface MovieListItem {
   id: string;
   title: string;
@@ -57,6 +77,7 @@ export interface MovieListItem {
   hdr_type: string;
   video_codec: string;
   audio_codec: string;
+  subtitles?: SubtitleTrack[] | null;
   imdb_id: string;
   tmdb_id: string;
   douban_url: string;

@@ -20,7 +20,7 @@ MOVIE_DTO_KEYS = (
     "id", "title", "original_title", "year", "premiered", "plot", "tagline",
     "runtime", "file_size", "set_name", "genres", "countries", "tags",
     "rating", "rating_source", "ratings", "user_rating", "watched", "favorite",
-    "directors", "actors", "resolution", "hdr_type", "video_codec", "audio_codec",
+    "directors", "actors", "resolution", "hdr_type", "video_codec", "audio_codec", "subtitles",
     "imdb_id", "tmdb_id", "douban_url", "video_path", "nfo_path", "poster_path",
     "fanart_path", "added_time", "has_poster", "has_fanart", "rank",
 )

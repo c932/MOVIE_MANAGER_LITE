@@ -11,6 +11,7 @@ vi.mock('../api/client', () => ({ movieApi: {
   list: vi.fn(), detail: vi.fn(), series: vi.fn(), allSeries: vi.fn(), systemInfo: vi.fn(), posterUrl: (id: string) => '/poster/' + id,
   proxyImageUrl: (url: string) => '/proxy/' + encodeURIComponent(url),
   playlistUrl: (id: string) => '/api/movie/movies/'+id+'/playlist.m3u8',
+  subtitleSearch: vi.fn(), subtitleDownload: vi.fn(), subtitleImport: vi.fn(), subtitleSave: vi.fn(), get: vi.fn(),
 } }));
 const movie = (id: string, title: string, premiered: string) => ({id, title, original_title: '', year: premiered.slice(0,4), premiered,
   plot: '完整剧情', tagline: '', runtime: '120', file_size: '', set_name: '', genres: ['动作'], countries: ['美国'], tags: [],
@@ -32,8 +33,39 @@ describe('电影墙交互', () => {
   it('首页提供 PC 版安装包下载', () => {
     render(<MovieWall />);
     const link = screen.getByRole<HTMLAnchorElement>('link', {name: '下载 PC 版'});
-    expect(link).toHaveAttribute('href', '/downloads/LocalMovieWall-3.6.3-win64.msi');
+    expect(link).toHaveAttribute('href', '/downloads/LocalMovieWall-3.7.0-win64.msi');
     expect(link).toHaveAttribute('download');
+  });
+  it('字幕来自已选候选，确认保存后更新海报卡语言', async () => {
+    vi.mocked(movieApi.subtitleSearch).mockResolvedValue({
+      items: [{source: 'subhd', id: 'a12', title: '第一部', release: 'First.2025.2160p', language: 'zh-Hans', page: 'https://subhdtw.com/a/a12', score: 100}],
+      sources: [{source: 'subhd', name: 'SubHD', url: 'https://subhdtw.com/search/第一部', message: ''}],
+    });
+    vi.mocked(movieApi.subtitleDownload).mockResolvedValueOnce({
+      verification_url: 'https://subhdtw.com/a/a12', message: '请完成网站验证',
+    });
+    vi.mocked(movieApi.subtitleImport).mockResolvedValue({token: 'preview', tracks: [{name: 'First.chs.srt', language: 'zh-Hans'}]});
+    vi.mocked(movieApi.subtitleSave).mockResolvedValue({job_id: 'subtitle-job'});
+    vi.mocked(movieApi.get).mockResolvedValue({status: 'done', result: {
+      movie: {...first, subtitles: [{file: '第一部.srt', language: 'zh-Hans'}]}, saved_name: '第一部.srt',
+    }} as Awaited<ReturnType<typeof movieApi.get>>);
+    render(<MovieWall />);
+    const intro = screen.getByTestId('movie-intro');
+    fireEvent.click(await within(intro).findByRole('button', {name: '字幕'}));
+    const dialog = screen.getByRole('dialog', {name: '第一部 · 字幕'});
+    const panel = within(dialog);
+    fireEvent.click(panel.getByRole('button', {name: '搜索'}));
+    await panel.findByText('First.2025.2160p');
+    fireEvent.click(panel.getByRole('button', {name: '下载'}));
+    expect(await panel.findByRole('link', {name: '打开原站验证'})).toHaveAttribute('href', 'https://subhdtw.com/a/a12');
+    const archive = new File(['字幕包'], 'subtitles.zip');
+    fireEvent.change(panel.getByLabelText(/导入字幕/), {target: {files: [archive]}});
+    const save = await panel.findByRole('button', {name: '保存到电影目录'});
+    expect(movieApi.subtitleSave).not.toHaveBeenCalled();
+    fireEvent.click(save);
+    await panel.findByText('已保存 第一部.srt');
+    expect(movieApi.subtitleSave).toHaveBeenCalledWith('a', 'preview', 0, 'zh-Hans');
+    expect(within(screen.getByTestId('poster-scroll')).getByText('字幕 简中')).toBeInTheDocument();
   });
   it('1333部电影只渲染可见行，滚动和打开详情不创建整库卡片', async () => {
     const many = Array.from({length:1333},(_,i)=>({...first,id:'movie-'+i,title:'电影'+i}));

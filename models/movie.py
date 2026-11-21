@@ -54,6 +54,7 @@ class Movie:
     audio_codec: str = ""  # 如 TrueHD, DTS-HD
     video_width: int = 0  # 0 表示未知，不代表标清；保留尺寸用于校验缓存中的分辨率。
     video_height: int = 0
+    subtitles: list[dict[str, str]] | None = None
     
     # 外部链接和ID
     imdb_id: str = ""  # IMDb ID

@@ -4,6 +4,7 @@ import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
 import { preferredRating, ratingNames } from '../../utils/movieDisplay';
 import { TechBadges } from './TechBadges';
+import { subtitleSummary } from '../../utils/subtitles';
 
 interface Props {
   movie: MovieListItem;
@@ -73,6 +74,10 @@ export const MovieCard = memo(function MovieCard({
           <span title={ratingNames[score.source as keyof typeof ratingNames]} className="rating-badge absolute left-1.5 top-1.5 rounded bg-black/75 px-1.5 py-0.5 text-xs text-gold">
             ★ {score.value.toFixed(1)}
           </span>
+        )}
+        {!!movie.subtitles?.length && (
+          <span className="absolute right-1.5 top-7 max-w-[90%] truncate rounded bg-black/75 px-1 py-0.5 text-2xs text-ink-50"
+            title={subtitleSummary(movie.subtitles)}>{subtitleSummary(movie.subtitles)}</span>
         )}
 
         {/* 底部标题条 */}

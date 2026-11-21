@@ -275,3 +275,15 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 - 网页只在用户点击「刷新榜单」时提交豆瓣热门、正在上映和即将上映的更新任务。Top250 的缓存期限为一天，年度榜单为七天，过期后后台刷新。所有榜单均提供手动刷新和错误提示。
 - `POST /discovery/series/refresh` → `{job_id}`；任务结果 `{updated,failed,settings_required,cached_posters,summary}`。按本地系列的 TMDB 锚点更新官方片单，中文站缺简介或海报时读取英文站补齐，已有评分和简介不被清空，并预存片单海报。未配置 TMDB 时只预存现有片单并返回 `settings_required:true`。多个锚点失败时保留上次片单；任务不修改电影库或 NAS/NFO。未入库成员会继续用公开 TMDB/豆瓣页补齐三站评分、中文简介、类型、国家、导演和演员。
 - `GET /proxy/image?url=…&prefer_cache=true` 优先读取已有远程图片缓存，缺失时回源。图片代理仅允许现有来源白名单，使用唯一临时文件写入缓存。
+
+## 本地字幕
+
+电影列表、详情和共享同步资料新增 `subtitles` 字段。数组元素为 `{file, language}`，外挂字幕仅记录文件名，空文件名代表 NFO 已记录的内嵌字幕。语言使用 `zh-Hans`、`zh-Hant`、`zh-en` 等代码，无法确认时为 `und`。`null` 为未检测，空数组表示未发现外挂或 NFO 中已记录的内嵌字幕。
+
+以下端点位于 `/movies/{id}/subtitles` 下，使用 `POST`：
+
+- `/search` 接收 `{query}`，返回 `{items, sources}`。候选带 `source`、`id`、`title`、`release`、`language`、`page` 和按影片文件名计算的 `score`。来源状态带站点搜索链接和错误说明。
+- `/download` 接收候选 `{source, id, language}`，下载成功返回 `{token, tracks:[{name, language}]}`，需要原站验证时返回 `{verification_url, message}`。
+- `/import` 接收 multipart 字段 `file`，返回与下载相同的字幕预览。单次包最大 48 MB，支持 ZIP、RAR、7z 及 SRT、ASS、SSA、VTT、文本 SUB、SMI、PGS SUP。压缩包成员不使用原路径写盘。
+- `/save` 接收 `{token, index, language}`，暂存凭证限定当前电影，15 分钟内有效。电影目录无外挂字幕时使用视频文件名，已有外挂时添加语言后缀，重名时添加数字。保存后更新 NFO `<mmlsubtitles>` 和电影库资料。
+- `/detect` 读取并更新库内字幕记录。`/sync` 将当前外挂字幕记录同步到 NFO 和共享电影库。两者与 `/save` 均返回 `{job_id}`，成功结果为 `{movie, saved_name}`。NAS 写入遵守共享的既有权限设置。

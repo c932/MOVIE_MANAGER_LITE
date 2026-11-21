@@ -111,6 +111,7 @@ def movie_to_dto(
         "hdr_type": movie.hdr_type or "",
         "video_codec": movie.video_codec or "",
         "audio_codec": movie.audio_codec or "",
+        "subtitles": movie.subtitles,
         "imdb_id": movie.imdb_id or "",
         "tmdb_id": movie.tmdb_id or "",
         "douban_url": movie.douban_url or "",
