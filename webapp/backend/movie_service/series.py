@@ -145,7 +145,7 @@ def refresh_series(store: MovieStore, settings: ScrapeSettings, ctx: JobContext)
     unowned_parts = [part for _, catalog, _, _ in catalogs
                      for part in catalog.get('parts', []) if part.get('tmdb_id') not in owned_tmdb_ids]
     ctx.update(stage='补齐系列资料', message=f'正在补齐 {len(unowned_parts)} 部未入库系列电影…')
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=12) as pool:
         enriched_parts = list(pool.map(enrich_part, unowned_parts))
     enriched_by_id = {part['tmdb_id']: part for part in enriched_parts}
     for _, catalog, _, _ in catalogs:
