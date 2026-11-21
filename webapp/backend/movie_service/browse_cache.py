@@ -89,6 +89,20 @@ def _cache_poster(url: str, cover_dir: Path) -> bool:
         return False
 
 
+def _preferred_plot(current: str, candidate: str) -> str:
+    if not candidate:
+        return current
+    if not current:
+        return candidate
+    candidate_chinese = bool(re.search(r"[\u4e00-\u9fff]", candidate))
+    current_chinese = bool(re.search(r"[\u4e00-\u9fff]", current))
+    if candidate_chinese and not current_chinese:
+        return candidate
+    if candidate_chinese == current_chinese and len(candidate) > len(current):
+        return candidate
+    return current
+
+
 def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], previous: list[RankedMovie],
                   library: list[Movie], settings: ScrapeSettings, ctx: JobContext) -> dict[str, int]:
     from scraper.imdb_ratings import ImdbRatings
@@ -168,7 +182,8 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
 
         douban_metadata = None
         needs_douban = not (detail.get('actors') and detail.get('genres')
-                            and detail.get('plot') and detail['ratings'].get('douban'))
+                            and re.search(r"[\u4e00-\u9fff]", detail.get('plot', ''))
+                            and detail['ratings'].get('douban'))
         if source == 'douban' and ident.isdigit() and needs_douban and not direct_douban_failed.is_set():
             try:
                 douban_metadata = douban.by_id(ident)
@@ -219,8 +234,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
             if public_douban:
                 detail['title'] = detail.get('title') or public_douban.title
                 detail['original_title'] = detail.get('original_title') or public_douban.original_title
-                if len(public_douban.plot) > len(detail.get('plot', '')):
-                    detail['plot'] = public_douban.plot
+                detail['plot'] = _preferred_plot(detail.get('plot', ''), public_douban.plot)
                 detail['directors'] = detail.get('directors') or public_douban.directors
                 detail['actors'] = detail.get('actors') or [
                     {'name': name, 'role': '', 'thumb': ''} for name in public_douban.actors
@@ -240,8 +254,7 @@ def enrich_top250(data_dir: Path, cover_dir: Path, rows: list[RankedMovie], prev
                 if public_tmdb:
                     detail['title'] = detail.get('title') or public_tmdb['title']
                     detail['original_title'] = detail.get('original_title') or public_tmdb['title']
-                    if len(public_tmdb['plot']) > len(detail.get('plot', '')):
-                        detail['plot'] = public_tmdb['plot']
+                    detail['plot'] = _preferred_plot(detail.get('plot', ''), public_tmdb['plot'])
                     detail['genres'] = detail.get('genres') or public_tmdb['genres']
                     detail['countries'] = detail.get('countries') or public_tmdb['countries']
                     detail['directors'] = detail.get('directors') or public_tmdb['directors']

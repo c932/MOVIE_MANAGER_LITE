@@ -236,6 +236,14 @@ def test_enrich_top250_keeps_cached_full_plot_over_short_quote(service_data_dir,
     assert detail['plot'] == '这是已经核实的完整电影简介。'
 
 
+def test_public_plot_prefers_chinese_over_longer_english():
+    from movie_service.browse_cache import _preferred_plot
+
+    assert _preferred_plot('A much longer English plot.', '中文简介。') == '中文简介。'
+    assert _preferred_plot('中文简介。', 'A much longer English plot.') == '中文简介。'
+    assert _preferred_plot('短中文', '更长一些的中文简介。') == '更长一些的中文简介。'
+
+
 def test_parse_subject_page_cleans_douban_summary():
     from movie_service.discovery import parse_subject_page
     page = '''<span property="v:itemreviewed">八仙！</span>
