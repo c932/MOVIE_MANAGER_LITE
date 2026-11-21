@@ -4,7 +4,7 @@ import { CircleCheck, Eye, FilePenLine, Image, Star, Trash2 } from 'lucide-react
 import { ActionIcon } from '../ActionIcon';
 import { movieApi } from '../../api/client';
 import type { MovieListItem } from '../../types/api';
-import { ratingOrder, ratingNames, ratingForSource } from '../../utils/movieDisplay';
+import { ratingOrder, ratingNames, ratingForSource, quarkSearchUrl } from '../../utils/movieDisplay';
 import doubanIcon from '../../assets/douban-icon.png';
 import doubanWordmark from '../../assets/douban-wordmark.png';
 import tmdbLogo from '../../assets/tmdb-logo.svg';
@@ -17,18 +17,24 @@ const ratingLogos = {douban: doubanWordmark, imdb: '/logo/imdb.png', tmdb: tmdbL
 
 interface Props {
   movie: MovieListItem | null;
-  movies: MovieListItem[];
-  onUpdated: (movie: MovieListItem) => void;
-  onDeleted: (id: string) => void;
-  onSeriesClick: (setName: string) => void;
-  onSelectSeriesMovie: (id: string) => void;
-  onRefreshPoster: (id: string) => void;
-  onEditFields: (movie: MovieListItem) => void;
+  external?: Pick<MovieListItem, 'title' | 'original_title' | 'year' | 'premiered' | 'plot' | 'ratings' | 'genres' | 'douban_url'> & {poster_url: string};
+  unreleased?: boolean;
+  posterFallback?: string;
+  movies?: MovieListItem[];
+  onUpdated?: (movie: MovieListItem) => void;
+  onDeleted?: (id: string) => void;
+  onSeriesClick?: (setName: string) => void;
+  onSelectSeriesMovie?: (id: string) => void;
+  onRefreshPoster?: (id: string) => void;
+  onEditFields?: (movie: MovieListItem) => void;
 }
 
 export function MovieDetail({
-  movie,
-  movies,
+  movie: local,
+  external,
+  unreleased = false,
+  posterFallback = '',
+  movies = [],
   onUpdated,
   onDeleted,
   onSeriesClick,
@@ -40,11 +46,13 @@ export function MovieDetail({
   const [ratingInput, setRatingInput] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [failedPoster, setFailedPoster] = useState('');
   const run = async (action: () => Promise<void>) => {
     setBusy(true); setError('');
     try { await action(); } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
 
+  const movie = local ?? external;
   if (!movie) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-ink-400">
@@ -53,56 +61,50 @@ export function MovieDetail({
     );
   }
 
-  const posterW = 280;
-  const posterH = 420;
-  const posterUrl = movie.has_poster
-    ? `${movieApi.posterUrl(movie.id, posterW, posterH, 'contain')}&v=${posterVersion}`
-    : null;
+  const localPoster = local?.has_poster ? `${movieApi.posterUrl(local.id, 280, 420, 'contain')}&v=${posterVersion}` : '';
+  const remotePoster = external?.poster_url || posterFallback;
+  const posterUrl = localPoster && localPoster !== failedPoster ? localPoster
+    : remotePoster ? movieApi.proxyImageUrl(remotePoster, true) : '';
 
   const toggleWatched = async () => {
-    const updated = await movieApi.setWatched(movie.id, !movie.watched);
-    onUpdated(updated);
+    if (local) onUpdated?.(await movieApi.setWatched(local.id, !local.watched));
   };
 
   const toggleFavorite = async () => {
-    const updated = await movieApi.setFavorite(movie.id, !movie.favorite);
-    onUpdated(updated);
+    if (local) onUpdated?.(await movieApi.setFavorite(local.id, !local.favorite));
   };
 
   const submitRating = async () => {
     const r = parseFloat(ratingInput);
     if (isNaN(r) || r < 0 || r > 10) { setError('请输入 0–10 分'); return; }
-    const updated = await movieApi.setRating(movie.id, r);
-    onUpdated(updated);
+    if (local) onUpdated?.(await movieApi.setRating(local.id, r));
     setRatingInput('');
   };
 
   const handleRefreshPoster = async () => {
-    await movieApi.invalidatePoster(movie.id);
+    if (!local) return;
+    await movieApi.invalidatePoster(local.id);
     setPosterVersion((v) => v + 1);
-    onRefreshPoster(movie.id);
-  };
-
-  const handleDelete = async () => {
-    onDeleted(movie.id);
+    onRefreshPoster?.(local.id);
   };
 
   return (
     <div className="flex h-full gap-4 overflow-y-auto p-4 max-sm:flex-col">
       {/* 左：海报 */}
       <div className="shrink-0">
-        {posterUrl ? (
+        {posterUrl && posterUrl !== failedPoster ? (
           <img
             src={posterUrl}
             alt={movie.title}
             className="rounded-lg shadow-2xl ring-1 ring-ink-700"
             style={{ width: 'min(28vw, 220px)', aspectRatio: '2/3', objectFit: 'contain' }}
             draggable={false}
+            onError={() => setFailedPoster(posterUrl)}
           />
         ) : (
           <div
             className="flex items-center justify-center rounded-lg bg-ink-800 text-sm text-ink-400 ring-1 ring-ink-700"
-            style={{ width: posterW, height: posterH }}
+            style={{ width: 'min(28vw, 220px)', aspectRatio: '2/3' }}
           >
             无海报
           </div>
@@ -114,16 +116,17 @@ export function MovieDetail({
         {error && <p role="alert" className="text-red-400">{error}</p>}
         {/* 标题 */}
         <div>
-          <h2 className="text-xl font-semibold text-ink-50">{movie.title}</h2>
+          <h2 className="text-xl font-semibold text-ink-50">{movie.title}{unreleased && '（未上映）'}</h2>
           {movie.original_title && movie.original_title !== movie.title && (
             <p className="text-sm text-ink-300">{movie.original_title}</p>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-ink-300">
-            {movie.year && <span>{movie.year}</span>}
-            {movie.runtime && <span>{movie.runtime} 分钟</span>}
-            {movie.file_size && <span>{movie.file_size}</span>}
+            {(movie.premiered || movie.year) && <span>{movie.premiered || movie.year}</span>}
+            {local?.runtime && <span>{local.runtime} 分钟</span>}
+            {local?.file_size && <span>{local.file_size}</span>}
+            {!local && <span>未入库</span>}
           </div>
-          <div className="mt-3"><TechBadges resolution={movie.resolution} hdrType={movie.hdr_type} /></div>
+          {local && <div className="mt-3"><TechBadges resolution={local.resolution} hdrType={local.hdr_type} /></div>}
         </div>
 
         {/* 评分卡片 */}
@@ -138,16 +141,16 @@ export function MovieDetail({
         </div>
 
         {/* 榜单排名 */}
-        {movie.rank && (movie.rank.douban_top250 || movie.rank.imdb_top250) && (
+        {local?.rank && (local.rank.douban_top250 || local.rank.imdb_top250) && (
           <div className="flex gap-2">
-            {movie.rank.douban_top250 && (
+            {local.rank.douban_top250 && (
               <span className="rounded-full bg-cinema-800/40 px-2.5 py-1 text-xs text-cinema-400">
-                豆瓣 Top250 #{movie.rank.douban_top250}
+                豆瓣 Top250 #{local.rank.douban_top250}
               </span>
             )}
-            {movie.rank.imdb_top250 && (
+            {local.rank.imdb_top250 && (
               <span className="rounded-full bg-ink-700 px-2.5 py-1 text-xs text-gold">
-                IMDb Top250 #{movie.rank.imdb_top250}
+                IMDb Top250 #{local.rank.imdb_top250}
               </span>
             )}
           </div>
@@ -160,7 +163,7 @@ export function MovieDetail({
               {g}
             </span>
           ))}
-          {movie.countries.map((c) => (
+          {local?.countries.map((c) => (
             <span key={c} className="tag">
               {c}
             </span>
@@ -168,46 +171,46 @@ export function MovieDetail({
         </div>
 
         {/* 简介 */}
-        {movie.plot && (
-          <p className="text-sm leading-relaxed text-ink-200">{movie.plot}</p>
-        )}
+        {(movie.plot || !local) && <p className="text-sm leading-relaxed text-ink-200">{movie.plot || '片源暂未提供简介。'}</p>}
 
         {/* 导演/演员 */}
-        <div className="space-y-1 text-xs">
-          {movie.directors.length > 0 && (
+        {local && <div className="space-y-1 text-xs">
+          {local.directors.length > 0 && (
             <div>
               <span className="text-ink-400">导演：</span>
-              <span className="text-ink-200">{movie.directors.join(' / ')}</span>
+              <span className="text-ink-200">{local.directors.join(' / ')}</span>
             </div>
           )}
-          {movie.actors.length > 0 && (
+          {local.actors.length > 0 && (
             <div>
               <span className="text-ink-400">主演：</span>
               <span className="text-ink-200">
-                {movie.actors.slice(0, 8).map((a) => a.name).join(' / ')}
+                {local.actors.slice(0, 8).map((a) => a.name).join(' / ')}
               </span>
             </div>
           )}
-        </div>
+        </div>}
 
         {/* 系列电影 */}
-        {movie.set_name && <SeriesShortcuts movie={movie} movies={movies} onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />}
+        {local?.set_name && onSelectSeriesMovie && onSeriesClick && <SeriesShortcuts movie={local} movies={movies} onSelect={onSelectSeriesMovie} onSeriesClick={onSeriesClick} />}
 
         {/* 按钮栏 */}
         <div className="movie-detail-actions mt-auto flex flex-wrap items-center gap-1.5 border-t divider pt-3">
-          {movie.video_path && <LocalPlayback movie={movie}/>}
+          {local?.video_path && <LocalPlayback movie={local}/>}
+          {!local && <a className="btn" href={quarkSearchUrl(movie.title)} target="_blank" rel="noopener noreferrer">打开夸克盘搜</a>}
           <BilibiliActions title={movie.title} originalTitle={movie.original_title} year={movie.year}/>
+          {local && <>
           <button
-            className={`btn ${movie.watched ? 'btn-active' : ''}`}
+            className={`btn ${local.watched ? 'btn-active' : ''}`}
             onClick={() => run(toggleWatched)} disabled={busy}
           >
-            <ActionIcon icon={movie.watched ? CircleCheck : Eye} /> {movie.watched ? '已观看' : '标记观看'}
+            <ActionIcon icon={local.watched ? CircleCheck : Eye} /> {local.watched ? '已观看' : '标记观看'}
           </button>
           <button
-            className={`btn ${movie.favorite ? 'btn-active text-gold' : ''}`}
+            className={`btn ${local.favorite ? 'btn-active text-gold' : ''}`}
             onClick={() => run(toggleFavorite)} disabled={busy}
           >
-            <ActionIcon icon={Star} className={movie.favorite ? 'fill-current' : ''} /> {movie.favorite ? '已收藏' : '收藏'}
+            <ActionIcon icon={Star} className={local.favorite ? 'fill-current' : ''} /> {local.favorite ? '已收藏' : '收藏'}
           </button>
 
           {/* 评分输入 */}
@@ -218,7 +221,7 @@ export function MovieDetail({
               min={0}
               max={10}
               step={0.5}
-              placeholder={movie.user_rating > 0 ? movie.user_rating.toFixed(1) : '评分'}
+              placeholder={local.user_rating > 0 ? local.user_rating.toFixed(1) : '评分'}
               value={ratingInput}
               onChange={(e) => setRatingInput(e.target.value)}
               aria-label="我的评分" onKeyDown={(e) => e.key === 'Enter' && run(submitRating)}
@@ -231,9 +234,10 @@ export function MovieDetail({
           <button className="btn" disabled={busy} onClick={() => run(handleRefreshPoster)} title="刷新后端保存的海报副本">
             <ActionIcon icon={Image} /> 更新海报
           </button>
-          <button className="btn" onClick={() => onEditFields(movie)}>
+          <button className="btn" onClick={() => onEditFields?.(local)}>
             <ActionIcon icon={FilePenLine} /> 属性
           </button>
+          </>}
           {movie.douban_url && (
             <a
               className="btn"
@@ -244,14 +248,14 @@ export function MovieDetail({
               <img className="action-icon rounded-sm" alt="" src={doubanIcon} /> 豆瓣
             </a>
           )}
-          <button
+          {local && <button
             className="btn text-red-400 hover:bg-red-900/30"
-            onClick={handleDelete}
+            onClick={() => onDeleted?.(local.id)}
           >
             <ActionIcon icon={Trash2} /> 删除
-          </button>
+          </button>}
         </div>
-        <p className="break-all text-xs text-ink-400">文件：{movie.video_path || '未记录'}</p>
+        {local && <p className="break-all text-xs text-ink-400">文件：{local.video_path || '未记录'}</p>}
       </div>
     </div>
   );

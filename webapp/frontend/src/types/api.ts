@@ -110,6 +110,9 @@ export interface NASStatus { available: boolean; connections: NASConnection[]; l
 export interface NASDirectories { path: string; directories: { name: string; path: string }[] }
 
 export interface RankingItem {
+  plot?: string;
+  premiered?: string;
+  rating_source?: 'douban' | 'imdb';
   douban_id?: string;
   douban_url?: string;
   rank: number;
@@ -132,6 +135,7 @@ export interface RankingResponse {
 }
 
 export interface NewMovieItem {
+  plot?: string;
   douban_id?: string;
   title: string;
   year: string;
@@ -160,6 +164,7 @@ export interface AnnualResponse {
 }
 
 export interface SeriesMovie {
+  plot?: string;
   title: string;
   original_title: string;
   year: string;

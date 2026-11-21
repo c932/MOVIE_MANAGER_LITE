@@ -331,6 +331,12 @@ def run_rankings_fetch(
     # 保存到缓存（合并模式：未请求的来源保留旧缓存）
     if any(not items for source, items in (("top250", top250), ("chart", chart), ("imdb_top250", imdb_top250)) if source in sources):
         raise ValueError('榜单来源未返回有效资料，请稍后重试；旧缓存已保留。')
+
+    from .browse_cache import warm_browse
+    warm_browse(store.settings.data_dir, store.settings.cover_cache_dir, (
+        {'poster_url': item.poster_url, 'douban_id': item.douban_id, 'plot': item.plot}
+        for item in top250 + chart + imdb_top250
+    ), ctx)
     if top250 or chart:
         with store.lock:
             save_ranking_cache(top250, chart, imdb_top250 or None, cache_path=cache_path)
@@ -416,8 +422,12 @@ def run_newmovies_fetch(
     # 保存缓存（合并：未请求的来源保留旧缓存）
     save_nowplaying = nowplaying or (cached_nowplaying if not use_cache else [])
     save_coming = coming or (cached_coming if not use_cache else [])
+
+    from .browse_cache import warm_browse
+    warm_browse(store.settings.data_dir, store.settings.cover_cache_dir, (
+        {'poster_url': item.poster_url, 'douban_id': item.douban_id} for item in nowplaying + coming
+    ), ctx)
     if save_nowplaying or save_coming:
         with store.lock:
             save_new_movie_cache(save_nowplaying, save_coming, cache_path=cache_path)
-
     return _finish(nowplaying + coming, False)

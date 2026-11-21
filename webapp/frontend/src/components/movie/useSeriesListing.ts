@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { movieApi } from '../../api/client';
-import type { MovieListItem, SeriesListing } from '../../types/api';
+import type { MovieListItem, SeriesListing, SeriesMovie } from '../../types/api';
 import { preferredRating } from '../../utils/movieDisplay';
+
+export function localSeriesMovie(movie: MovieListItem): SeriesMovie {
+  return {title: movie.title, original_title: movie.original_title, year: movie.year,
+    premiered: movie.premiered, tmdb_id: movie.tmdb_id, rating: preferredRating(movie).value,
+    poster_url: '', movie_id: movie.id, plot: movie.plot};
+}
 
 export function useSeriesListing(name: string, movies: MovieListItem[]) {
   const [result, setResult] = useState<{name: string; listing?: SeriesListing} | null>(null);
@@ -18,8 +24,6 @@ export function useSeriesListing(name: string, movies: MovieListItem[]) {
   const current = result?.name === name ? result : null;
   const items = current?.listing?.items ?? movies.filter(movie => name && movie.set_name === name)
     .sort((a, b) => (a.premiered || a.year || '9999').localeCompare(b.premiered || b.year || '9999'))
-    .map(movie => ({title: movie.title, original_title: movie.original_title, year: movie.year,
-      premiered: movie.premiered, tmdb_id: movie.tmdb_id, rating: preferredRating(movie).value,
-      poster_url: '', movie_id: movie.id}));
+    .map(localSeriesMovie);
   return {items, source: current?.listing?.source, loading: !!name && !current};
 }

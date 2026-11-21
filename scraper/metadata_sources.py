@@ -137,6 +137,7 @@ class TmdbProvider:
             parts.append({'tmdb_id': candidate.id, 'title': candidate.title,
                           'original_title': candidate.original_title, 'year': candidate.year,
                           'premiered': _text(item.get('release_date')),
+                          'plot': _text(item.get('overview')),
                           'rating': _score(item.get('vote_average')) or 0,
                           'poster_url': _image(item.get('poster_path'), 'w342')})
         if _text(result.get('id')) != collection_id or not any(part['tmdb_id'] == identity for part in parts):

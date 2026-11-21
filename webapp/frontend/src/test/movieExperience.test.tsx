@@ -8,7 +8,7 @@ import { LocalPlayback } from '../components/movie/LocalPlayback';
 import type { MovieListItem } from '../types/api';
 
 vi.mock('../api/client', () => ({ movieApi: {
-  list: vi.fn(), detail: vi.fn(), series: vi.fn(), systemInfo: vi.fn(), posterUrl: (id: string) => '/poster/' + id,
+  list: vi.fn(), detail: vi.fn(), series: vi.fn(), allSeries: vi.fn(), systemInfo: vi.fn(), posterUrl: (id: string) => '/poster/' + id,
   proxyImageUrl: (url: string) => '/proxy/' + encodeURIComponent(url),
   playlistUrl: (id: string) => '/api/movie/movies/'+id+'/playlist.m3u8',
 } }));
@@ -112,10 +112,13 @@ describe('电影墙交互', () => {
     const result = await movieApi.list();
     vi.mocked(movieApi.list).mockResolvedValue({...result, movies: members});
     vi.mocked(movieApi.detail).mockImplementation(async id => members.find(movie => movie.id === id)!);
-    vi.mocked(movieApi.series).mockResolvedValue({name, source: 'tmdb', items: [
+    const listing = {name, source: 'tmdb' as const, items: [
       ...members.map(movie => ({...movie, movie_id: movie.id, poster_url: ''})),
-      {...members[0], title: '缺少的续集', movie_id: null, tmdb_id: '333', poster_url: 'https://image.tmdb.org/t/p/w342/movie.jpg', rating: 8.4},
-    ]});
+      {...members[0], title: '缺少的续集', movie_id: null, tmdb_id: '333', poster_url: 'https://image.tmdb.org/t/p/w342/movie.jpg', rating: 8.4, plot: '已缓存的续集剧情'},
+    ]};
+    vi.mocked(movieApi.series).mockResolvedValue(listing);
+    vi.mocked(movieApi.allSeries).mockResolvedValue({groups: [listing,
+      {name: '其他系列', source: 'tmdb', items: [{...listing.items[2], title: '另一部电影', tmdb_id: '444'}]}]});
     render(<MovieWall />);
     const intro = screen.getByTestId('movie-intro');
     const shortcuts = await within(intro).findByRole('region', {name: '系列各部'});
@@ -125,9 +128,16 @@ describe('电影墙交互', () => {
     fireEvent.click(screen.getByRole('button', {name: '系列电影'}));
     const series = await screen.findByRole('dialog', {name: '系列、榜单与新片'});
     const missing = await within(series).findByRole('article', {name: '缺少的续集'});
+    expect(within(series).getByRole('region', {name: '其他系列'})).toBeInTheDocument();
     expect(missing).toHaveTextContent('8.4');
     expect(within(missing).getAllByRole('link').map(link => link.textContent?.trim())).toEqual(['夸克盘搜', 'B站播放']);
-    expect(within(missing).queryByRole('button')).not.toBeInTheDocument();
+    fireEvent.click(within(missing).getByRole('button'));
+    const unownedDetail = await screen.findByRole('dialog', {name: '缺少的续集 · 电影简介'});
+    expect(within(unownedDetail).getByText('已缓存的续集剧情')).toBeInTheDocument();
+    fireEvent.click(within(unownedDetail).getByRole('button', {name: '关闭电影详情'}));
+    await waitFor(() => expect(unownedDetail).not.toBeInTheDocument());
+    fireEvent.change(within(series).getByRole('searchbox'), {target: {value: name}});
+    expect(within(series).queryByRole('region', {name: '其他系列'})).not.toBeInTheDocument();
     const local = within(series).getByRole('article', {name: second.title});
     expect(within(local).getByRole('link', {name: '本地播放'})).toBeInTheDocument();
     series.scrollTop = 240;
@@ -138,7 +148,7 @@ describe('电影墙交互', () => {
     fireEvent.click(within(detail).getByRole('button', {name: '关闭电影详情'}));
     await waitFor(() => expect(detail).not.toBeInTheDocument());
     expect(screen.getByRole('dialog', {name: '系列、榜单与新片'})).toBe(series);
-    expect(within(series).getByRole('combobox', {name: '系列'})).toHaveValue(name);
+    expect(within(series).getByRole('searchbox')).toHaveValue(name);
     expect(series.scrollTop).toBe(240);
   });
   it('全屏入口由点击触发，仍可退出', async () => {

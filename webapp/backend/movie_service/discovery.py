@@ -169,6 +169,9 @@ def refresh_annual(data_dir: Path, year: int, ctx) -> dict:
         response = json.loads(fetch_text(f'https://movie.douban.com/ithil_j/activity/{legacy.group(1)}?with_widgets=1'))
         data = normalize_legacy(response.get('res') or {})
     result = parse_annual(data, year)
+    from .browse_cache import warm_browse
+    warm_browse(data_dir, data_dir / 'web_cache' / 'covers',
+                (item for category in result['categories'] for item in category['items']), ctx)
     ctx.check_cancelled()
     atomic_json(annual_path(data_dir, year), result)
     return {'year': year, 'categories': len(result['categories'])}
@@ -179,8 +182,10 @@ def subject_detail(data_dir: Path, did: str, ctx) -> dict:
     cached = read_json(path, {})
     if cached.get('plot') and time.time() - cached.get('fetched_at', 0) < 86400:
         return cached
-    ctx.update(message='正在读取电影简介…')
+    if ctx:
+        ctx.update(message='正在读取电影简介…')
     result = parse_subject_page(fetch_subject_page(did), did)
-    ctx.check_cancelled()
+    if ctx:
+        ctx.check_cancelled()
     atomic_json(path, result)
     return result

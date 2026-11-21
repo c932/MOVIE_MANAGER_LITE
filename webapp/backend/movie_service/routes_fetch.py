@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 from wall_common.images import ImageError, cached_remote
 
+from .browse_cache import allowed_poster, cached_plot
 from .deps import get_store
 from .store import movie_id
 from .tasks import (
@@ -39,10 +40,6 @@ router = APIRouter()
 
 RANKING_KINDS: Sequence[str] = ("top250", "chart", "imdb_top250")
 NEW_MOVIE_KINDS: Sequence[str] = ("nowplaying", "coming")
-
-# 图片代理 host 白名单（契约 2.2）
-IMAGE_PROXY_HOSTS = ("douban.com", "doubanio.com", "imdb.com", "media-amazon.com", "tmdb.org")
-
 
 class ScrapeRequest(BaseModel):
     ids: List[str]
@@ -128,6 +125,9 @@ def _ranked_items(store, ranked: List[Any]) -> List[Dict[str, Any]]:
                 "year": str(rm.year or ""),
                 "rating": float(rm.rating or 0.0),
                 "poster_url": rm.poster_url or "",
+                "plot": (matched.plot if matched else '') or rm.plot or cached_plot(store.settings.data_dir, rm.douban_id),
+                "premiered": rm.premiered or '',
+                "rating_source": 'imdb' if rm.source == 'imdb_top250' else 'douban',
                 "douban_id": rm.douban_id if rm.source != 'imdb_top250' else '',
                 "douban_url": f'https://movie.douban.com/subject/{rm.douban_id}/' if rm.douban_id and rm.source != 'imdb_top250' else '',
                 "owned": is_owned,
@@ -217,6 +217,7 @@ def get_newmovies(request: Request, kind: str) -> Dict[str, Any]:
                 "year": str(nm.year or ""),
                 "genre": " / ".join(nm.genres or []),
                 "release_date": nm.premiered or "",
+                "plot": (matched.plot if matched else '') or cached_plot(store.settings.data_dir, nm.douban_id),
                 "poster_url": nm.poster_url or "",
                 "douban_url": (
                     f"https://movie.douban.com/subject/{nm.douban_id}/"
@@ -271,22 +272,23 @@ def _sniff_media_type(data: bytes) -> str:
 
 
 @router.get("/proxy/image")
-def proxy_image(request: Request, url: str = Query(...)) -> Response:
+def proxy_image(request: Request, url: str = Query(...), prefer_cache: bool = False) -> Response:
     """代理外网图片（仅白名单 host；缓存到本数据目录）。"""
     st = request.app.state.settings
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError as exc:
+        raise HTTPException(400, "图片地址格式无效") from exc
     if parsed.scheme not in ("http", "https"):
         raise HTTPException(status_code=400, detail="仅支持 http/https 图片地址")
 
     hostname = (parsed.hostname or "").lower()
-    if not any(
-        hostname == host or hostname.endswith("." + host)
-        for host in IMAGE_PROXY_HOSTS
-    ):
+    if not allowed_poster(url):
         raise HTTPException(status_code=400, detail=f"不允许的图片来源: {hostname or url}")
 
     try:
-        cached = cached_remote(url, st.cover_cache_dir)
+        cached = (cached_remote(url, st.cover_cache_dir, ttl=float('inf')) if prefer_cache
+                  else cached_remote(url, st.cover_cache_dir))
         data = cached.read_bytes()
     except ImageError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc

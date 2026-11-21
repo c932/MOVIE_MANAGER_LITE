@@ -54,6 +54,7 @@ export const jobsApi = (prefix: string) => ({
 // ── 电影墙 ────────────────────────────────────────────
 export const movieApi = {
   series: (name: string) => request<import('../types/api').SeriesListing>(`/api/movie/discovery/series?${new URLSearchParams({name})}`),
+  allSeries: () => request<{groups: import('../types/api').SeriesListing[]}>('/api/movie/discovery/series'),
   annual: (year: number) => request<import('../types/api').AnnualResponse>(`/api/movie/discovery/annual/${year}`),
   refreshAnnual: (year: number) => request<{job_id: string}>(`/api/movie/discovery/annual/${year}/refresh`, {method: 'POST'}),
   subject: (id: string) => request<{job_id: string}>(`/api/movie/discovery/subject/${id}`, {method: 'POST'}),
@@ -143,7 +144,7 @@ export const movieApi = {
       method: 'POST',
       body: JSON.stringify({ sources, use_cache: useCache }),
     }),
-  proxyImageUrl: (url: string) => `/api/movie/proxy/image?url=${encodeURIComponent(url)}`,
+  proxyImageUrl: (url: string, preferCache = false) => `/api/movie/proxy/image?url=${encodeURIComponent(url)}${preferCache ? '&prefer_cache=true' : ''}`,
   systemInfo: () =>
     request<{ service: string; node: boolean; npx: boolean; data_dir: string; source_available: boolean; nas_connected: boolean; nas_configured: boolean; nas_library_count: number; sync: boolean }>(
       '/api/movie/system/info',

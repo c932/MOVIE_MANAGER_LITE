@@ -55,7 +55,8 @@ def series_listing(data_dir: Path, name: str, members: list[Movie], library: lis
             items.append({**part, 'movie_id': None})
         else:
             matched.add(movie.nfo_path)
-            items.append(_local_row(movie, poster_url=part['poster_url'], catalog_score=part['rating']))
+            items.append(_local_row(movie, poster_url=part['poster_url'], catalog_score=part['rating'],
+                                    catalog_plot=part.get('plot', '')))
     items.extend(_local_row(movie) for movie in members if movie.nfo_path not in matched)
     items.sort(key=lambda row: (row['premiered'] or row['year'] or '9999', row['title']))
     return {'name': name, 'source': 'tmdb' if parts else 'local', 'items': items}
@@ -65,10 +66,11 @@ def _movie_order(movie: Movie) -> str:
     return movie.premiered or movie.year or '9999'
 
 
-def _local_row(movie: Movie, *, poster_url: str = '', catalog_score: float = 0) -> dict[str, Any]:
+def _local_row(movie: Movie, *, poster_url: str = '', catalog_score: float = 0,
+               catalog_plot: str = '') -> dict[str, Any]:
     rating, _ = preferred_rating(movie)
     if not rating:
         rating = movie.ratings.get('themoviedb') or catalog_score
     return {'movie_id': movie_id(movie.nfo_path), 'tmdb_id': movie.tmdb_id, 'title': movie.title,
             'original_title': movie.original_title, 'year': movie.year, 'premiered': movie.premiered,
-            'rating': rating, 'poster_url': poster_url}
+            'rating': rating, 'poster_url': poster_url, 'plot': movie.plot or catalog_plot}

@@ -2,7 +2,7 @@ import type { MovieListItem } from '../types/api';
 export const ratingOrder = ['douban', 'imdb', 'tmdb'] as const;
 export const ratingNames = { douban: '豆瓣', imdb: 'IMDb', tmdb: 'TMDB' };
 
-export function ratingForSource(movie: MovieListItem, source: typeof ratingOrder[number]) {
+export function ratingForSource(movie: Pick<MovieListItem, 'ratings'>, source: typeof ratingOrder[number]) {
   const score = Number(movie.ratings?.[source]);
   if (score > 0 && score <= 10) return score;
   if (source === 'tmdb') {

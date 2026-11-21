@@ -44,11 +44,43 @@ def test_annual_refresh_and_detail_are_read_only(service_data_dir, monkeypatch):
         assert job['status'] == 'done', job
         body = client.get('/api/movie/discovery/annual/2025').json()
         assert body['categories'][0]['items'][0]['title'] == '电影'
+        assert body['categories'][0]['items'][0]['plot'] == '真实简介'
         assert len(calls) == 2
         job = wait_job(client, client.post('/api/movie/discovery/subject/123').json()['job_id'])
         assert job['result']['plot'] == '真实简介'
         assert client.get('/api/movie/movies').json()['movies'] == []
         assert client.post('/api/movie/discovery/subject/not-id').status_code == 400
+
+
+def test_browse_warmup_reuses_success_and_isolates_failed_sources(service_data_dir, monkeypatch):
+    from movie_service import browse_cache, discovery
+    from utils.library_sync import atomic_json
+    from wall_common.images import ImageError
+
+    image = 'https://img3.doubanio.com/poster.jpg'
+    attempted = []
+
+    def poster(url, cache_dir, **kwargs):
+        attempted.append(url)
+        assert kwargs['ttl'] == float('inf')
+        raise ImageError('图片暂不可用', status_code=502)
+
+    def subject(data_dir, did, ctx):
+        attempted.append(did)
+        raise ValueError('没有公开简介')
+
+    atomic_json(service_data_dir / 'discovery' / 'subject-123.json', {'plot': '原简介'})
+    monkeypatch.setattr(browse_cache, 'cached_remote', poster)
+    monkeypatch.setattr(discovery, 'subject_detail', subject)
+    result = browse_cache.warm_browse(service_data_dir, service_data_dir / 'covers', [
+        {'poster_url': image, 'douban_id': '123', 'plot': '其他简介'},
+        {'poster_url': image, 'douban_id': '456'},
+        {'poster_url': 'https://[invalid', 'imdb_id': 'tt890', 'plot': 'IMDb 剧情'},
+    ])
+    assert result == {'posters': 0, 'poster_total': 1, 'plots': 2, 'plot_total': 3}
+    assert sorted(attempted) == ['456', image]
+    assert browse_cache.cached_plot(service_data_dir, '123') == '原简介'
+    assert browse_cache.cached_plot(service_data_dir, 'tt890') == 'IMDb 剧情'
 
 
 def test_parse_subject_page_cleans_douban_summary():

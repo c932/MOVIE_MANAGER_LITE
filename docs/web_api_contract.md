@@ -265,12 +265,12 @@ NUC 部署：`http://movie.nuc.local`，FastAPI 仅监听 `127.0.0.1:8010`。网
 
 ## 榜单发现接口（2026-11-17）
 
-- `GET /discovery/series?name=系列名` → `{name,source,items}`。`source` 为 `tmdb` 或 `local`，`items` 按上映时间排序，字段为 `title`、`original_title`、`year`、`premiered`、`rating`、`poster_url`、`movie_id`、`tmdb_id`。以库内电影的 TMDB ID 查询官方片单，通过 TMDB ID 与整个库匹配，未入库时 `movie_id` 为 `null`。公开片单缓存位于 `series_collections/`，服务端已配置 TMDB 时在缓存过期后补取，读取失败时沿用已有片单。未知本地系列返回 404。此接口不修改电影库或 NFO。
-- 榜单与新片条目补充 `douban_id`；榜单补充 `douban_url`。已入库返回 `movie_id`，网页直接复用本地详情与播放。
+- `GET /discovery/series` → `{groups:[{name,source,items}]}`，一次读取全部本地系列及缓存片单。带 `?name=系列名` 时返回单一分组，未知系列返回 404。`source` 为 `tmdb` 或 `local`，成员按上映时间排序，包含 `title`、`original_title`、`year`、`premiered`、`rating`、`poster_url`、`plot`、`movie_id`、`tmdb_id`。未入库成员的 `movie_id` 为 `null`。单一分组在配置 TMDB 后可补取过期片单，失败时沿用 `series_collections/` 中已有缓存。
+- 榜单与新片条目包含 `douban_id`、`douban_url` 和已缓存的 `plot`，榜单另返回 `premiered` 与 `rating_source`。无可用简介时 `plot` 为空。已入库返回 `movie_id`，网页复用详情与本地播放。
 - `GET /rankings/{kind}` 只读缓存。`fetched_at` 优先使用该来源独立时间戳，旧缓存没有独立时间戳时返回 0 并保留条目。独立时间戳用于判断该来源的缓存新鲜度。
-- `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源仍为 `rankings.fetch`；不同来源不会误复用同一任务。热门只抓列表，简介按需读取，避免每次刷新等待几十个详情请求。来源空响应报错，保留旧缓存。成功保存用锁及原子替换。
+- `POST /rankings/fetch` 单来源任务 kind 为 `rankings.fetch.来源`，多来源为 `rankings.fetch`。来源空响应报错并保留旧缓存。榜单、新片和年度的刷新任务预存可用海报及简介，部分图文获取失败时仍可浏览片单。
 - `GET /discovery/annual/{year}` → `{year,fetched_at,source_url?,categories:[{id,title,items:RankingItem[]}]}`。无缓存返回空categories；只读，无隐式网络。年度必须已结束。
 - `POST /discovery/annual/{year}/refresh` → `{job_id}`；官方页面动态发现新版page ID或旧版activity名，按年份独立缓存。网页开放已验证可用的2019年起年度；2018及更早官方接口当前不可用。来源不可用时报中文错误、保留原缓存。
-- `POST /discovery/subject/{douban_id}` → `{job_id}`；任务result为 `{title,plot,douban_id,fetched_at}`，简介缓存一天。服务端读取豆瓣条目正文；遇到页面自动安全检查时完成页面自带的证明工作后继续，结果只读发现，不创建本库电影、不写NAS/NFO。网页中已入库电影的整卡点击打开同等详情浮窗，榜单弹窗和滚动位置保持。
+- `POST /discovery/subject/{douban_id}` → `{job_id}`；任务结果为 `{title,plot,douban_id,fetched_at}`。网页榜单详情直接显示列表附带的简介，关闭详情后保留来源、筛选和滚动位置。
 - 网页只在用户点击「刷新榜单」时提交豆瓣热门、正在上映和即将上映的更新任务。Top250 的缓存期限为一天，年度榜单为七天，过期后后台刷新。所有榜单均提供手动刷新和错误提示。
-- 豆瓣图片使用浏览器UA、豆瓣Referer及图片Accept；图片代理白名单增加IMDb官方media-amazon.com图片域名，仍拒绝任意主机。远程缓存并发使用唯一临时文件。
+- `GET /proxy/image?url=…&prefer_cache=true` 优先读取已有远程图片缓存，缺失时回源。图片代理仅允许现有来源白名单，使用唯一临时文件写入缓存。

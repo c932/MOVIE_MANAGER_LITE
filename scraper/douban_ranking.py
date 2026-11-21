@@ -42,6 +42,7 @@ class RankedMovie:
     source: str  # "top250" or "chart" or "imdb_top250"
     poster_url: str = ""
     premiered: str = ""  # 完整上映日期，如 "2025-11-27"
+    plot: str = ""
 
 
 # ─────────────────── 匹配工具函数 ───────────────────
@@ -467,7 +468,7 @@ def _movie_to_dict(m: RankedMovie) -> dict:
     return {
         "title": m.title, "year": m.year, "rating": m.rating,
         "douban_id": m.douban_id, "rank": m.rank, "source": m.source,
-        "poster_url": m.poster_url, "premiered": m.premiered,
+        "poster_url": m.poster_url, "premiered": m.premiered, "plot": m.plot,
     }
 
 
@@ -477,7 +478,7 @@ def _dict_to_movie(d: dict, source: str = "top250") -> RankedMovie:
         rating=float(d.get("rating", 0) or 0), douban_id=d.get("douban_id", ""),
         rank=int(d.get("rank", 0)), source=d.get("source", source),
         poster_url=d.get("poster_url", ""),
-        premiered=d.get("premiered", ""),
+        premiered=d.get("premiered", ""), plot=d.get("plot", ""),
     )
 
 
@@ -869,17 +870,19 @@ def fetch_imdb_top250(cached_movies: List[RankedMovie] = None) -> List[RankedMov
                 imdb_id = imdb_id_match.group(1) if imdb_id_match else ""
 
                 wr = _imdb_weighted_rating(rating, votes)
-                parsed.append((name, year, rating, votes, imdb_id, wr, str(item.get('image') or '')))
+                parsed.append((name, year, rating, votes, imdb_id, wr, str(item.get('image') or ''),
+                               str(item.get('description') or ''), date_pub))
 
             if parsed:
                 # 按加权评分降序排列（还原真实 IMDB 排名）
                 parsed.sort(key=lambda x: -x[5])
-                for rank, (name, year, rating, votes, imdb_id, wr, poster_url) in enumerate(parsed, 1):
+                for rank, (name, year, rating, votes, imdb_id, wr, poster_url, plot, date_pub) in enumerate(parsed, 1):
                     all_movies.append(RankedMovie(
                         title=name, year=year, rating=rating,
                         douban_id=imdb_id, rank=rank, source='imdb_top250',
                         poster_url=poster_url,
-                        premiered=cached_lookup[imdb_id].premiered if imdb_id in cached_lookup else "",
+                        premiered=date_pub or (cached_lookup[imdb_id].premiered if imdb_id in cached_lookup else ''),
+                        plot=plot,
                     ))
                 logger.info(f"IMDB Top250 抓取完成: {len(all_movies)} 部电影 (详细版, 加权排序)")
                 return all_movies

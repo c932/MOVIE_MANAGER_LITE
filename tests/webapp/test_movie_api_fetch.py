@@ -210,6 +210,9 @@ def test_rankings_fetch_from_cache_and_invalid_source(service_data_dir):
 def test_rankings_fetch_from_network(service_data_dir, monkeypatch):
     """use_cache=False 走抓取分支（网络全部打桩），完成后缓存可读。"""
     import scraper.douban_ranking as dr
+    from movie_service import browse_cache
+
+    monkeypatch.setattr(browse_cache, 'warm_browse', lambda *_: None)
 
     library = build_library(service_data_dir / "library")
 
@@ -325,6 +328,9 @@ def test_newmovies_cache_compare(service_data_dir):
 
 
 def test_newmovies_fetch_from_network(service_data_dir, monkeypatch):
+    from movie_service import browse_cache
+
+    monkeypatch.setattr(browse_cache, 'warm_browse', lambda *_: None)
     import scraper.new_movie_checker as nc
 
     library = build_library(service_data_dir / "library")

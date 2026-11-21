@@ -3,6 +3,8 @@ from datetime import datetime
 import re
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from models.movie import Movie
+from scraper.scrape_settings import ScrapeSettings
 
 from . import discovery
 from .deps import get_store
@@ -16,9 +18,18 @@ router = APIRouter()
 
 
 @router.get('/discovery/series')
-def series(request: Request, name: str = Query(min_length=1, max_length=300)):
+def series(request: Request, name: str | None = Query(default=None, min_length=1, max_length=300)):
     store = get_store(request)
     library = store.snapshot()
+    if name is None:
+        settings = ScrapeSettings()
+        groups: dict[str, list[Movie]] = {}
+        for movie in library:
+            if movie.set_name:
+                groups.setdefault(movie.set_name, []).append(movie)
+        # 列表读取本地快照和已有片单，避免打开页面时逐个查询 TMDB。
+        return {'groups': [series_listing(store.settings.data_dir, key, members, library, settings)
+                           for key, members in groups.items()]}
     members = [movie for movie in library if movie.set_name == name]
     if not members:
         raise HTTPException(404, '媒体库中没有该系列')

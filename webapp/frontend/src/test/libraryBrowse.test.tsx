@@ -6,7 +6,7 @@ import type {RankingItem, RankingResponse, Job, MovieListItem} from '../types/ap
 
 const owned: RankingItem = {rank: 1, title: '本库电影', year: '2025', original_title: '', rating: 8,
   poster_url: 'https://img3.doubanio.com/a.jpg', douban_id: '123', owned: true, in_library: true, movie_id: 'local-id'};
-const missing: RankingItem = {...owned, rank: 2, title: '缺失电影', douban_id: '456', owned: false, in_library: false, movie_id: null};
+const missing: RankingItem = {...owned, rank: 2, title: '缺失电影', plot: '缓存里的电影剧情', douban_id: '456', owned: false, in_library: false, movie_id: null};
 const response: RankingResponse = {kind: 'chart', fetched_at: Date.now()/1000, items: [owned, missing], owned_count: 1, missing_count: 1};
 const localMovie: MovieListItem = {
   id: 'local-id', title: '本库电影', original_title: '', year: '2025', premiered: '2025-01-01',
@@ -21,14 +21,15 @@ const localMovie: MovieListItem = {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(movieApi, 'rankings').mockResolvedValue(response);
+  vi.spyOn(movieApi, 'detail').mockResolvedValue(localMovie);
   vi.spyOn(movieApi, 'fetchRankings').mockResolvedValue({job_id: 'refresh'});
   vi.spyOn(movieApi, 'subject').mockResolvedValue({job_id: 'detail'});
   vi.spyOn(movieApi, 'get').mockResolvedValue({status: 'done', result: {plot: '该电影的真实剧情'}} as Job);
 });
 
 it('已入库榜单卡可以直接 B 站播放或打开本地详情浮窗', async () => {
-  const select = vi.fn(), close = vi.fn();
-  render(<LibraryBrowseDialog movies={[localMovie]} initial="chart" onSelect={select} onClose={close}/>);
+  const close = vi.fn();
+  render(<LibraryBrowseDialog movies={[localMovie]} initial="chart" onClose={close}/>);
   const card = await screen.findByRole('article', {name: owned.title});
   const play = within(card).getByRole('link', {name: 'B站播放'}) as HTMLAnchorElement;
   const url = new URL(play.href);
@@ -41,7 +42,6 @@ it('已入库榜单卡可以直接 B 站播放或打开本地详情浮窗', asyn
   fireEvent.click(within(card).getByRole('button', {name: '本库电影，查看简介'}));
   expect(await screen.findByRole('dialog', {name: '本库电影 · 电影详情'})).toBeInTheDocument();
   expect(screen.getAllByRole('dialog').length).toBeGreaterThanOrEqual(2);
-  expect(select).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
   expect(movieApi.subject).not.toHaveBeenCalled();
 });
@@ -49,7 +49,7 @@ it('已入库榜单卡可以直接 B 站播放或打开本地详情浮窗', asyn
 it('已入库电影即使榜单远程海报为空也加载本库海报', async () => {
   vi.mocked(movieApi.rankings).mockResolvedValue({...response,
     items: [{...owned, poster_url: ''}, missing]});
-  const {container} = render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  const {container} = render(<LibraryBrowseDialog movies={[]} initial="chart" onClose={vi.fn()}/>);
   await screen.findByRole('button', {name: '本库电影，查看简介'});
   expect(container.querySelector('img')?.getAttribute('src')).toBe(movieApi.posterUrl('local-id', 240, 360));
 });
@@ -62,7 +62,7 @@ it.each(['chart', 'nowplaying'] as const)('在 %s 卡片的夸克盘搜后直接
       genre: '', release_date: '', douban_url: '', rating: 0, movie_id: null, in_library: false},
   ]});
   const close = vi.fn();
-  render(<LibraryBrowseDialog movies={[]} initial={initial} onSelect={vi.fn()} onClose={close}/>);
+  render(<LibraryBrowseDialog movies={[]} initial={initial} onClose={close}/>);
   const card = await screen.findByRole('article', {name: missing.title});
   const quark = within(card).getByRole('link', {name: '夸克盘搜'});
   const play = within(card).getByRole('link', {name: 'B站播放'}) as HTMLAnchorElement;
@@ -82,21 +82,36 @@ it.each(['chart', 'nowplaying'] as const)('在 %s 卡片的夸克盘搜后直接
 });
 
 it('缺失电影显示简介、中创盘搜和 B 站入口', async () => {
-  render(<LibraryBrowseDialog movies={[]} initial="chart" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  render(<LibraryBrowseDialog movies={[]} initial="chart" onClose={vi.fn()}/>);
   fireEvent.click(await screen.findByRole('button', {name: '缺失电影，查看简介'}));
   const dialog = await screen.findByRole('dialog', {name: '缺失电影 · 电影简介'});
-  expect(await within(dialog).findByText('该电影的真实剧情')).toBeInTheDocument();
+  expect(dialog).toHaveClass('movie-overlay');
+  expect(within(dialog).getByText('缓存里的电影剧情')).toBeInTheDocument();
   expect(within(dialog).getByRole('link', {name: '打开夸克盘搜'})).toHaveAttribute('href', 'https://www.zhongchuangwl.com/s/'+encodeURIComponent('缺失电影')+'/');
   expect(within(dialog).getByRole('link', {name: 'B站搜索'}).getAttribute('href')).toContain('https://search.bilibili.com/');
   expect(within(dialog).getByRole('link', {name: 'B站播放'}).getAttribute('href')).toContain('moviewall://bilibili/play?keyword=');
   expect(within(dialog).queryByRole('button', {name: /播放/})).not.toBeInTheDocument();
-  expect(movieApi.subject).toHaveBeenCalledWith('456');
+  expect(movieApi.subject).not.toHaveBeenCalled();
+});
+
+it('即将上映的电影显示上映状态和缓存简介', async () => {
+  vi.spyOn(movieApi, 'newMovies').mockResolvedValue({...response, items: [{...missing,
+    year: '2099', release_date: '2099-07-01', douban_url: '', genre: '剧情'}]});
+  render(<LibraryBrowseDialog movies={[]} initial="coming" onClose={vi.fn()}/>);
+  const card = await screen.findByRole('article', {name: missing.title});
+  expect(card).toHaveTextContent('（未上映）');
+  fireEvent.click(within(card).getByRole('button', {name: '缺失电影，查看简介'}));
+  const detail = await screen.findByRole('dialog', {name: '缺失电影 · 电影简介'});
+  expect(within(detail).getByRole('heading', {name: '缺失电影（未上映）'})).toBeInTheDocument();
+  expect(within(detail).getByText('缓存里的电影剧情')).toBeInTheDocument();
+  expect(within(detail).queryByRole('link', {name: '本地播放器播放'})).not.toBeInTheDocument();
+  expect(movieApi.subject).not.toHaveBeenCalled();
 });
 
 it('过期榜单自动刷新，刷新失败保留原条目并允许重试', async () => {
   vi.mocked(movieApi.rankings).mockResolvedValue({...response, fetched_at: 1});
   vi.mocked(movieApi.get).mockResolvedValue({status: 'error', error: '来源暂不可用'} as Job);
-  render(<LibraryBrowseDialog movies={[]} initial="top250" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  render(<LibraryBrowseDialog movies={[]} initial="top250" onClose={vi.fn()}/>);
   expect(await screen.findByRole('alert')).toHaveTextContent('来源暂不可用');
   expect(screen.getByRole('button', {name: '本库电影，查看简介'})).toBeInTheDocument();
   expect(movieApi.fetchRankings).toHaveBeenCalledWith(['top250'], false);
@@ -109,7 +124,7 @@ it.each(['chart', 'nowplaying', 'coming'] as const)('%s 缓存无时间戳时只
   vi.mocked(movieApi.rankings).mockResolvedValue(empty);
   vi.spyOn(movieApi, 'newMovies').mockResolvedValue(empty);
   const fetchNewMovies = vi.spyOn(movieApi, 'fetchNewMovies').mockResolvedValue({job_id: 'refresh'});
-  render(<LibraryBrowseDialog movies={[]} initial={initial} onSelect={vi.fn()} onClose={vi.fn()}/>);
+  render(<LibraryBrowseDialog movies={[]} initial={initial} onClose={vi.fn()}/>);
   await screen.findByText('暂无榜单资料，请点击“刷新榜单”。');
   expect(movieApi.fetchRankings).not.toHaveBeenCalled();
   expect(fetchNewMovies).not.toHaveBeenCalled();
@@ -123,7 +138,7 @@ it('年度分类切换不重新请求网络，年份切换读取对应榜单', a
   const year = new Date().getFullYear()-1;
   vi.spyOn(movieApi,'annual').mockImplementation(async value => ({year: value, fetched_at: Date.now()/1000,
     categories: [{id:'a',title:'评分最高华语电影',items:[owned]}, {id:'b',title:'冷门佳片',items:[missing]}]}));
-  render(<LibraryBrowseDialog movies={[]} initial="annual" onSelect={vi.fn()} onClose={vi.fn()}/>);
+  render(<LibraryBrowseDialog movies={[]} initial="annual" onClose={vi.fn()}/>);
   await screen.findByRole('button', {name:'本库电影，查看简介'});
   fireEvent.change(screen.getByLabelText('年度电影分类'), {target:{value:'b'}});
   expect(screen.getByRole('button', {name:'缺失电影，查看简介'})).toBeInTheDocument();
